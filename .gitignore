@@ -1,3 +1,6 @@
 /target
 *.req.tmp
+# Advisory file-lock sidecar (storage::acquire_lock). Stays on disk after
+# release so the inode is stable across concurrent processes on Windows.
+.*.req.lock
 .claude/settings.local.json

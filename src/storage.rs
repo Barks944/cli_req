@@ -190,6 +190,9 @@ pub fn load_resolved(p: &Option<PathBuf>) -> Result<(PathBuf, Project)> {
 /// Times out after `LOCK_TIMEOUT_SECS` seconds with a clear error.
 pub struct LockGuard {
     file: Option<std::fs::File>,
+    // Path retained for diagnostics; the sidecar is NOT deleted on drop.
+    // See the Drop impl for why.
+    #[allow(dead_code)]
     path: PathBuf,
 }
 
@@ -198,8 +201,19 @@ impl Drop for LockGuard {
         if let Some(f) = self.file.take() {
             let _ = f.unlock();
         }
-        // Best-effort cleanup; ignore failure (another process may hold it next).
-        let _ = std::fs::remove_file(&self.path);
+        // Intentionally do NOT remove the sidecar lock file. On Windows,
+        // deleting the lock file after unlock — while other processes are
+        // mid-acquire on the same path — lets a waiter open a fresh file
+        // (new inode) at the same path while the original is being torn
+        // down. Two processes can then hold "the lock" on what are
+        // technically two different inodes that share a path, producing
+        // the classic lost-update we saw in CI on
+        // req_0062_five_concurrent_adds. Keeping the sidecar persistent
+        // makes the inode stable; both fs2 (Unix flock) and Windows
+        // LockFileEx behave correctly when every contender opens the
+        // same underlying file.
+        //
+        // The sidecar is .gitignored so it doesn't end up in commits.
     }
 }
 

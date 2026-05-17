@@ -94,17 +94,22 @@ fn req_0062_five_concurrent_adds_all_land_with_unique_ids() {
 }
 
 #[test]
-fn req_0062_lock_sidecar_is_cleaned_up_after_release() {
+fn req_0062_lock_sidecar_persists_between_acquires() {
+    // Inverted from the original "is cleaned up" assertion: on Windows,
+    // deleting the sidecar after release lets a contending process
+    // attach to a fresh inode at the same path and silently break
+    // exclusion. The sidecar is intentionally persistent now and lives
+    // in .gitignore so it never reaches a commit.
     let s = Sandbox::new();
     s.init("conc");
     let _ = s.run(&[
         "add",
         "--title",
-        "Single add releases lock",
+        "Single add holds the lock end to end",
         "--statement",
-        "The system shall release the lock after a normal save.",
+        "The system shall hold the advisory lock for the full load-modify-save cycle.",
         "--rationale",
-        "Verify cleanup.",
+        "Verify the sidecar persists.",
         "--kind",
         "constraint",
         "--priority",
@@ -116,7 +121,8 @@ fn req_0062_lock_sidecar_is_cleaned_up_after_release() {
         .filter_map(|e| e.ok())
         .any(|e| e.file_name().to_string_lossy().ends_with(".lock"));
     assert!(
-        !lock_present,
-        "lock sidecar should be removed after the mutation completed"
+        lock_present,
+        "lock sidecar should remain on disk after release so contending \
+         processes attach to the same inode (Windows correctness)"
     );
 }
