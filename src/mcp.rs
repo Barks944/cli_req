@@ -2009,9 +2009,29 @@ fn tool_batch(args: &Value, file: &Path) -> Result<String> {
         .context("invoke self for batch apply")?;
     let _ = std::fs::remove_file(&tmp);
     if !out.status.success() {
-        return Err(anyhow!("{}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(anyhow!("{}", first_envelope_line(&out.stderr)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// When the subprocess fails in JSON mode it writes a single-line JSON
+/// envelope (`{"code":...}`) to stderr followed by anyhow's Display
+/// chain. Agents that parse the MCP error text as JSON would choke on
+/// the extra lines, so prefer the first envelope-shaped line; fall
+/// back to the first non-empty line otherwise.
+fn first_envelope_line(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('{') && t.ends_with('}') {
+            return t.to_string();
+        }
+    }
+    text.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .to_string()
 }
 
 fn tool_import(args: &Value, file: &Path) -> Result<String> {
@@ -2042,7 +2062,7 @@ fn tool_import(args: &Value, file: &Path) -> Result<String> {
         .output()
         .context("invoke self for import")?;
     if !out.status.success() {
-        return Err(anyhow!("{}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(anyhow!("{}", first_envelope_line(&out.stderr)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -2055,7 +2075,7 @@ fn tool_schema(args: &Value) -> Result<String> {
         .output()
         .context("invoke self for schema")?;
     if !out.status.success() {
-        return Err(anyhow!("{}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(anyhow!("{}", first_envelope_line(&out.stderr)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }

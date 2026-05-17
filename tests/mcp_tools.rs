@@ -610,6 +610,47 @@ fn req_0017_mcp_ping_returns_empty_object() {
     assert_eq!(responses[1]["result"], serde_json::json!({}));
 }
 
+#[test]
+fn req_import_missing_source_returns_clean_envelope() {
+    // Regression: req_import shelled out to `req import` and stuffed
+    // the subprocess's whole stderr into the error string — including
+    // anyhow's multi-line Display chain after the JSON envelope. The
+    // returned text was no longer parseable as JSON. The fix prefers
+    // the first `{...}`-shaped line of stderr so agents that
+    // JSON.parse() the error don't choke on trailing chain text.
+    let s = Sandbox::new();
+    s.init("p");
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            call_tool(
+                2,
+                "req_import",
+                serde_json::json!({
+                    "format": "markdown",
+                    "source": "DOES_NOT_EXIST_REGRESSION.md"
+                }),
+            ),
+        ],
+    );
+    let r = &responses[1]["result"];
+    assert_eq!(r["isError"], true, "missing source should set isError");
+    let text = text_of(&responses[1]);
+    let v: serde_json::Value = serde_json::from_str(text.trim()).unwrap_or_else(|e| {
+        panic!(
+            "req_import error text should be a single JSON envelope, got parse error {} on:\n{}",
+            e, text
+        )
+    });
+    assert_eq!(v["code"], "REQ-E-IO", "envelope code should be REQ-E-IO");
+    assert!(
+        v["message"].is_string(),
+        "envelope should carry a message field: {}",
+        v
+    );
+}
+
 // Reference initialize_then's underscored argument so clippy stays quiet.
 #[allow(dead_code)]
 fn _silence_unused() {
