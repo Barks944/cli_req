@@ -10,6 +10,16 @@ use crate::storage::{self, load_for_mutation};
 use crate::validate;
 
 pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
+    // Snapshot which field categories were touched so we can suppress
+    // warnings whose inputs the user did not actually edit. Without
+    // this every status nudge replays the same compound / weasel
+    // warnings the author has already seen and accepted.
+    let prose_changed = args.statement.is_some() || args.title.is_some();
+    let rationale_changed = args.rationale.is_some();
+    let acceptance_changed = args.acceptance.is_some()
+        || !args.add_acceptance.is_empty()
+        || !args.remove_acceptance.is_empty();
+
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let r = project
         .requirements
@@ -135,7 +145,18 @@ pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         return Err(anyhow!("update would violate requirements rules"));
     }
     for f in findings.iter().filter(|f| !f.error) {
-        eprintln!("  WARN [{}] {}", f.field, f.message);
+        let surface = match f.field {
+            "title" | "statement" => prose_changed,
+            "rationale" => rationale_changed,
+            "acceptance" => acceptance_changed,
+            // Status- and link-related warnings are always relevant on
+            // an update because the touched field may have unblocked
+            // or triggered them.
+            _ => true,
+        };
+        if surface {
+            eprintln!("  WARN [{}] {}", f.field, f.message);
+        }
     }
 
     r.updated = Utc::now();

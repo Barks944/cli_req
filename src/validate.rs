@@ -83,6 +83,20 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0021",
         "link cycle detected (graph-level; one finding per cycle)",
     ),
+    (
+        "REQ-V-0022",
+        "statement stacks uncertainty hedges (perhaps, probably, maybe, possibly, might) (warn)",
+    ),
+];
+
+static HEDGE_WORDS: &[&str] = &[
+    "perhaps",
+    "probably",
+    "maybe",
+    "possibly",
+    "might",
+    "roughly",
+    "potentially",
 ];
 
 static WEASEL_WORDS: &[&str] = &[
@@ -203,14 +217,40 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
             }
         }
         let modal_hits = MODAL_RE.find_iter(&prose).count();
-        let csv_clauses = prose.split(',').filter(|s| !s.trim().is_empty()).count();
+        // Compound-statement heuristic, rebuilt for v0.1.2 after the agent
+        // QA sweep:
+        //   • Multiple modal verbs ("shall X and shall Y") — strong signal.
+        //   • Semicolon — strong signal.
+        //   • Multiple " and " joins ("A and B and C") — strong signal even
+        //     with a single modal; this was the headline false-negative.
+        //   • An Oxford-comma list ("A, B, and C") is one obligation acting
+        //     on a list, not a compound statement, so suppress when there
+        //     are 2+ commas and only one " and ". This was the headline
+        //     false-positive that fired on intentional enumerations.
+        let and_joins = prose.to_lowercase().matches(" and ").count();
+        let comma_count = prose.matches(',').count();
+        let looks_enumeration = and_joins == 1 && comma_count >= 2;
         let looks_compound =
-            prose.contains(';') || modal_hits > 1 || (csv_clauses >= 3 && prose.contains(" and "));
+            prose.contains(';') || modal_hits > 1 || (and_joins >= 2 && !looks_enumeration);
         if looks_compound {
             out.push(Finding::warn(
                 "REQ-V-0010",
                 "statement",
                 "statement looks compound — split into atomic requirements",
+            ));
+        }
+        // REQ-V-0022: stacked uncertainty hedges. A single hedge in
+        // prose is sloppy; two or more is a smell that the author
+        // doesn't know what they want.
+        let hedge_hits = HEDGE_WORDS
+            .iter()
+            .filter(|w| prose_lower.contains(*w))
+            .count();
+        if hedge_hits >= 2 {
+            out.push(Finding::warn(
+                "REQ-V-0022",
+                "statement",
+                "statement stacks uncertainty hedges — commit to a concrete behaviour",
             ));
         }
         if stmt.contains('?') {
