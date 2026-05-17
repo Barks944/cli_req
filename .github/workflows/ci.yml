@@ -1,0 +1,65 @@
+# CI for req-cli. Runs on every push and PR; matrix across the three
+# platforms that the release workflow ships binaries for.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history for `req audit` and `req diff` tests.
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build (release, warnings as errors)
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo build --release --locked
+
+      - name: cargo test (--test-threads=1 for the concurrency suite)
+        # Serial test threads keep the file-lock contention test under the
+        # 30s acquisition timeout on slow / loaded CI runners.
+        run: cargo test --release --locked -- --test-threads=1
+
+      - name: req validate (zero errors AND zero warnings)
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=$(./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} validate)
+          echo "$OUT"
+          echo "$OUT" | grep -qE "^OK — [0-9]+ requirement\\(s\\), no findings\\.$"
+
+      - name: req coverage (full tree, advisory)
+        shell: bash
+        run: ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} coverage --path .
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --release --locked -- -D warnings

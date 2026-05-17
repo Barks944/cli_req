@@ -25,7 +25,7 @@ version moves and CLI surface additions are minor.
 - `req verify <id> --by composition|inspection` evidence record kinds (REQ-0056).
 - `req test run` parses `cargo test` output and records evidence per REQ (REQ-0055).
 - `req test record` attaches a manual test record with HEAD SHA (REQ-0049/REQ-0050).
-- `req stale` two-level staleness (commit drift vs content drift) (REQ-0057).
+- `req stale` two-level staleness (commit drift vs content drift) (REQ-0063).
 - `req mcp` JSON-RPC stdio server with first-class agent guidance (REQ-0017/0047/0048).
 - `req help <section> --install` writes managed blocks into AGENTS.md (REQ-0031).
 - `req help <section> --json` structured agent crib (REQ-0042).

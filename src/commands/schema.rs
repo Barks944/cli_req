@@ -17,8 +17,10 @@ pub fn run(args: SchemaArgs) -> Result<()> {
     Ok(())
 }
 
+/// URN scheme — `$id` only has to be a URI, not a resolvable URL.
+/// urn: avoids the broken-link problem when the schemas aren't hosted.
 fn id_url(name: &str) -> String {
-    format!("https://github.com/Barks944/cli_req/schema/{}/{}.json", FORMAT_TAG, name)
+    format!("urn:req-cli:schema:{}:{}", FORMAT_TAG, name)
 }
 
 fn requirement_props() -> Value {

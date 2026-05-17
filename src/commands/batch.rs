@@ -89,7 +89,11 @@ pub fn run(args: BatchArgs, file: &Option<PathBuf>) -> Result<()> {
             Ok(summary) => applied.push(summary),
             Err(e) => {
                 // Roll back the in-memory project; don't touch disk.
-                project = serde_json::from_str(&project_snapshot)?;
+                // The reassignment is for clarity even though we return
+                // immediately afterwards — keeps the snapshot semantics
+                // explicit if a future change adds work after this point.
+                let _rolled_back: crate::model::Project =
+                    serde_json::from_str(&project_snapshot)?;
                 let envelope = json!({
                     "applied_before_failure": applied,
                     "failed_index": idx,
@@ -105,8 +109,11 @@ pub fn run(args: BatchArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
 
-    project.updated = now;
-    storage::save(&path, &project)?;
+    // Empty batches are a no-op — leave the file byte-identical.
+    if !applied.is_empty() {
+        project.updated = now;
+        storage::save(&path, &project)?;
+    }
     if args.json {
         println!("{}", serde_json::to_string_pretty(&json!({
             "ok": true,

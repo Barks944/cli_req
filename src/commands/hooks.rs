@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use crate::cli::HooksArgs;
 
 const HOOK_MARKER: &str = "# managed-by: req-hooks";
+// Hook body is /bin/sh — works natively on Linux/macOS and via the
+// sh.exe shipped with Git for Windows for hook execution. Avoid bash-isms.
 const PRECOMMIT_BODY: &str = r#"#!/bin/sh
 # managed-by: req-hooks
 # Runs `req validate` on staged .req files. Remove this hook with

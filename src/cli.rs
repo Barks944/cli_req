@@ -16,8 +16,15 @@ use std::path::PathBuf;
     long_about,
     propagate_version = true,
     disable_help_subcommand = true,
+    disable_version_flag = true,
 )]
 pub struct Cli {
+    /// Print the version and exit (also `req version` or `req --version`).
+    /// Both `-v` and the conventional `-V` are accepted.
+    #[arg(short = 'v', short_alias = 'V', long = "version",
+          action = clap::ArgAction::Version)]
+    pub version: (),
+
     /// Path to the .req project file. Defaults to ./project.req or $REQ_FILE.
     /// Use `--file PATH` (no short; `-f` is reserved for per-subcommand use such
     /// as `req export -f markdown`).
@@ -183,6 +190,11 @@ pub struct CoverageArgs {
     /// exist (default mode only). Makes coverage a pre-commit / CI gate.
     #[arg(long)]
     pub strict: bool,
+    /// In strict mode, treat the listed REQ-IDs as expected orphans
+    /// (no code site required). Use for verification-only or
+    /// policy-only requirements. Repeatable.
+    #[arg(long = "allow")]
+    pub allow_orphans: Vec<String>,
     /// JSON output.
     #[arg(long)]
     pub json: bool,

@@ -146,6 +146,10 @@ pub enum Staleness {
     /// The number is how many linked files exist.
     Drifted { linked: usize },
     /// At least one linked file changed since the record commit.
+    /// `linked` is kept on the variant so `req stale --json` callers can
+    /// see how many files the requirement is linked to alongside the
+    /// changed-files list. Read by the JSON renderer in commands/stale.rs.
+    #[allow(dead_code)]
     Stale { changed: Vec<String>, linked: usize },
     /// No git context — neither fresh nor stale can be computed.
     Unknown,

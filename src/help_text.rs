@@ -62,7 +62,18 @@ Warned (saved but flagged):
       - the statement has 3+ comma-separated clauses joined by ' and '
   * statements longer than 80 words (likely non-atomic)
   * trailing period on the title
-  * very short rationale / vague acceptance criteria",
+  * very short rationale / vague acceptance criteria
+
+BACKTICK ESCAPE (use sparingly)
+
+  The compound, weasel-word, and modal-verb checks all run against
+  the statement AFTER stripping URLs and `inline code` spans. This
+  lets you cite forbidden terms when documenting a rule
+  ('the validator shall warn on `etc`, `TBD`, ...') and embed
+  enumerations of identifiers, CLI flags, or REQ-IDs without
+  tripping the heuristics. Use it for descriptive code citations,
+  NOT to launder genuinely compound obligations into a single
+  statement — that would game the validator and weaken the spec.",
     },
     Section {
         name: "workflow",
@@ -310,7 +321,16 @@ PROMISE
   No `_format` bump will silently change semantic behaviour of an
   already-stored requirement. Migrations preserve per-requirement
   history; new fields synthesize a single history entry recording
-  the migration.",
+  the migration.
+
+OBLIGATION ON FUTURE SCHEMA CHANGES
+
+  The first commit that bumps `_format` to `req-v2` (or later) MUST
+  also register a migration body in `src/commands/migrate.rs` —
+  shipping a new format without a path forward from `req-v1` is a
+  release-blocking bug. The current binary intentionally errors out
+  if it encounters an older format it has no migration for, rather
+  than silently passing the data through.",
     },
     Section {
         name: "env",

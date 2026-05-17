@@ -118,6 +118,8 @@ fn req_0078_schema_add_is_valid_json_with_format() {
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("schema add is JSON");
     assert_eq!(v["$schema"].as_str().unwrap(), "https://json-schema.org/draft/2020-12/schema");
+    assert!(v["$id"].as_str().unwrap().starts_with("urn:req-cli:schema:"),
+        "schema $id should be a stable urn:, got: {}", v["$id"]);
     assert!(v["properties"]["title"].is_object());
     assert!(v["properties"]["statement"].is_object());
     assert_eq!(v["_format"].as_str().unwrap(), "req-v1");

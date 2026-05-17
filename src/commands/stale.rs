@@ -1,4 +1,4 @@
-// Implements REQ-0057 (content-drift staleness report): for each
+// Implements REQ-0063 (content-drift staleness report): for each
 // requirement's latest test record, compare against the current HEAD AND
 // the set of files containing the requirement's REQ-NNNN marker. Reports
 // Fresh / Drifted (no linked files changed) / STALE (linked files
