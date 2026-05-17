@@ -1,0 +1,30 @@
+[package]
+name = "req"
+version = "0.1.0"
+edition = "2021"
+description = "Managed requirements CLI for LLM agents and humans"
+# Implements REQ-0021 (Rust + single static binary).
+
+[[bin]]
+name = "req"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "wrap_help", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "1"
+dialoguer = "0.11"
+comfy-table = "7"
+regex = "1"
+once_cell = "1"
+# axum/tokio/askama will return when the `serve` and `mcp` subcommands land.
+
+
+[profile.release]
+lto = true
+strip = true
