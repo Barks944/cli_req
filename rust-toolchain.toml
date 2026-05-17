@@ -1,0 +1,10 @@
+# Pin both local development and CI to the same Rust toolchain.
+#
+# `dtolnay/rust-toolchain@stable` in CI tracks whatever the latest stable
+# release is on each run, so a new stable can introduce clippy lints that
+# fire under `-D warnings` and break a build that was green an hour ago.
+# Pinning here keeps CI deterministic; bump explicitly when you're ready
+# to handle whatever new lints the next stable adds.
+[toolchain]
+channel = "1.91.1"
+components = ["rustfmt", "clippy"]
