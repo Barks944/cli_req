@@ -552,6 +552,54 @@ fn req_0040_next_returns_highest_priority_unblocked_requirement() {
     );
 }
 
+#[test]
+fn req_0040_next_default_skips_verified_and_obsolete() {
+    // Without a --status filter, `req next` should suggest work that's
+    // still open — not items that are already shipped (Verified) or
+    // retired (Obsolete).
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Already shipped fixture requirement",
+        "--statement",
+        "The system shall provide a finished feature for this test.",
+        "--rationale",
+        "Verified fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "must",
+    ]);
+    // Walk it up the status ladder to Verified.
+    for status in ["proposed", "approved", "implemented", "verified"] {
+        let out = s.run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            status,
+            "--reason",
+            "test fixture progression",
+        ]);
+        assert!(
+            out.status.success(),
+            "status={} stderr: {}",
+            status,
+            stderr(&out)
+        );
+    }
+    // No other requirements exist; default next should exit non-zero.
+    let out = s.run(&["next", "--json"]);
+    assert!(
+        !out.status.success(),
+        "next with only Verified candidates should not return one: {}",
+        stdout(&out)
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["found"], false);
+}
+
 // ---------- REQ-0042: help --json with structured agents crib ----------
 
 #[test]

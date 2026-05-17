@@ -71,7 +71,7 @@ fn fmt_md(r: &Requirement) -> String {
     s
 }
 
-fn to_csv(p: &Project) -> Result<String> {
+pub fn to_csv(p: &Project) -> Result<String> {
     let mut out = String::from("id,title,kind,priority,status,tags,statement\n");
     for r in p.requirements.values() {
         out.push_str(&format!(
@@ -96,7 +96,7 @@ fn csv_field(s: &str) -> String {
     }
 }
 
-fn to_html(p: &Project) -> String {
+pub fn to_html(p: &Project) -> String {
     let body = to_markdown(p);
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title>\

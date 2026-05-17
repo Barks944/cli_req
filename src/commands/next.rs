@@ -18,8 +18,11 @@ pub fn run(args: NextArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut candidates: Vec<&Requirement> = project
         .requirements
         .values()
-        .filter(|r| !matches!(r.status, Status::Obsolete))
-        .filter(|r| status.is_none_or(|s| r.status == s))
+        .filter(|r| match status {
+            Some(s) => r.status == s,
+            // Default: only show work that is not already done.
+            None => !matches!(r.status, Status::Obsolete | Status::Verified),
+        })
         .filter(|r| kind.is_none_or(|k| r.kind == k))
         .filter(|r| priority.is_none_or(|p| r.priority == p))
         .filter(|r| tags.iter().all(|t| r.tags.iter().any(|rt| rt == t)))

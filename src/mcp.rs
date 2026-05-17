@@ -230,7 +230,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_help",
-        description: "Fetch a structured documentation section. Sections: overview, concepts, best-practice, workflow, integration, version-control, audit, file-format, agents, mcp, export, tui, web. Call with {section: \"agents\"} for the trigger table; {section: \"best-practice\"} when uncertain about validator rules. List all section names with section=\"_index\".",
+        description: "Fetch a structured documentation section. Call with section=\"_index\" (the default) for the full, authoritative list of section names with one-line summaries — the section set evolves, so do not hardcode it. Useful starting points once you have the index: section=\"agents\" for the trigger table, section=\"best-practice\" when uncertain about validator rules, section=\"integration\" for hooks and CI wiring.",
         schema: help_schema,
     },
     // ---------- agent-facing tools added in v0.1 ----------
@@ -1192,11 +1192,8 @@ fn tool_export(args: &Value, file: &Path) -> Result<String> {
     match format.as_str() {
         "markdown" => Ok(crate::commands::export::to_markdown(&project)),
         "json" => Ok(serde_json::to_string_pretty(&project)?),
-        "csv" | "html" => {
-            // Reuse the command's renderers via a temp call — simplest is to inline-replicate for these.
-            // For now defer with a guidance message.
-            Err(anyhow!("format '{}' available via `req export -f {}` CLI; MCP returns markdown and json only for now", format, format))
-        }
+        "csv" => crate::commands::export::to_csv(&project),
+        "html" => Ok(crate::commands::export::to_html(&project)),
         _ => Err(anyhow!("unknown format: {}", format)),
     }
 }
