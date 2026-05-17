@@ -253,6 +253,21 @@ it last) not *authenticity* (a trusted human approved it). Lean on
 signed commits for the latter.",
     },
     Section {
+        name: "env",
+        summary: "Environment variables read by the tool.",
+        body: "REQ_FILE         Override the default .req file path. Equivalent
+                 to passing --file PATH.
+
+REQ_ACTOR        Override the actor name recorded on history entries.
+                 Falls back to USER / USERNAME.
+
+REQ_ACTOR_KIND   Tag history entries (and downstream audit output) with
+                 'human' or 'agent'. Defaults to 'unknown' if unset.
+                 Agents driving req over MCP or CLI should set this to
+                 'agent' so reviewers can separate human vs automated
+                 edits when auditing.",
+    },
+    Section {
         name: "errors",
         summary: "Stable error and rule codes for agents and tooling.",
         body: "Every CLI subcommand that supports --json emits errors on stderr

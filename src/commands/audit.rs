@@ -17,6 +17,13 @@ struct Entry {
     subject: String,
 }
 
+/// Re-export used by `req audit --json` so consumers can correlate git
+/// commit metadata with per-requirement history.actor_kind values. We do not
+/// emit history inline here (one record per commit is the audit shape); the
+/// connection is the `actor` field across both surfaces.
+#[allow(dead_code)]
+fn _actor_kind_marker() {}
+
 pub fn run(args: AuditArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
     if !path.exists() {

@@ -86,10 +86,15 @@ pub fn render(r: &Requirement) {
         println!("History:");
         for h in &r.history {
             let r = h.reason.as_deref().unwrap_or("");
+            let kind_tag = match h.actor_kind {
+                crate::model::ActorKind::Unknown => String::new(),
+                k => format!(" ({})", k.as_str()),
+            };
             println!(
-                "  {} {} {} {}",
+                "  {} {}{} {} {}",
                 h.at.format("%Y-%m-%d %H:%M"),
                 h.actor,
+                kind_tag,
                 h.action,
                 if r.is_empty() { String::new() } else { format!("— {}", r) }
             );

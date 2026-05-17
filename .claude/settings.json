@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "req validate",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(req:*)",
+      "Bash(req --version)",
+      "Bash(req --help)"
+    ]
+  }
+}

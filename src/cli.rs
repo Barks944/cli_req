@@ -42,6 +42,10 @@ impl Command {
             Command::Test(TestCmd::Record(a)) => a.json,
             Command::List(a) => a.json,
             Command::Show(a) => a.json,
+            Command::Version(a) => a.json,
+            Command::Next(a) => a.json,
+            Command::Check(a) => a.json,
+            Command::Help(a) => a.json,
             _ => false,
         }
     }
@@ -67,6 +71,12 @@ pub enum Command {
     Validate(ValidateArgs),
     /// Show project-level implementation status with counts and percentages.
     Status(StatusArgs),
+    /// Print the binary version (human or JSON).
+    Version(VersionArgs),
+    /// Suggest a single next requirement to work on (dependency-aware).
+    Next(NextArgs),
+    /// Validate requirements changed since a git ref + coverage for changed files.
+    Check(CheckArgs),
     /// Attach a test record (commit SHA + outcome + notes) to a requirement.
     #[command(subcommand)]
     Test(TestCmd),
@@ -103,6 +113,10 @@ pub struct HooksArgs {
     /// Overwrite an existing pre-commit hook.
     #[arg(long)]
     pub force: bool,
+    /// Also write/update .claude/settings.json with a req-aware permissions
+    /// allowlist and a Stop hook that runs req validate.
+    #[arg(long)]
+    pub claude_code: bool,
 }
 
 #[derive(Args, Debug)]
@@ -317,6 +331,44 @@ pub struct ExportArgs {
     pub output: String,
 }
 
+#[derive(Args, Debug)]
+pub struct VersionArgs {
+    /// Emit a JSON object with name, version, mcp_protocol, file_format.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct NextArgs {
+    /// Restrict to one status (default: any non-Obsolete).
+    #[arg(long, value_enum)]
+    pub status: Option<StatusArg>,
+    /// Restrict to one kind.
+    #[arg(long, value_enum)]
+    pub kind: Option<KindArg>,
+    /// Restrict to one priority.
+    #[arg(long, value_enum)]
+    pub priority: Option<PriorityArg>,
+    /// Restrict to a tag (repeatable, AND).
+    #[arg(long)]
+    pub tag: Vec<String>,
+    /// Emit JSON instead of a one-line summary.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct CheckArgs {
+    /// Git ref to compare against (typically `origin/main`).
+    pub base: String,
+    /// JSON output.
+    #[arg(long)]
+    pub json: bool,
+    /// Source-tree root for coverage scan on changed files.
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum TestCmd {
     /// Record a test run against a requirement; captures git HEAD SHA, outcome, notes.
@@ -397,6 +449,10 @@ pub struct HelpArgs {
     /// Target file for --install.
     #[arg(long, default_value = "AGENTS.md")]
     pub path: PathBuf,
+    /// Emit the section as JSON. For 'agents' this returns a structured
+    /// triggers/commands/rules document.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]

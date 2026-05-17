@@ -70,6 +70,10 @@ pub fn run(args: HooksArgs) -> Result<()> {
     let attrs = repo.join(".gitattributes");
     ensure_gitattributes_line(&attrs, "*.req merge=req-merge")?;
 
+    if args.claude_code {
+        install_claude_code(&repo)?;
+    }
+
     println!();
     println!("Next step (one-time, per clone): register the merge driver in this repo:");
     println!();
@@ -93,6 +97,88 @@ fn ensure_gitattributes_line(path: &Path, line: &str) -> Result<()> {
     new.push('\n');
     fs::write(path, new).with_context(|| format!("write {}", path.display()))?;
     println!("Updated {} (added: {})", path.display(), line);
+    Ok(())
+}
+
+/// REQ-0044: write/update .claude/settings.json so a fresh Claude Code session
+/// in this repo has the req binary on its permissions allowlist and a Stop
+/// hook that runs `req validate`. Idempotent: merges with any pre-existing
+/// settings rather than clobbering them.
+fn install_claude_code(repo: &Path) -> Result<()> {
+    use serde_json::{json, Value};
+    let dir = repo.join(".claude");
+    fs::create_dir_all(&dir).ok();
+    let path = dir.join("settings.json");
+
+    let mut root: Value = if path.exists() {
+        let text = fs::read_to_string(&path)?;
+        serde_json::from_str(&text).context("parse existing .claude/settings.json")?
+    } else {
+        json!({})
+    };
+
+    // Ensure permissions.allow contains our patterns.
+    let want_allows = [
+        "Bash(req:*)",
+        "Bash(req --version)",
+        "Bash(req --help)",
+    ];
+    let allow = root
+        .as_object_mut()
+        .ok_or_else(|| anyhow!(".claude/settings.json is not a JSON object"))?
+        .entry("permissions")
+        .or_insert(json!({}))
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("permissions is not an object"))?
+        .entry("allow")
+        .or_insert(json!([]));
+    if let Some(arr) = allow.as_array_mut() {
+        let existing: std::collections::BTreeSet<String> = arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        for a in want_allows {
+            if !existing.contains(a) {
+                arr.push(Value::String(a.into()));
+            }
+        }
+    }
+
+    // Ensure a Stop hook running `req validate` exists.
+    let stop_hook = json!({
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "req validate" }]
+    });
+    let hooks = root
+        .as_object_mut()
+        .unwrap()
+        .entry("hooks")
+        .or_insert(json!({}))
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("hooks is not an object"))?
+        .entry("Stop")
+        .or_insert(json!([]));
+    if let Some(arr) = hooks.as_array_mut() {
+        let already = arr.iter().any(|v| {
+            v.get("hooks")
+                .and_then(|h| h.as_array())
+                .map(|h| {
+                    h.iter().any(|e| {
+                        e.get("command")
+                            .and_then(|c| c.as_str())
+                            .map(|s| s.contains("req validate"))
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false)
+        });
+        if !already {
+            arr.push(stop_hook);
+        }
+    }
+
+    fs::write(&path, serde_json::to_string_pretty(&root)?)?;
+    println!("Updated {} (allowlist + Stop hook for req validate)", path.display());
     Ok(())
 }
 

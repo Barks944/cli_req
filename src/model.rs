@@ -86,8 +86,30 @@ pub struct Link {
 pub struct HistoryEntry {
     pub at: DateTime<Utc>,
     pub actor: String,
+    /// Implements REQ-0043: human vs agent vs unknown. Defaults to Unknown so
+    /// older files (where the field is absent) load forward-compatibly.
+    #[serde(default = "ActorKind::unknown")]
+    pub actor_kind: ActorKind,
     pub action: String,
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ActorKind {
+    Human,
+    Agent,
+    Unknown,
+}
+
+impl ActorKind {
+    pub fn unknown() -> Self { ActorKind::Unknown }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ActorKind::Human => "human",
+            ActorKind::Agent => "agent",
+            ActorKind::Unknown => "unknown",
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]

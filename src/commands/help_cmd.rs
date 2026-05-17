@@ -8,13 +8,21 @@ use crate::help_text::{self, Section};
 
 pub fn run(args: HelpArgs) -> Result<()> {
     if args.list || args.section.is_none() {
+        if args.json {
+            let sections: Vec<_> = help_text::sections().iter()
+                .map(|s| serde_json::json!({ "name": s.name, "summary": s.summary }))
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "sections": sections }))?);
+            return Ok(());
+        }
         println!("Help sections — `req help <name>`:\n");
         for s in help_text::sections() {
             println!("  {:<14} {}", s.name, s.summary);
         }
         println!(
             "\nTip: `req help all` to print everything.\n     \
-             `req help <section> --install` to write the section into AGENTS.md."
+             `req help <section> --install` to write the section into AGENTS.md.\n     \
+             `req help <section> --json` for a structured form."
         );
         return Ok(());
     }
@@ -28,23 +36,91 @@ pub fn run(args: HelpArgs) -> Result<()> {
         return install_section(s, &args.path);
     }
     if want == "all" {
+        if args.json {
+            let sections: Vec<_> = help_text::sections().iter()
+                .map(|s| serde_json::json!({ "name": s.name, "summary": s.summary, "body": s.body }))
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "sections": sections }))?);
+            return Ok(());
+        }
         for s in help_text::sections() {
             println!("## {}\n", s.name);
             println!("{}\n", s.body);
         }
         return Ok(());
     }
-    match help_text::section(&want) {
-        Some(s) => {
-            println!("{}\n", s.name);
-            println!("{}", s.body);
-        }
+    let section = match help_text::section(&want) {
+        Some(s) => s,
         None => {
             eprintln!("No such section: {}. Try `req help --list`.", want);
             std::process::exit(2);
         }
+    };
+
+    if args.json {
+        let mut body = serde_json::json!({
+            "name": section.name,
+            "summary": section.summary,
+            "body": section.body,
+        });
+        if section.name == "agents" {
+            body["structured"] = agents_crib();
+        }
+        println!("{}", serde_json::to_string_pretty(&body)?);
+        return Ok(());
     }
+
+    println!("{}\n", section.name);
+    println!("{}", section.body);
     Ok(())
+}
+
+/// Structured form of the agents crib for REQ-0042. Keep in sync with the
+/// prose body of help_text::section("agents") — both surfaces should
+/// describe the same triggers/commands/rules.
+fn agents_crib() -> serde_json::Value {
+    serde_json::json!({
+        "triggers": [
+            { "situation": "user describes new behaviour the system should have", "first_command": "req add" },
+            { "situation": "starting work on a feature",                          "first_command": "req list" },
+            { "situation": "about to commit",                                     "first_command": "req validate" },
+            { "situation": "changed behaviour covered by a requirement",          "first_command": "req update <id> --reason ..." },
+            { "situation": "refactor; unsure what's load-bearing",                "first_command": "req coverage --path src" },
+            { "situation": "finding code with no requirement link",               "first_command": "req coverage --unlinked-files" },
+            { "situation": "requirement is no longer relevant",                   "first_command": "req delete <id> --reason ..." },
+            { "situation": "file won't load (integrity error)",                   "first_command": "req repair --confirm-direct-edit" },
+            { "situation": "merge brought in colliding IDs",                      "first_command": "req renumber --base origin/main" },
+            { "situation": "want at-a-glance progress",                           "first_command": "req status" },
+            { "situation": "what should I work on next?",                         "first_command": "req next" },
+        ],
+        "commands": [
+            { "name": "req list",     "purpose": "What exists" },
+            { "name": "req show",     "purpose": "Full detail with history" },
+            { "name": "req add",      "purpose": "Create; validator enforces best practice" },
+            { "name": "req update",   "purpose": "Modify; --reason mandatory" },
+            { "name": "req link",     "purpose": "Typed links: parent / depends-on / refines / conflicts / verifies" },
+            { "name": "req delete",   "purpose": "Soft (Obsolete) by default" },
+            { "name": "req validate", "purpose": "Run rules; 0 errors required to ship" },
+            { "name": "req status",   "purpose": "Counts and percentages by status bucket" },
+            { "name": "req next",     "purpose": "One requirement to work on, deps satisfied" },
+            { "name": "req check",    "purpose": "Validate + coverage scoped to changes since <ref>" },
+            { "name": "req coverage", "purpose": "Spec ↔ code drift; --unlinked-files, --by-file, --remap" },
+            { "name": "req help",     "purpose": "Browse docs; --install writes a section into AGENTS.md; --json for tooling" },
+        ],
+        "rules": [
+            "Statements need a normative modal verb (shall/must/should/will).",
+            "Functional requirements need at least one acceptance criterion.",
+            "Pass --reason on every update and delete; history records the why.",
+            "Drop // REQ-NNNN markers in source where you implement a requirement.",
+            "Never cat/read project.req — the integrity hash will block you on the next op.",
+            "Set REQ_ACTOR_KIND=agent in your environment so history attributes you correctly.",
+        ],
+        "env": [
+            { "name": "REQ_ACTOR",      "purpose": "Override the author name on history entries (default: $USER)." },
+            { "name": "REQ_ACTOR_KIND", "purpose": "Set to 'human' or 'agent' for REQ-0043 provenance tagging." },
+            { "name": "REQ_FILE",       "purpose": "Override the default .req file path." },
+        ],
+    })
 }
 
 fn install_section(section: &Section, path: &std::path::Path) -> Result<()> {
