@@ -5,7 +5,7 @@ use anyhow::{anyhow, Context, Result};
 use axum::{
     extract::{Path as AxPath, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Json},
+    response::{Html, Json},
     routing::get,
     Router,
 };

@@ -25,8 +25,11 @@ impl Finding {
     }
 }
 
-/// Stable rule-code catalog. Keep in sync with `req help best-practice`.
+/// Stable rule-code catalog. Keep in sync with `req help errors`.
 /// Adding a code is backwards-compatible; renumbering existing codes is NOT.
+/// Exported so future surfaces (req help errors --json, MCP req_help) can
+/// emit the table without re-parsing prose.
+#[allow(dead_code)]
 pub const RULES: &[(&str, &str)] = &[
     ("REQ-V-0001", "title is required"),
     ("REQ-V-0002", "title is too short (min 5 characters)"),

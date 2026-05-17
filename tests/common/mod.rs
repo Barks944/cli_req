@@ -45,9 +45,11 @@ pub fn req(args: &[&str]) -> Output {
         .expect("invoke req binary")
 }
 
+#[allow(dead_code)]
 pub fn stdout(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
+#[allow(dead_code)]
 pub fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
