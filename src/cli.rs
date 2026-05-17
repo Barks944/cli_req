@@ -40,6 +40,7 @@ impl Command {
             Command::Validate(a) => a.json,
             Command::Status(a) => a.json,
             Command::Test(TestCmd::Record(a)) => a.json,
+            Command::Test(TestCmd::Run(a)) => a.json,
             Command::List(a) => a.json,
             Command::Show(a) => a.json,
             Command::Version(a) => a.json,
@@ -373,6 +374,22 @@ pub struct CheckArgs {
 pub enum TestCmd {
     /// Record a test run against a requirement; captures git HEAD SHA, outcome, notes.
     Record(TestRecordArgs),
+    /// Run `cargo test` (or a custom command) and attach pass/fail records
+    /// to each requirement whose test name follows the `req_NNNN_*` convention.
+    Run(TestRunArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TestRunArgs {
+    /// Custom test command. Defaults to `cargo test --release`.
+    #[arg(long, default_value = "cargo test --release")]
+    pub cmd: String,
+    /// Show what would be recorded without writing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Emit the full result map as JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

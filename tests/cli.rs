@@ -1,0 +1,104 @@
+// End-to-end smoke tests covering the main user journey: init, add, list,
+// show, update, delete, link, export, validate. Each is named after the
+// requirement it most directly exercises.
+mod common;
+use common::{stdout, Sandbox};
+
+#[test]
+fn req_0001_help_lists_every_subcommand() {
+    let out = common::req(&["--help"]);
+    let body = stdout(&out);
+    for sub in &["init","add","list","show","update","delete","link","validate","export","tui","serve","mcp","help","repair","status","next","check"] {
+        assert!(body.contains(sub), "--help missing subcommand `{}`", sub);
+    }
+}
+
+#[test]
+fn req_0014_export_markdown_round_trip() {
+    let s = Sandbox::new(); s.init("export-test");
+    s.run(&[
+        "add",
+        "--title", "Greet on launch",
+        "--statement", "The system shall greet the user when the application starts.",
+        "--rationale", "Welcome flow.",
+        "--kind", "functional", "--priority", "should",
+        "--accept", "Launch shows the greeting modal within 200ms",
+    ]);
+    let out = s.run(&["export", "-f", "markdown"]);
+    let md = stdout(&out);
+    assert!(md.contains("REQ-0001"));
+    assert!(md.contains("Greet on launch"));
+    assert!(md.contains("**Statement.**"));
+    assert!(md.contains("**Acceptance criteria:**"));
+}
+
+#[test]
+fn req_0013_parent_cycle_rejected() {
+    let s = Sandbox::new(); s.init("cycle-test");
+    for i in 1..=2 {
+        s.run(&[
+            "add",
+            "--title", &format!("Node number {}", i),
+            "--statement", "The system shall implement this generic node behaviour.",
+            "--rationale", "Hierarchy stub.",
+            "--kind", "constraint", "--priority", "could",
+        ]);
+    }
+    let a = s.run(&["link", "REQ-0001", "REQ-0002", "-k", "parent"]);
+    assert!(a.status.success());
+    let b = s.run(&["link", "REQ-0002", "REQ-0001", "-k", "parent"]);
+    assert!(!b.status.success(), "cycle should be rejected");
+}
+
+#[test]
+fn req_0012_soft_delete_preserves_inbound_links() {
+    let s = Sandbox::new(); s.init("delete-test");
+    for i in 1..=2 {
+        s.run(&[
+            "add",
+            "--title", &format!("Item number {}", i),
+            "--statement", "The system shall behave as expected for this item.",
+            "--rationale", "Stub.",
+            "--kind", "constraint", "--priority", "could",
+        ]);
+    }
+    s.run(&["link", "REQ-0001", "REQ-0002", "-k", "parent"]);
+    // Hard delete should refuse because REQ-0001 references REQ-0002
+    let hard = s.run(&["delete", "REQ-0002", "--hard", "--reason", "test"]);
+    assert!(!hard.status.success());
+    // Soft delete is allowed
+    let soft = s.run(&["delete", "REQ-0002", "--reason", "test"]);
+    assert!(soft.status.success());
+    // REQ-0002 still present, marked obsolete
+    let show = stdout(&s.run(&["show", "REQ-0002"]));
+    assert!(show.contains("obsolete"));
+}
+
+#[test]
+fn req_0038_add_json_emits_stdout_json() {
+    let s = Sandbox::new(); s.init("json-test");
+    let out = s.run(&[
+        "add", "--json",
+        "--title", "JSON add smoke",
+        "--statement", "The system shall return JSON on stdout when --json is set.",
+        "--rationale", "Verify REQ-0038.",
+        "--kind", "constraint", "--priority", "could",
+    ]);
+    let body = stdout(&out);
+    assert!(body.trim_start().starts_with('{'), "stdout should be JSON: {}", body);
+    let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+    assert_eq!(v["id"].as_str().unwrap(), "REQ-0001");
+}
+
+#[test]
+fn req_0039_json_error_envelope_on_failure() {
+    let s = Sandbox::new(); s.init("err-test");
+    let out = s.run(&["show", "REQ-9999", "--json"]);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    // The first line of stderr should be a JSON envelope
+    let first = err.lines().next().unwrap_or("");
+    let parsed: serde_json::Value = serde_json::from_str(first)
+        .unwrap_or_else(|e| panic!("first stderr line not JSON: {}\nstderr was: {}", e, err));
+    assert_eq!(parsed["code"].as_str().unwrap(), "REQ-E-NOT-FOUND");
+}

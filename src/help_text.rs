@@ -268,6 +268,41 @@ REQ_ACTOR_KIND   Tag history entries (and downstream audit output) with
                  edits when auditing.",
     },
     Section {
+        name: "testing",
+        summary: "How to wire cargo tests into requirement test records.",
+        body: "Convention: name every #[test] function `req_NNNN_description` where
+NNNN is the 4-digit ID of the requirement it exercises. Multiple tests
+may share an ID — they are aggregated into one record per run.
+
+  #[test]
+  fn req_0006_modal_verb_required_rejects_missing() { ... }
+  #[test]
+  fn req_0006_modal_verb_present_passes() { ... }
+
+Then drive the suite through `req test run`:
+
+  req test run                          # default: cargo test --release
+  req test run --dry-run                # preview without writing
+  req test run --json                   # machine-readable result map
+  req test run --cmd \"cargo test\"       # custom command
+
+The runner shells out, parses stdout for `^test req_NNNN_* ... (ok|FAILED|ignored)`,
+groups by REQ-NNNN, and attaches one TestRecord per requirement:
+outcome = fail if any covered test failed, else pass. Each record
+captures the current git HEAD SHA, the actor (REQ_ACTOR), the test
+name list, and a UTC timestamp.
+
+Effect on the project:
+  * `req show REQ-NNNN` displays the run with a [matches HEAD] /
+    [drifted] marker, so reviewers can see at a glance whether the
+    evidence is current.
+  * Test records round-trip through the integrity hash.
+
+The runner ignores test names that don't match the convention and
+skips records for REQ-IDs that no longer exist in project.req
+(orphan markers in code).",
+    },
+    Section {
         name: "errors",
         summary: "Stable error and rule codes for agents and tooling.",
         body: "Every CLI subcommand that supports --json emits errors on stderr
