@@ -87,6 +87,10 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0022",
         "statement stacks uncertainty hedges (perhaps, probably, maybe, possibly, might) (warn)",
     ),
+    (
+        "REQ-V-0023",
+        "external statement-quality hook flagged this requirement (opt-in via REQ_VALIDATE_LLM_CMD)",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -239,7 +243,7 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
                 "statement looks compound — split into atomic requirements",
             ));
         }
-        // REQ-V-0022: stacked uncertainty hedges. A single hedge in
+        // REQ-0089 / REQ-V-0022: stacked uncertainty hedges. A single hedge in
         // prose is sloppy; two or more is a smell that the author
         // doesn't know what they want.
         let hedge_hits = HEDGE_WORDS
@@ -421,7 +425,61 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             out.push((id.clone(), findings));
         }
     }
-    // REQ-V-0021: walk the link graph per asymmetric kind and surface
+    // REQ-0087 / REQ-V-0023: opt-in external statement-quality hook. The CLI
+    // stays deterministic by default; only when REQ_VALIDATE_LLM_CMD
+    // is set do we shell out (per non-obsolete requirement) to ask
+    // an external judge whether the statement is testable. The hook
+    // is fed a small JSON stub on stdin and returns
+    // `{ "ok": bool, "message": "..." }` on stdout. Failure of the
+    // hook itself surfaces as a single REQ-V-0023 warning but does
+    // not stop the rest of validation.
+    if let Ok(cmd) = std::env::var("REQ_VALIDATE_LLM_CMD") {
+        let trimmed = cmd.trim();
+        if !trimmed.is_empty() {
+            for (id, r) in &p.requirements {
+                if matches!(r.status, crate::model::Status::Obsolete) {
+                    continue;
+                }
+                let payload = serde_json::json!({
+                    "id": id,
+                    "title": r.title,
+                    "statement": r.statement,
+                    "rationale": r.rationale,
+                });
+                let outcome = run_llm_hook(trimmed, &payload.to_string());
+                match outcome {
+                    Ok(verdict) => {
+                        if verdict.0 {
+                            continue;
+                        }
+                        let finding = Finding::warn(
+                            "REQ-V-0023",
+                            "statement",
+                            format!("LLM hook flagged: {}", verdict.1),
+                        );
+                        if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| rid == id) {
+                            existing.push(finding);
+                        } else {
+                            out.push((id.clone(), vec![finding]));
+                        }
+                    }
+                    Err(e) => {
+                        let finding = Finding::warn(
+                            "REQ-V-0023",
+                            "statement",
+                            format!("LLM hook unavailable: {}", e),
+                        );
+                        if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| rid == id) {
+                            existing.push(finding);
+                        } else {
+                            out.push((id.clone(), vec![finding]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // REQ-0088 / REQ-V-0021: walk the link graph per asymmetric kind and surface
     // any cycles. Direct `req link` rejects new cycle-closing edges,
     // but cycles can still enter a project via batch (pre-0.1.2), via
     // hand-edit + repair, or via merge. This is the second-line
@@ -457,6 +515,66 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         }
     }
     out
+}
+
+/// Invoke the configured LLM hook and parse `{ok, message}` from
+/// stdout. The command is run via the platform shell so users can
+/// configure pipelines (`my-llm | jq .`) without us baking in a tool.
+/// Returns Ok((ok, message)) on parse success, Err on transport or
+/// parse failure.
+fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let (shell, flag) = if cfg!(windows) {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    };
+    let mut child = Command::new(shell)
+        .args([flag, cmd])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawn: {}", e))?;
+    {
+        let stdin = child.stdin.as_mut().ok_or("stdin unavailable")?;
+        stdin
+            .write_all(payload.as_bytes())
+            .map_err(|e| format!("write: {}", e))?;
+    }
+    // Hard ten-second cap. A hung hook should never lock validate.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    return Err("timed out after 10s".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(format!("wait: {}", e)),
+        }
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("wait: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "hook exited non-zero: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let body = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(body.trim()).map_err(|e| format!("parse json: {}", e))?;
+    let ok = v["ok"].as_bool().ok_or("missing 'ok' boolean")?;
+    let message = v["message"].as_str().unwrap_or("").to_string();
+    Ok((ok, message))
 }
 
 /// Find every distinct cycle in the same-kind link graph. Returns each

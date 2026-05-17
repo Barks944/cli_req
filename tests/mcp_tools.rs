@@ -651,6 +651,58 @@ fn req_import_missing_source_returns_clean_envelope() {
     );
 }
 
+#[test]
+fn mcp_validate_reports_link_cycles() {
+    // REQ-V-0021 is graph-level; MCP req_validate must surface it too.
+    let s = Sandbox::new();
+    s.init("p");
+    // Build two reqs and inject a depends-on cycle directly (the
+    // direct CLI rejects it; we need a way to test the validator's
+    // detection independent of the prevention).
+    for (i, title) in [
+        "MCP cycle fixture requirement number one",
+        "MCP cycle fixture requirement number two",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let _ = s.run(&[
+            "add",
+            "--title",
+            title,
+            "--statement",
+            &format!("The system shall expose MCP cycle detection {}.", i + 1),
+            "--rationale",
+            "MCP cycle fixture.",
+            "--kind",
+            "constraint",
+            "--priority",
+            "could",
+        ]);
+    }
+    let _ = s.run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"]);
+    let text = std::fs::read_to_string(s.path()).unwrap();
+    let mut v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    v["requirements"]["REQ-0002"]["links"] =
+        serde_json::json!([{"kind":"DependsOn","target":"REQ-0001"}]);
+    std::fs::write(s.path(), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    let _ = s.run(&["repair", "--confirm-direct-edit", "--force"]);
+
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            call_tool(2, "req_validate", serde_json::json!({})),
+        ],
+    );
+    let text = text_of(&responses[1]);
+    assert!(
+        text.contains("REQ-V-0021"),
+        "MCP req_validate should surface REQ-V-0021: {}",
+        text
+    );
+}
+
 // Reference initialize_then's underscored argument so clippy stays quiet.
 #[allow(dead_code)]
 fn _silence_unused() {

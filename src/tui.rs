@@ -23,9 +23,11 @@ pub const MENU: &[&str] = &[
     "Update",
     "Link",
     "Delete (mark obsolete)",
+    "Split a compound requirement",
     "Validate project",
     "Coverage report",
     "Stale report",
+    "Review (PR-style spec report)",
     "Doctor (setup audit)",
     "Diff between git refs",
     "Audit (git signature trail)",
@@ -69,7 +71,13 @@ fn dispatch(
 ) -> Result<()> {
     match MENU[idx] {
         "Browse / view (list + show)" => browse(file, project),
-        "Status" => commands::status::run(StatusArgs { json: false }, file),
+        "Status" => commands::status::run(
+            StatusArgs {
+                tag: vec![],
+                json: false,
+            },
+            file,
+        ),
         "Next requirement to work on" => commands::next::run(default_next(), file),
         "Add" => commands::add::run(default_add(), file),
         "Update" => {
@@ -93,9 +101,19 @@ fn dispatch(
             }
             Ok(())
         }
+        "Split a compound requirement" => split_flow(file, theme),
         "Validate project" => commands::validate_cmd::run(ValidateArgs { json: false }, file),
         "Coverage report" => commands::coverage::run(default_coverage(), file),
         "Stale report" => commands::stale::run(default_stale(), file),
+        "Review (PR-style spec report)" => commands::review::run(
+            crate::cli::ReviewArgs {
+                base: "origin/main".into(),
+                path: PathBuf::from("."),
+                gate: false,
+                json: false,
+            },
+            file,
+        ),
         "Doctor (setup audit)" => commands::doctor::run(DoctorArgs { json: false }),
         "Diff between git refs" => diff_flow(file, theme),
         "Audit (git signature trail)" => audit_flow(file),
@@ -110,6 +128,33 @@ fn dispatch(
         "Quit" => Err(anyhow::anyhow!("__quit__")),
         _ => Ok(()),
     }
+}
+
+fn split_flow(file: &Option<PathBuf>, _theme: &ColorfulTheme) -> Result<()> {
+    use dialoguer::Input;
+    let id: String = Input::with_theme(_theme)
+        .with_prompt("Requirement to split (e.g. REQ-0042)")
+        .interact_text()?;
+    let reason: String = Input::with_theme(_theme)
+        .with_prompt("Reason (recorded on history)")
+        .allow_empty(true)
+        .interact_text()?;
+    // Delegate the interactive part-statement prompting to split::run
+    // by passing an empty `into` (it prompts when empty).
+    commands::split::run(
+        crate::cli::SplitArgs {
+            id,
+            into: vec![],
+            reason: if reason.trim().is_empty() {
+                None
+            } else {
+                Some(reason)
+            },
+            keep_original: false,
+            json: false,
+        },
+        file,
+    )
 }
 
 fn link_flow(

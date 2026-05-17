@@ -10,9 +10,16 @@ use crate::storage::load_resolved;
 
 pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_, project) = load_resolved(file)?;
-    let total = project.requirements.len();
     let mut counts = [0usize; 6];
-    for r in project.requirements.values() {
+    // REQ-0092: --tag filter scopes the status report to a milestone slice.
+    // Filter once so both counts and total reflect the scoped view.
+    let scope: Vec<_> = project
+        .requirements
+        .values()
+        .filter(|r| args.tag.iter().all(|t| r.tags.iter().any(|rt| rt == t)))
+        .collect();
+    let total = scope.len();
+    for r in &scope {
         let i = match r.status {
             Status::Draft => 0,
             Status::Proposed => 1,
@@ -43,6 +50,7 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
             "{}",
             serde_json::to_string_pretty(&json!({
                 "project": project.name,
+                "filter": { "tags": args.tag },
                 "total": total,
                 "by_status": {
                     "draft":       counts[0],
@@ -61,6 +69,9 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     println!("Project: {}", project.name);
+    if !args.tag.is_empty() {
+        println!("Scoped to tag(s): {}", args.tag.join(", "));
+    }
     println!("Total:   {}", total);
     println!();
     println!(

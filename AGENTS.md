@@ -61,6 +61,19 @@ section in `src/help_text.rs`.
 6. **No new reserved top-level fields without bumping `_format`.** The
    reserved keys are `_warning`, `_instructions`, `_format`, `_integrity`.
 
+7. **New behaviour gets a REQ first, then the code.** If you're about
+   to add a new command, a new validator rule, or a non-trivial
+   behaviour change, write the requirement first via `req add ...`,
+   then implement, then reference the new REQ-ID from the code with a
+   `// REQ-NNNN:` line at the top of the relevant module. The
+   `req review --gate` check in CI fails any PR that adds source files
+   without a REQ marker — this is the rule that catches "shipped a
+   feature without a backing requirement". The validator can only
+   check what's recorded; this gate is what makes sure new behaviour
+   gets recorded in the first place. For bug fixes that don't change
+   the contract a REQ isn't required; the existing REQ for that
+   behaviour is the right home.
+
 ## 3. The integrity model (read this once, refer to it later)
 
 `storage::save` writes pretty-printed JSON with four reserved fields:

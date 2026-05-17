@@ -309,12 +309,47 @@ const TOOLS: &[ToolDef] = &[
         description: "Detect the .req file's _format and (when supported) upgrade it to the current schema, writing a sibling backup first. On the current format this is a no-op confirming no migration is needed.",
         schema: no_args_schema,
     },
+    ToolDef {
+        name: "req_review",
+        description: "Single-shot PR-review report: validate + coverage + stale + audit + changed-requirement diff, scoped to a git rev range, returned as markdown. Use this to attach a spec impact summary to a pull request or CI run.",
+        schema: review_schema,
+    },
+    ToolDef {
+        name: "req_split",
+        description: "Split a compound requirement into N atomic ones. Pass `id` and `into` (an array of new statements). The original is soft-retired to Obsolete (unless `keep_original` is true). New parts inherit the original's kind, priority, and tags; titles get a `— part i of N` suffix. Use to remediate REQ-V-0010 compound findings without manual fan-out.",
+        schema: split_schema,
+    },
 ];
 
 // ---------- schemas ----------
 
 fn no_args_schema() -> Value {
     json!({ "type": "object", "properties": {} })
+}
+
+fn review_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "base": { "type": "string", "description": "Base git rev (default: origin/main). Compared as `<base>..HEAD`." },
+            "path": { "type": "string", "description": "Directory to scan for `// REQ-NNNN` markers (default: repo root)." },
+            "gate": { "type": "boolean", "description": "Surface the markerless-source / ghost findings as a non-zero exit so callers can treat the report as a CI gate." },
+            "json": { "type": "boolean", "description": "Return JSON instead of markdown. Defaults to true on MCP." }
+        }
+    })
+}
+
+fn split_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["id", "into"],
+        "properties": {
+            "id":   { "type": "string", "description": "The compound requirement to split (any case/pad form accepted)." },
+            "into": { "type": "array", "minItems": 2, "items": { "type": "string" }, "description": "Two or more atomic statements to create as siblings." },
+            "reason": { "type": "string", "description": "Recorded on the original's history when soft-retired." },
+            "keep_original": { "type": "boolean", "description": "Don't soft-retire the original; create new parts beside it." }
+        }
+    })
 }
 
 fn list_schema() -> Value {
@@ -591,6 +626,8 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_doctor" => tool_doctor(),
         "req_version" => tool_version(),
         "req_migrate" => tool_migrate(file),
+        "req_review" => tool_review(args, file),
+        "req_split" => tool_split(args, file),
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
 }
@@ -1038,7 +1075,13 @@ fn tool_validate(file: &Path) -> Result<String> {
             } else {
                 warnings += 1
             }
-            findings.push(json!({ "id": id, "level": if f.error {"error"} else {"warning"}, "field": f.field, "message": f.message }));
+            findings.push(json!({
+                "id": id,
+                "rule_code": f.rule_code,
+                "level": if f.error { "error" } else { "warning" },
+                "field": f.field,
+                "message": f.message,
+            }));
         }
     }
     Ok(serde_json::to_string_pretty(&json!({
@@ -2136,6 +2179,81 @@ fn tool_migrate(file: &Path) -> Result<String> {
     }
     // CLI prints text by default; we asked for --json so this is the structured form
     // (when implemented; current stub prints text). Return either way.
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn tool_review(args: &Value, file: &Path) -> Result<String> {
+    let base = s(args, "base").unwrap_or_else(|| "origin/main".into());
+    let path = s(args, "path").unwrap_or_else(|| ".".into());
+    let json = args.get("json").and_then(Value::as_bool).unwrap_or(true);
+    let gate = args.get("gate").and_then(Value::as_bool).unwrap_or(false);
+    let mut argv: Vec<std::ffi::OsString> = vec![
+        "--file".into(),
+        file.as_os_str().into(),
+        "review".into(),
+        "--base".into(),
+        base.into(),
+        "--path".into(),
+        path.into(),
+    ];
+    if json {
+        argv.push("--json".into());
+    }
+    if gate {
+        argv.push("--gate".into());
+    }
+    let out = std::process::Command::new(std::env::current_exe()?)
+        .args(&argv)
+        .output()
+        .context("invoke self for review")?;
+    if !out.status.success() {
+        return Err(anyhow!("{}", first_envelope_line(&out.stdout, &out.stderr)));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn tool_split(args: &Value, file: &Path) -> Result<String> {
+    let id = req_s(args, "id")?;
+    let into = args
+        .get("into")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("'into' must be an array of new statements (length >= 2)"))?;
+    if into.len() < 2 {
+        return Err(anyhow!("'into' must have at least 2 statements"));
+    }
+    let keep_original = args
+        .get("keep_original")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let reason = s(args, "reason");
+    let mut argv: Vec<std::ffi::OsString> = vec![
+        "--file".into(),
+        file.as_os_str().into(),
+        "split".into(),
+        id.into(),
+        "--json".into(),
+    ];
+    for stmt in into {
+        let s = stmt
+            .as_str()
+            .ok_or_else(|| anyhow!("'into' entries must be strings"))?;
+        argv.push("--into".into());
+        argv.push(s.into());
+    }
+    if keep_original {
+        argv.push("--keep-original".into());
+    }
+    if let Some(r) = reason {
+        argv.push("--reason".into());
+        argv.push(r.into());
+    }
+    let out = std::process::Command::new(std::env::current_exe()?)
+        .args(&argv)
+        .output()
+        .context("invoke self for split")?;
+    if !out.status.success() {
+        return Err(anyhow!("{}", first_envelope_line(&out.stdout, &out.stderr)));
+    }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 

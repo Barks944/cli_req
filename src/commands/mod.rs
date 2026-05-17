@@ -17,8 +17,10 @@ pub mod migrate;
 pub mod next;
 pub mod renumber;
 pub mod repair;
+pub mod review;
 pub mod schema;
 pub mod show;
+pub mod split;
 pub mod stale;
 pub mod status;
 pub mod test_cmd;
@@ -31,6 +33,7 @@ use std::env;
 
 use crate::model::{ActorKind, HistoryEntry, Project};
 
+/// REQ-0090: case- and pad-insensitive ID resolution with did-you-mean.
 /// Normalise a user-typed REQ-ID to the project's canonical form.
 /// Accepts "req-0001", "REQ-1", "req-1", or just "1"; returns the
 /// canonical "REQ-0001" if the form is unambiguous. Returns the input

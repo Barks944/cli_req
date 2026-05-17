@@ -8,6 +8,53 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-17
+
+### Added — new commands and rules
+- **`req split <id> --into "..."`** (REQ-0085): interactive (or
+  flag-driven) split of a compound requirement into N atomic ones.
+  Children inherit kind / priority / tags; the original is
+  soft-retired to Obsolete with history naming its replacements.
+  `--keep-original` for additive splits.
+- **`req review --base <ref>`** (REQ-0086): single-shot PR-style
+  markdown report combining validate + coverage + stale + audit +
+  the changed-requirement diff. `--gate` makes it CI-friendly: exits
+  non-zero on validate errors, coverage ghosts, OR — critically —
+  changed source files that contain zero `REQ-NNNN` markers (the
+  "shipped new behaviour without a backing requirement" rule that
+  let three releases slip through).
+- **`req status --tag`** (REQ-0092): milestone-scoped status report.
+  AND semantics across multiple `--tag` flags.
+- **REQ-V-0023** (REQ-0087): opt-in external statement-quality
+  hook. When `REQ_VALIDATE_LLM_CMD` is set, the validator pipes a
+  small JSON stub on stdin and surfaces the hook's `{ok, message}`
+  verdict. 10s timeout per requirement; never aborts validation on
+  hook failure. Default validator stays deterministic and offline.
+
+### Added — MCP surface
+- `req_review` and `req_split` mirror the CLI commands for agents.
+- `req_validate` output now includes `rule_code` on every finding so
+  agents can pattern-match REQ-V-0021 cycles deterministically.
+
+### Added — CI gate
+- `.github/workflows/ci.yml` runs `req review --gate` on every PR
+  against `origin/${{ base_ref }}`. New source files without a REQ
+  marker fail the build.
+
+### Added — process discipline
+- `AGENTS.md` cardinal rule 7: "New behaviour gets a REQ first, then
+  the code." Names `req review --gate` as the enforcement
+  mechanism.
+
+### Backfilled requirements
+Catches up the spec to ship-state. Nine new REQs cover the 0.1.2 /
+0.1.3 / 0.2.0 surface that landed without a backing requirement:
+REQ-0084 (state machine), REQ-0085 (split), REQ-0086 (review),
+REQ-0087 (LLM hook), REQ-0088 (REQ-V-0021 cycle), REQ-0089
+(REQ-V-0022 hedge stacking), REQ-0090 (ID normalisation),
+REQ-0091 (repair --force), REQ-0092 (status --tag). Each cited from
+source via a `// REQ-NNNN:` line.
+
 ## [0.1.3] — 2026-05-17
 
 ### Changed (lifecycle policy)

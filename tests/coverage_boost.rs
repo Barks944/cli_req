@@ -987,6 +987,205 @@ fn diff_with_req_id_returns_friendly_hint() {
     );
 }
 
+// ---------- 0.2.0 features ----------
+
+#[test]
+fn status_tag_filter_scopes_the_report() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Tagged for milestone alpha",
+        "--statement",
+        "The system shall belong to milestone alpha.",
+        "--rationale",
+        "Tag scope fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+        "--tag",
+        "alpha",
+    ]);
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Tagged for milestone beta",
+        "--statement",
+        "The system shall belong to milestone beta.",
+        "--rationale",
+        "Tag scope fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+        "--tag",
+        "beta",
+    ]);
+    let out = s.run(&["status", "--json", "--tag", "alpha"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["total"], 1, "alpha scope should have 1 req: {}", v);
+    assert_eq!(v["filter"]["tags"][0], "alpha");
+}
+
+#[test]
+fn split_breaks_compound_into_atomic_parts() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Compound source for split fixture",
+        "--statement",
+        "The system shall authenticate users and authorize sessions and log events.",
+        "--rationale",
+        "Split fixture rationale.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "must",
+    ]);
+    let out = s.run(&[
+        "split",
+        "REQ-0001",
+        "--into",
+        "The system shall authenticate users.",
+        "--into",
+        "The system shall authorize sessions.",
+        "--into",
+        "The system shall log events.",
+        "--reason",
+        "atomic split",
+        "--json",
+    ]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["original"], "REQ-0001");
+    assert_eq!(v["retired"], true);
+    let parts = v["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 3);
+    let show_original = stdout(&s.run(&["show", "REQ-0001"]));
+    assert!(
+        show_original.contains("obsolete"),
+        "original should be obsolete: {}",
+        show_original
+    );
+}
+
+#[test]
+fn split_keep_original_does_not_retire() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Compound retained for split fixture",
+        "--statement",
+        "The system shall authenticate users and authorize sessions.",
+        "--rationale",
+        "Split-keep fixture rationale.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "must",
+    ]);
+    let out = s.run(&[
+        "split",
+        "REQ-0001",
+        "--into",
+        "The system shall authenticate users.",
+        "--into",
+        "The system shall authorize sessions.",
+        "--keep-original",
+        "--reason",
+        "additive split",
+        "--json",
+    ]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["retired"], false);
+    let show_original = stdout(&s.run(&["show", "REQ-0001"]));
+    assert!(
+        !show_original.contains("Status   : obsolete"),
+        "original should remain non-obsolete: {}",
+        show_original
+    );
+}
+
+#[test]
+fn review_emits_markdown_for_clean_repo() {
+    // Review must work even outside a real PR scenario — when there's
+    // no base ref to diff against, it should fall back gracefully and
+    // still emit the validate / coverage / stale sections.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Review fixture requirement title",
+        "--statement",
+        "The system shall appear in the review report.",
+        "--rationale",
+        "Review fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let out = s.run(&["review", "--base", "bogus-ref-zzz"]);
+    // Should still produce output — base load failure is non-fatal.
+    let body = stdout(&out);
+    assert!(
+        body.contains("# req review:"),
+        "review should emit markdown heading: {}",
+        body
+    );
+}
+
+#[test]
+fn validate_llm_hook_runs_when_env_set() {
+    // Wire a trivial hook script that always reports ok:false; ensure
+    // REQ-V-0023 appears in the validate output.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "LLM hook fixture requirement",
+        "--statement",
+        "The system shall participate in the LLM hook test.",
+        "--rationale",
+        "LLM hook fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    // Hook script that ignores stdin and prints a fixed verdict.
+    let hook_cmd = if cfg!(windows) {
+        r#"powershell -NoProfile -Command "Write-Output '{\"ok\":false,\"message\":\"toy hook flag\"}'""#.to_string()
+    } else {
+        r#"echo '{"ok":false,"message":"toy hook flag"}'"#.to_string()
+    };
+    let out = Command::new(env!("CARGO_BIN_EXE_req"))
+        .args(["--file", s.path().to_str().unwrap(), "validate"])
+        .env("REQ_VALIDATE_LLM_CMD", &hook_cmd)
+        .output()
+        .expect("invoke req");
+    let body = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        body.contains("REQ-V-0023") || body.contains("LLM hook"),
+        "validate should surface the hook verdict: {}",
+        body
+    );
+}
+
 // ---------- 0.1.2 state-machine policy (Position A + Draft carve-out) ----------
 
 fn fixture_draft(s: &Sandbox) {

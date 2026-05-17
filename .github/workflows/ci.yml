@@ -92,6 +92,24 @@ jobs:
           ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} \
             stale --path . || true
 
+      - name: req review --gate (spec hygiene on changed files)
+        shell: bash
+        # Wraps validate + coverage + stale + audit + the
+        # changed-requirement diff into a single PR-style report, and
+        # — critically — gates on changed source files that contain
+        # zero REQ markers. This is the rule that catches "new code
+        # shipped without a backing requirement", the exact failure
+        # mode that took three releases to surface. On `push` events
+        # the base ref is HEAD~1 (we only have HEAD..HEAD on PRs from
+        # the merge commit). The gate is treated as advisory on
+        # main-branch pushes so the first run after merge does not
+        # retroactively block the build for files added before the
+        # gate existed; PRs get the hard gate.
+        if: github.event_name == 'pull_request'
+        run: |
+          ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} \
+            review --base "origin/${{ github.base_ref }}" --path . --gate
+
   lint:
     name: lint
     runs-on: ubuntu-latest

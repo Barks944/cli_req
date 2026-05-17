@@ -57,6 +57,8 @@ impl Command {
             Command::Show(a) => a.json,
             Command::Version(a) => a.json,
             Command::Next(a) => a.json,
+            Command::Review(a) => a.json,
+            Command::Split(a) => a.json,
             Command::Check(a) => a.json,
             Command::Doctor(a) => a.json,
             Command::Diff(a) => a.json,
@@ -136,6 +138,56 @@ pub enum Command {
     Coverage(CoverageArgs),
     /// Walk the git history of the .req file and report commit/signer per change.
     Audit(AuditArgs),
+    /// Single markdown PR-review report: validate, coverage, stale,
+    /// audit, and changed-requirement diff scoped to a git rev range.
+    Review(ReviewArgs),
+    /// Interactive split of a compound requirement into atomic ones.
+    Split(SplitArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ReviewArgs {
+    /// Base git rev (default: origin/main, then main). Compared as
+    /// `<base>..HEAD`. Used for both the changed-requirement diff and
+    /// the changed-files coverage scope.
+    #[arg(long, default_value = "origin/main")]
+    pub base: String,
+    /// Directory to scan for `// REQ-NNNN` markers when computing
+    /// coverage. Defaults to the repo root.
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Exit non-zero when the report finds anything blocking: validate
+    /// errors, coverage ghosts, or source files changed in this range
+    /// that carry zero REQ markers (the missing-spec-for-new-code
+    /// signal). Use in CI to gate PRs on spec hygiene.
+    #[arg(long)]
+    pub gate: bool,
+    /// Emit the report as JSON instead of markdown.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SplitArgs {
+    /// The compound requirement to split.
+    pub id: String,
+    /// New statement for one part (repeat for N parts). When supplied
+    /// the command runs non-interactively. Each part inherits the
+    /// original's kind, priority, and tags.
+    #[arg(short = 's', long = "into")]
+    pub into: Vec<String>,
+    /// Reason for splitting — recorded on the original's history when
+    /// it is soft-retired to Obsolete.
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// Don't soft-retire the original; keep it active and just create
+    /// the new parts. Use when the split is *additive* rather than a
+    /// replacement.
+    #[arg(long)]
+    pub keep_original: bool,
+    /// JSON output.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -629,6 +681,12 @@ pub struct ValidateArgs {
 
 #[derive(Args, Debug)]
 pub struct StatusArgs {
+    /// Scope the report to requirements carrying every listed tag
+    /// (AND semantics). Useful for milestone-style rollups, e.g.
+    /// `req status --tag auth` answers "what's left for auth".
+    /// Repeat the flag for multiple tags.
+    #[arg(long)]
+    pub tag: Vec<String>,
     /// Emit the status counts and percentages as JSON.
     #[arg(long)]
     pub json: bool,

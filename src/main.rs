@@ -70,5 +70,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Renumber(args) => commands::renumber::run(args, &cli.file),
         Command::Coverage(args) => commands::coverage::run(args, &cli.file),
         Command::Audit(args) => commands::audit::run(args, &cli.file),
+        Command::Review(args) => commands::review::run(args, &cli.file),
+        Command::Split(args) => commands::split::run(args, &cli.file),
     }
 }

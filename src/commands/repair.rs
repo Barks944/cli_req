@@ -22,6 +22,7 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
         .flat_map(|(_, fs)| fs.iter())
         .filter(|f| f.error)
         .count();
+    // REQ-0091: --force breaks the deadlock when validation errors block repair.
     if errs > 0 && !args.force {
         eprintln!(
             "Refusing to repair: file contains {} validation errors. \

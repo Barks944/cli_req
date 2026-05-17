@@ -174,6 +174,7 @@ pub enum Status {
     Obsolete,
 }
 
+/// REQ-0084: cross-surface lifecycle state machine.
 /// Lifecycle policy: which transitions are free (the natural workflow)
 /// versus which need an explicit `--force` to acknowledge the irregular
 /// move. Returns true when `from -> to` is natural.
