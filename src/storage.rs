@@ -1,9 +1,11 @@
 // Implements REQ-0002 (git-diffable JSON), REQ-0003 (integrity hash),
-// REQ-0004 (in-file warning + instructions), REQ-0019 (atomic writes).
+// REQ-0004 (in-file warning + instructions), REQ-0019 (atomic writes),
+// REQ-0062 (advisory file lock around mutation sequences).
 // Discharges REQ-0020 (constraint: agents shall not edit project.req
 // directly) by making the integrity hash the enforcement mechanism — any
 // direct edit invalidates it and load_with_options refuses to read.
 use anyhow::{anyhow, Context, Result};
+use fs2::FileExt;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -155,6 +157,73 @@ pub fn load_resolved(p: &Option<PathBuf>) -> Result<(PathBuf, Project)> {
     let path = resolve_path(p);
     let project = load(&path)?;
     Ok((path, project))
+}
+
+/// REQ-0062: exclusive advisory lock around a load-modify-save cycle.
+/// Lock lives on a sidecar `<path>.lock` so it doesn't fight the
+/// temp-and-rename save pattern. Drop the returned guard to release.
+/// Times out after `LOCK_TIMEOUT_SECS` seconds with a clear error.
+pub struct LockGuard {
+    file: Option<std::fs::File>,
+    path: PathBuf,
+}
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        if let Some(f) = self.file.take() {
+            let _ = f.unlock();
+        }
+        // Best-effort cleanup; ignore failure (another process may hold it next).
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+const LOCK_TIMEOUT_SECS: u64 = 30;
+
+pub fn acquire_lock(project_path: &Path) -> Result<LockGuard> {
+    let lock_path = lock_sidecar(project_path);
+    if let Some(parent) = lock_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).ok();
+        }
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true).write(true).create(true).truncate(false)
+        .open(&lock_path)
+        .with_context(|| format!("open lock file {}", lock_path.display()))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(LOCK_TIMEOUT_SECS);
+    loop {
+        match file.try_lock_exclusive() {
+            Ok(()) => return Ok(LockGuard { file: Some(file), path: lock_path }),
+            Err(_) if std::time::Instant::now() >= deadline => {
+                return Err(anyhow!(
+                    "could not acquire {} within {}s — another req process is mutating the project",
+                    lock_path.display(), LOCK_TIMEOUT_SECS,
+                ));
+            }
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+}
+
+fn lock_sidecar(project_path: &Path) -> PathBuf {
+    let mut p = project_path.to_path_buf();
+    let new_name = match p.file_name().and_then(|s| s.to_str()) {
+        Some(n) => format!(".{}.lock", n),
+        None => ".project.req.lock".into(),
+    };
+    p.set_file_name(new_name);
+    p
+}
+
+/// Load the project under an exclusive lock; the returned guard MUST be
+/// held until `save` returns. Use this in every mutation command site so
+/// concurrent `req add` / `req update` cannot interleave their reads.
+pub fn load_for_mutation(p: &Option<PathBuf>) -> Result<(PathBuf, Project, LockGuard)> {
+    let path = resolve_path(p);
+    let guard = acquire_lock(&path)?;
+    let project = load(&path)?;
+    Ok((path, project, guard))
 }
 
 fn integrity_hash(payload: &Value) -> String {

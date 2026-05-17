@@ -5,10 +5,10 @@ use std::path::PathBuf;
 
 use crate::cli::LinkArgs;
 use crate::model::{Link, LinkKind};
-use crate::storage::{self, load_resolved};
+use crate::storage::{self, load_for_mutation};
 
 pub fn run(args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
-    let (path, mut project) = load_resolved(file)?;
+    let (path, mut project, _lock) = load_for_mutation(file)?;
 
     if args.from == args.to {
         return Err(anyhow!("cannot link a requirement to itself"));

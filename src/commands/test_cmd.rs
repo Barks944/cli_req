@@ -16,7 +16,7 @@ use std::process::Command;
 
 use crate::cli::{TestCmd, TestRecordArgs, TestResultArg, TestRunArgs, VerifyArgs, VerifyKindArg};
 use crate::model::{EvidenceKind, Status, TestOutcome, TestRecord};
-use crate::storage::{self, load_resolved};
+use crate::storage::{self, load_for_mutation};
 
 pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
     match cmd {
@@ -26,7 +26,7 @@ pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
 }
 
 pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
-    let (path, mut project) = load_resolved(file)?;
+    let (path, mut project, _lock) = load_for_mutation(file)?;
     if !project.requirements.contains_key(&args.id) {
         return Err(anyhow!("no such requirement: {}", args.id));
     }
@@ -82,7 +82,7 @@ pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
 }
 
 fn record(args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
-    let (path, mut project) = load_resolved(file)?;
+    let (path, mut project, _lock) = load_for_mutation(file)?;
     if !project.requirements.contains_key(&args.id) {
         return Err(anyhow!("no such requirement: {}", args.id));
     }
@@ -251,7 +251,7 @@ struct ReqResult {
 }
 
 fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
-    let (path, mut project) = load_resolved(file)?;
+    let (path, mut project, _lock) = load_for_mutation(file)?;
 
     let parts: Vec<&str> = args.cmd.split_whitespace().collect();
     if parts.is_empty() {

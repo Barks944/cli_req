@@ -13,6 +13,7 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
         ));
     }
     let path = storage::resolve_path(file);
+    let _lock = storage::acquire_lock(&path)?;
     let project = storage::load_with_options(&path, true)?;
 
     let findings = crate::validate::validate_project(&project);

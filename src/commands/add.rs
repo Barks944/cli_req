@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::cli::AddArgs;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
-use crate::storage::{self, load_resolved};
+use crate::storage::{self, load_for_mutation};
 use crate::validate;
 
 pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
@@ -17,7 +17,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         merge_from_json(args, &src)?
     } else { args };
 
-    let (path, mut project) = load_resolved(file)?;
+    let (path, mut project, _lock) = load_for_mutation(file)?;
 
     let interactive = args.interactive
         || (args.title.is_none() && args.statement.is_none() && !args.from_json.is_some() && atty_stdin());

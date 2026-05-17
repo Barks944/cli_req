@@ -10,6 +10,7 @@ use crate::storage::{self, load_with_options, resolve_path};
 
 pub fn run(args: RenumberArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
+    let _lock = crate::storage::acquire_lock(&path)?;
     // After a merge resolution the integrity hash is typically wrong — force load.
     let mut current = load_with_options(&path, true)?;
     let base = load_from_git_ref(&args.base, path.file_name().unwrap().to_str().unwrap())?;

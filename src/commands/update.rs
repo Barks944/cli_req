@@ -5,11 +5,11 @@ use chrono::Utc;
 use std::path::PathBuf;
 
 use crate::cli::UpdateArgs;
-use crate::storage::{self, load_resolved};
+use crate::storage::{self, load_for_mutation};
 use crate::validate;
 
 pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
-    let (path, mut project) = load_resolved(file)?;
+    let (path, mut project, _lock) = load_for_mutation(file)?;
     let r = project
         .requirements
         .get_mut(&args.id)
