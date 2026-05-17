@@ -44,6 +44,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Status(args) => commands::status::run(args, &cli.file),
         Command::Test(t) => commands::test_cmd::run(t, &cli.file),
         Command::Verify(args) => commands::test_cmd::verify(args, &cli.file),
+        Command::Stale(args) => commands::stale::run(args, &cli.file),
         Command::Version(args) => commands::version::run(args),
         Command::Next(args) => commands::next::run(args, &cli.file),
         Command::Check(args) => commands::check::run(args, &cli.file),

@@ -14,6 +14,7 @@ pub mod renumber;
 pub mod repair;
 pub mod version;
 pub mod show;
+pub mod stale;
 pub mod status;
 pub mod test_cmd;
 pub mod update;

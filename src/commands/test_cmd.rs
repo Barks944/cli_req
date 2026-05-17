@@ -133,6 +133,109 @@ pub fn short(sha: &str) -> String {
     sha.chars().take(9).collect()
 }
 
+// ---------- staleness ----------
+
+/// Three-state staleness signal for a TestRecord, computed by intersecting
+/// "files referencing this requirement in code" with "files changed in git
+/// between the record commit and HEAD". `Fresh` means the record commit is
+/// HEAD. `Drifted` means HEAD moved but no linked file changed. `Stale`
+/// means at least one linked file changed since the record commit.
+pub enum Staleness {
+    Fresh,
+    /// HEAD moved but none of the requirement's linked files changed.
+    /// The number is how many linked files exist.
+    Drifted { linked: usize },
+    /// At least one linked file changed since the record commit.
+    Stale { changed: Vec<String>, linked: usize },
+    /// No git context — neither fresh nor stale can be computed.
+    Unknown,
+}
+
+impl Staleness {
+    pub fn tag(&self) -> String {
+        match self {
+            Staleness::Fresh => "[matches HEAD]".to_string(),
+            Staleness::Drifted { linked: 0 } => "[drifted — no linked files]".to_string(),
+            Staleness::Drifted { linked } => {
+                format!("[drifted — no changes to {} linked file(s)]", linked)
+            }
+            Staleness::Stale { changed, .. } => {
+                format!("[STALE — changed: {}]", changed.join(", "))
+            }
+            Staleness::Unknown => "[HEAD unknown]".to_string(),
+        }
+    }
+}
+
+/// Files under `root` that contain `REQ-NNNN` for the given id.
+pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+    static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
+    const DEFAULTS: &[&str] = &["rs","py","js","ts","tsx","go","java","md","toml","c","cpp","h"];
+    const SKIP: &[&str] = &[".git","target","node_modules","dist","build",".venv",".idea",".vscode"];
+
+    let mut hits = Vec::new();
+    fn walk(root: &std::path::Path, exts: &[&str], skip: &[&str], req_id: &str,
+            req_re: &regex::Regex, hits: &mut Vec<std::path::PathBuf>) {
+        let entries = match std::fs::read_dir(root) { Ok(e) => e, Err(_) => return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name_s = name.to_string_lossy();
+            if path.is_dir() {
+                if skip.iter().any(|s| *s == name_s.as_ref()) { continue; }
+                walk(&path, exts, skip, req_id, req_re, hits);
+            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if !exts.iter().any(|x| *x == ext) { continue; }
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    if req_re.find_iter(&text).any(|m| m.as_str() == req_id) {
+                        hits.push(path);
+                    }
+                }
+            }
+        }
+    }
+    walk(root, DEFAULTS, SKIP, req_id, &REQ_RE, &mut hits);
+    hits
+}
+
+/// Files changed in git between `record_commit` and HEAD.
+fn git_changed_since(record_commit: &str) -> Option<std::collections::BTreeSet<String>> {
+    let out = std::process::Command::new("git")
+        .args(["diff", "--name-only", &format!("{}..HEAD", record_commit)])
+        .output().ok()?;
+    if !out.status.success() { return None; }
+    Some(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
+}
+
+pub fn staleness(record_commit: &str, req_id: &str, source_root: &std::path::Path) -> Staleness {
+    let head = match current_head_sha_opt() { Some(h) => h, None => return Staleness::Unknown };
+    if head == record_commit { return Staleness::Fresh; }
+    let linked = files_referencing(req_id, source_root);
+    let linked_strs: std::collections::BTreeSet<String> = linked.iter()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .collect();
+    let changed = match git_changed_since(record_commit) {
+        Some(c) => c,
+        None => return Staleness::Unknown,
+    };
+    let mut overlap: Vec<String> = linked_strs.iter()
+        .filter(|f| changed.iter().any(|c| c.replace('\\', "/").ends_with(f.as_str()) || f.ends_with(c)))
+        .cloned()
+        .collect();
+    overlap.sort(); overlap.dedup();
+    if overlap.is_empty() {
+        Staleness::Drifted { linked: linked.len() }
+    } else {
+        Staleness::Stale { changed: overlap, linked: linked.len() }
+    }
+}
+
 // ---------- req test run ----------
 
 static TEST_LINE: Lazy<Regex> = Lazy::new(|| {

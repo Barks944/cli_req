@@ -42,6 +42,7 @@ impl Command {
             Command::Test(TestCmd::Record(a)) => a.json,
             Command::Test(TestCmd::Run(a)) => a.json,
             Command::Verify(a) => a.json,
+            Command::Stale(a) => a.json,
             Command::List(a) => a.json,
             Command::Show(a) => a.json,
             Command::Version(a) => a.json,
@@ -85,6 +86,9 @@ pub enum Command {
     /// Record a composition or inspection evidence record, optionally
     /// promoting the requirement to Verified.
     Verify(VerifyArgs),
+    /// Report staleness of every requirement's latest test record relative
+    /// to the files it links to (content drift, not just commit drift).
+    Stale(StaleArgs),
     /// Export the project to another format.
     Export(ExportArgs),
     /// Launch the interactive terminal browser/editor.
@@ -381,6 +385,20 @@ pub enum TestCmd {
     /// Run `cargo test` (or a custom command) and attach pass/fail records
     /// to each requirement whose test name follows the `req_NNNN_*` convention.
     Run(TestRunArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct StaleArgs {
+    /// Source-tree root used to find files containing REQ-NNNN markers.
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Only report requirements with at least one linked file changed
+    /// since the latest record (the actually-stale ones).
+    #[arg(long)]
+    pub only_stale: bool,
+    /// JSON output.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

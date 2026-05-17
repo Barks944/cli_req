@@ -314,11 +314,22 @@ POLICY
   * `req test run --promote` is safe to wire into CI: it only
     flips Implemented -> Verified, never the other way.
 
-When HEAD moves, drifted records are clearly visible in `req show`
-but do NOT automatically demote status. That's a judgement call —
-sometimes a test still applies after unrelated changes; sometimes it
-doesn't. Re-running `req test run` will land a fresh record; the
-status stays Verified throughout.",
+STALENESS HAS TWO LEVELS
+
+  fresh        record commit equals current HEAD
+  drifted      HEAD moved but none of the requirement's linked source
+               files (files containing its REQ-NNNN marker) changed
+  STALE        at least one linked file changed since the record commit
+
+`req show` annotates the latest record with the strongest applicable
+tag. `req stale` reports the same three states across the whole
+project; `req stale --only-stale` exits non-zero if anything is
+actually stale (CI-friendly).
+
+When HEAD moves, drifted/STALE records remain visible in `req show`
+and `req stale` but do NOT automatically demote status. Re-running
+`req test run --promote` lands fresh records; STALE entries become
+fresh when their evidence is re-affirmed.",
     },
     Section {
         name: "testing",

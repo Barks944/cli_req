@@ -58,15 +58,12 @@ pub fn render(r: &Requirement) {
     if r.tests.is_empty() {
         println!("  (no test records)");
     } else {
-        let head = super::test_cmd::current_head_sha_opt();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         for (i, t) in r.tests.iter().enumerate() {
             let is_latest = i + 1 == r.tests.len();
             let drift = if is_latest {
-                match &head {
-                    Some(h) if *h == t.commit => " [matches HEAD]".to_string(),
-                    Some(h) => format!(" [drifted — HEAD now {}]", super::test_cmd::short(h)),
-                    None => " [HEAD unknown — not in a git tree]".to_string(),
-                }
+                let s = super::test_cmd::staleness(&t.commit, &r.id, &cwd);
+                format!(" {}", s.tag())
             } else { String::new() };
             let notes = if t.notes.is_empty() { String::new() } else { format!(" — {}", t.notes) };
             println!(
