@@ -342,17 +342,27 @@ struct ReqResult {
 fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
 
-    let parts: Vec<&str> = args.cmd.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err(anyhow!("empty test command"));
-    }
-    let out = Command::new(parts[0])
-        .args(&parts[1..])
-        .output()
-        .with_context(|| format!("invoke {}", args.cmd))?;
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    let combined = format!("{}\n{}", stdout, stderr);
+    // Either parse a pre-captured log file (--from-file) or run the test
+    // command and parse its combined stdout+stderr. The file path bypasses
+    // shell quoting entirely, which matters for tests on Windows where
+    // splitting --cmd on whitespace drops cmd.exe's /C argument boundaries.
+    let (combined, exec_success) = if let Some(p) = &args.from_file {
+        let body = std::fs::read_to_string(p)
+            .with_context(|| format!("read --from-file {}", p.display()))?;
+        (body, true)
+    } else {
+        let parts: Vec<&str> = args.cmd.split_whitespace().collect();
+        if parts.is_empty() {
+            return Err(anyhow!("empty test command"));
+        }
+        let out = Command::new(parts[0])
+            .args(&parts[1..])
+            .output()
+            .with_context(|| format!("invoke {}", args.cmd))?;
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        (format!("{}\n{}", stdout, stderr), out.status.success())
+    };
 
     let mut by_req: BTreeMap<String, ReqResult> = BTreeMap::new();
     for cap in TEST_LINE.captures_iter(&combined) {
@@ -374,7 +384,7 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(
-                    &json!({ "ok": out.status.success(), "matched": 0, "message": msg })
+                    &json!({ "ok": exec_success, "matched": 0, "message": msg })
                 )?
             );
         } else {
@@ -491,9 +501,10 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "ok": out.status.success(),
+                "ok": exec_success,
                 "dry_run": args.dry_run,
-                "command": args.cmd,
+                "source": args.from_file.as_ref().map(|p| p.display().to_string())
+                    .unwrap_or_else(|| args.cmd.clone()),
                 "matched_requirements": summary.len(),
                 "recorded": if args.dry_run { 0 } else { records_to_apply.len() },
                 "results": summary,
@@ -529,7 +540,7 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
 
-    if !out.status.success() {
+    if !exec_success {
         std::process::exit(1);
     }
     Ok(())

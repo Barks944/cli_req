@@ -572,8 +572,17 @@ pub enum VerifyKindArg {
 #[derive(Args, Debug)]
 pub struct TestRunArgs {
     /// Custom test command. Defaults to `cargo test --release`.
-    #[arg(long, default_value = "cargo test --release")]
+    #[arg(
+        long,
+        default_value = "cargo test --release",
+        conflicts_with = "from_file"
+    )]
     pub cmd: String,
+    /// Parse cargo-test-style output from this file instead of running a
+    /// command. Useful for piping pre-captured logs into the recorder,
+    /// or for tests of the recorder itself.
+    #[arg(long = "from-file", conflicts_with = "cmd")]
+    pub from_file: Option<PathBuf>,
     /// Show what would be recorded without writing.
     #[arg(long)]
     pub dry_run: bool,
