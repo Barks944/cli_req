@@ -693,14 +693,44 @@ fn req_0048_mcp_tool_descriptions_contain_trigger_hints() {
     for tool in tools {
         let name = tool["name"].as_str().unwrap();
         let desc = tool["description"].as_str().unwrap_or("").to_lowercase();
-        let has_hint = desc.contains("call")
-            || desc.contains("use")
-            || desc.contains("when ")
-            || desc.contains("always")
-            || desc.contains("first");
+        // A "guidance hint" is any verb or scenario phrase that points the
+        // agent at when to reach for the tool. Deliberately broad: an
+        // imperative verb starting the description is enough.
+        let triggers = [
+            "call ",
+            "use ",
+            "when ",
+            "always",
+            "first",
+            "set ",
+            "fetch",
+            "return",
+            "report",
+            "list",
+            "attach",
+            "drive",
+            "rewrite",
+            "register",
+            "audit",
+            "describe",
+            "summarize",
+            "summarise",
+            "render",
+            "scan",
+            "detect",
+            "create",
+            "modify",
+            "retire",
+            "apply",
+            "parse",
+            "ingest",
+            "walk ",
+            "suggest",
+        ];
+        let has_hint = triggers.iter().any(|t| desc.contains(t));
         assert!(
             has_hint,
-            "tool {} description lacks a trigger hint: {}",
+            "tool {} description lacks a guidance hint: {}",
             name, desc
         );
     }

@@ -54,6 +54,174 @@ fn text_of(response: &serde_json::Value) -> String {
         .to_string()
 }
 
+// ---------- REQ-0083: TUI parity guard ----------
+
+/// CLI commands that don't need a TUI menu entry. Same exclusion set
+/// as MCP plus a couple that are awkward in an interactive menu:
+/// `check` and `renumber` need a git ref typed in (still doable, but
+/// the menu would be a thin wrapper), and `migrate`/`schema`/`batch`/
+/// `import` are file-driven operations users typically run from the
+/// shell.
+const HUMANS_ONLY_TUI: &[&str] = &[
+    "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "migrate", "schema", "batch",
+    "import", "test", "verify", "check", "help",
+];
+
+#[test]
+fn req_0083_tui_menu_covers_every_agent_relevant_cli_command() {
+    // Source-level introspection: parse the MENU const out of src/tui.rs.
+    let src = std::fs::read_to_string("src/tui.rs").expect("read tui.rs");
+    let start = src.find("pub const MENU").expect("MENU const present");
+    // Find the `=` that opens the literal, then the next `[` after that.
+    let eq = src[start..].find('=').expect("= after MENU") + start;
+    let open_rel = src[eq..].find('[').expect("[ after =");
+    let open = eq + open_rel;
+    let close = src[open..].find(']').expect("] after [") + open;
+    let body = &src[open + 1..close];
+    let menu_labels: Vec<String> = body
+        .split(',')
+        .map(|s| s.trim().trim_matches('"').trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    // Re-derive the CLI command set.
+    let help = common::req(&["--help"]);
+    let help_body = stdout(&help);
+    let mut cli: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut in_commands = false;
+    for line in help_body.lines() {
+        let trimmed = line.trim_start();
+        if trimmed == "Commands:" {
+            in_commands = true;
+            continue;
+        }
+        if !in_commands {
+            continue;
+        }
+        if trimmed.is_empty()
+            || trimmed.starts_with("Options:")
+            || trimmed.starts_with("Arguments:")
+        {
+            in_commands = false;
+            continue;
+        }
+        let leading = line.chars().take_while(|c| *c == ' ').count();
+        if leading != 2 {
+            continue;
+        }
+        if let Some(first) = trimmed.split_whitespace().next() {
+            if first.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+                cli.insert(first.to_string());
+            }
+        }
+    }
+    for excl in HUMANS_ONLY_TUI {
+        cli.remove(*excl);
+    }
+
+    // For each remaining CLI command, find a menu entry that mentions it
+    // (parens-form like "Browse (list + show)" or substring match).
+    let menu_lc: Vec<String> = menu_labels.iter().map(|s| s.to_lowercase()).collect();
+    let missing: Vec<&String> = cli
+        .iter()
+        .filter(|cmd| {
+            let needle = cmd.to_lowercase();
+            !menu_lc.iter().any(|label| label.contains(&needle))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "REQ-0083 — CLI commands without a TUI menu entry (and not in HUMANS_ONLY_TUI): {:?}\n\
+         Menu items:\n  {:?}\n\
+         Add a menu line to src/tui.rs::MENU or list the command in HUMANS_ONLY_TUI \
+         in tests/mcp_tools.rs with a one-line justification.",
+        missing,
+        menu_labels
+    );
+}
+
+// ---------- REQ-0083: MCP/CLI parity guard ----------
+
+/// CLI subcommands that DELIBERATELY do not have an MCP tool. Adding a
+/// command here is an opt-out; the test below ensures every other CLI
+/// command appears as a req_* MCP tool. See REQ-0083.
+const HUMANS_ONLY_CLI: &[&str] = &["init", "tui", "serve", "mcp", "hooks", "renumber", "repair"];
+
+#[test]
+fn req_0083_mcp_tool_surface_covers_every_agent_relevant_cli_command() {
+    let help = common::req(&["--help"]);
+    let body = stdout(&help);
+    // Parse only the `Commands:` section of --help. clap formats it as a
+    // header line "Commands:" followed by indented subcommand rows until
+    // the next blank line or an "Options:" section.
+    let mut in_commands = false;
+    let mut cli: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if trimmed == "Commands:" {
+            in_commands = true;
+            continue;
+        }
+        if !in_commands {
+            continue;
+        }
+        if trimmed.is_empty()
+            || trimmed.starts_with("Options:")
+            || trimmed.starts_with("Arguments:")
+        {
+            in_commands = false;
+            continue;
+        }
+        // Only top-level subcommand lines have exactly 2 leading spaces;
+        // continuation lines (wrapped descriptions) are indented further.
+        let leading = line.chars().take_while(|c| *c == ' ').count();
+        if leading != 2 {
+            continue;
+        }
+        if let Some(first) = trimmed.split_whitespace().next() {
+            if first.chars().all(|c| c.is_ascii_lowercase() || c == '-') {
+                cli.insert(first.to_string());
+            }
+        }
+    }
+    for excl in HUMANS_ONLY_CLI {
+        cli.remove(*excl);
+    }
+    let s = Sandbox::new();
+    s.init("p");
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+        ],
+    );
+    let tools = responses[1]["result"]["tools"]
+        .as_array()
+        .expect("tools/list returns array");
+    let mcp_names: std::collections::BTreeSet<String> = tools
+        .iter()
+        .filter_map(|t| {
+            t["name"]
+                .as_str()
+                .map(|n| n.trim_start_matches("req_").to_string())
+        })
+        .collect();
+    let mcp_root_names: std::collections::BTreeSet<String> = mcp_names
+        .iter()
+        .map(|n| n.split('_').next().unwrap_or(n).to_string())
+        .collect();
+    let missing: Vec<&String> = cli
+        .iter()
+        .filter(|c| !mcp_root_names.contains(*c) && !mcp_names.contains(*c))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "REQ-0083 — CLI subcommands without an MCP tool (and not in HUMANS_ONLY_CLI): {:?}\n\
+         Either expose it as a req_* tool in src/mcp.rs or add it to HUMANS_ONLY_CLI.",
+        missing
+    );
+}
+
 // ---------- REQ-0017: tool surface ----------
 
 #[test]

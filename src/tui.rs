@@ -1,11 +1,38 @@
-// Implements REQ-0015 (interactive terminal menu for humans).
+// Implements REQ-0015 (interactive terminal menu for humans) and the TUI
+// half of REQ-0083 (cross-surface parity): the menu exposes every
+// agent-relevant CLI operation so a human at the terminal can achieve
+// the same things an agent reaches for via MCP or the flag CLI.
 use anyhow::Result;
-use dialoguer::{theme::ColorfulTheme, Select};
+use dialoguer::{theme::ColorfulTheme, Input, Select};
 use std::path::PathBuf;
 
-use crate::cli::{AddArgs, DeleteArgs, ExportArgs, ExportFormat, ListArgs, ShowArgs, UpdateArgs};
+use crate::cli::{
+    AddArgs, CoverageArgs, DeleteArgs, DiffArgs, DoctorArgs, ExportArgs, ExportFormat, ListArgs,
+    NextArgs, ShowArgs, StaleArgs, StatusArgs, UpdateArgs, ValidateArgs, VersionArgs,
+};
 use crate::commands;
 use crate::storage::load_resolved;
+
+/// The full TUI menu. Each entry maps to a top-level CLI command so the
+/// surfaces stay one-to-one. See REQ-0083 for the parity contract.
+pub const MENU: &[&str] = &[
+    "Browse / view (list + show)",
+    "Status",
+    "Next requirement to work on",
+    "Add",
+    "Update",
+    "Link",
+    "Delete (mark obsolete)",
+    "Validate project",
+    "Coverage report",
+    "Stale report",
+    "Doctor (setup audit)",
+    "Diff between git refs",
+    "Audit (git signature trail)",
+    "Export to markdown (stdout)",
+    "Version",
+    "Quit",
+];
 
 pub fn run(file: &Option<PathBuf>) -> Result<()> {
     let theme = ColorfulTheme::default();
@@ -19,53 +46,130 @@ pub fn run(file: &Option<PathBuf>) -> Result<()> {
         println!("\n{}", header);
         println!("{}", "=".repeat(header.len()));
 
-        let actions = &[
-            "Browse / view",
-            "Add",
-            "Update",
-            "Delete (mark obsolete)",
-            "Validate project",
-            "Export to markdown (stdout)",
-            "Quit",
-        ];
         let idx = Select::with_theme(&theme)
             .with_prompt("Action")
-            .items(actions)
+            .items(MENU)
             .default(0)
             .interact()?;
 
-        match idx {
-            0 => browse(file, &project)?,
-            1 => commands::add::run(default_add(), file)?,
-            2 => {
-                if let Some(id) = pick_id(&theme, &project)? {
-                    commands::update::run(default_update(id), file)?;
-                }
-            }
-            3 => {
-                if let Some(id) = pick_id(&theme, &project)? {
-                    commands::delete::run(
-                        DeleteArgs {
-                            id,
-                            hard: false,
-                            reason: None,
-                            json: false,
-                        },
-                        file,
-                    )?;
-                }
-            }
-            4 => commands::validate_cmd::run(crate::cli::ValidateArgs { json: false }, file)?,
-            5 => commands::export::run(
-                ExportArgs {
-                    format: ExportFormat::Markdown,
-                    output: "-".into(),
-                },
-                file,
-            )?,
-            _ => return Ok(()),
-        }
+        let action = match dispatch(idx, file, &project, &theme) {
+            Ok(()) => continue,
+            Err(e) if e.to_string() == "__quit__" => return Ok(()),
+            Err(e) => Err(e),
+        };
+        action?;
     }
+}
+
+fn dispatch(
+    idx: usize,
+    file: &Option<PathBuf>,
+    project: &crate::model::Project,
+    theme: &ColorfulTheme,
+) -> Result<()> {
+    match MENU[idx] {
+        "Browse / view (list + show)" => browse(file, project),
+        "Status" => commands::status::run(StatusArgs { json: false }, file),
+        "Next requirement to work on" => commands::next::run(default_next(), file),
+        "Add" => commands::add::run(default_add(), file),
+        "Update" => {
+            if let Some(id) = pick_id(theme, project)? {
+                commands::update::run(default_update(id), file)?;
+            }
+            Ok(())
+        }
+        "Link" => link_flow(file, project, theme),
+        "Delete (mark obsolete)" => {
+            if let Some(id) = pick_id(theme, project)? {
+                commands::delete::run(
+                    DeleteArgs {
+                        id,
+                        hard: false,
+                        reason: None,
+                        json: false,
+                    },
+                    file,
+                )?;
+            }
+            Ok(())
+        }
+        "Validate project" => commands::validate_cmd::run(ValidateArgs { json: false }, file),
+        "Coverage report" => commands::coverage::run(default_coverage(), file),
+        "Stale report" => commands::stale::run(default_stale(), file),
+        "Doctor (setup audit)" => commands::doctor::run(DoctorArgs { json: false }),
+        "Diff between git refs" => diff_flow(file, theme),
+        "Audit (git signature trail)" => audit_flow(file),
+        "Export to markdown (stdout)" => commands::export::run(
+            ExportArgs {
+                format: ExportFormat::Markdown,
+                output: "-".into(),
+            },
+            file,
+        ),
+        "Version" => commands::version::run(VersionArgs { json: false }),
+        "Quit" => Err(anyhow::anyhow!("__quit__")),
+        _ => Ok(()),
+    }
+}
+
+fn link_flow(
+    file: &Option<PathBuf>,
+    project: &crate::model::Project,
+    theme: &ColorfulTheme,
+) -> Result<()> {
+    let from = match pick_id(theme, project)? {
+        Some(id) => id,
+        None => return Ok(()),
+    };
+    let to = match pick_id(theme, project)? {
+        Some(id) => id,
+        None => return Ok(()),
+    };
+    let kinds = ["parent", "depends-on", "refines", "conflicts", "verifies"];
+    let idx = Select::with_theme(theme)
+        .with_prompt("Link kind")
+        .items(&kinds)
+        .default(0)
+        .interact()?;
+    let kind = match kinds[idx] {
+        "parent" => crate::cli::LinkKindArg::Parent,
+        "depends-on" => crate::cli::LinkKindArg::DependsOn,
+        "refines" => crate::cli::LinkKindArg::Refines,
+        "conflicts" => crate::cli::LinkKindArg::Conflicts,
+        _ => crate::cli::LinkKindArg::Verifies,
+    };
+    commands::link::run(
+        crate::cli::LinkArgs {
+            from,
+            to,
+            kind,
+            remove: false,
+            json: false,
+        },
+        file,
+    )
+}
+
+fn diff_flow(file: &Option<PathBuf>, theme: &ColorfulTheme) -> Result<()> {
+    let spec: String = Input::with_theme(theme)
+        .with_prompt("Git diff spec (e.g. origin/main..HEAD)")
+        .default("HEAD~1..HEAD".to_string())
+        .interact_text()?;
+    commands::diff::run(DiffArgs { spec, json: false }, file)
+}
+
+fn audit_flow(file: &Option<PathBuf>) -> Result<()> {
+    use crate::cli::AuditArgs;
+    commands::audit::run(
+        AuditArgs {
+            limit: 20,
+            gate: false,
+            require_good_signature: false,
+            required_signers: Vec::new(),
+            json: false,
+        },
+        file,
+    )
 }
 
 fn browse(file: &Option<PathBuf>, project: &crate::model::Project) -> Result<()> {
@@ -161,6 +265,38 @@ fn default_list() -> ListArgs {
         priority: None,
         tag: vec![],
         query: None,
+        json: false,
+    }
+}
+
+fn default_next() -> NextArgs {
+    NextArgs {
+        status: None,
+        kind: None,
+        priority: None,
+        tag: vec![],
+        json: false,
+    }
+}
+
+fn default_coverage() -> CoverageArgs {
+    CoverageArgs {
+        path: PathBuf::from("."),
+        extensions: vec![],
+        unlinked_files: false,
+        by_file: false,
+        remap: vec![],
+        apply: false,
+        strict: false,
+        allow_orphans: vec![],
+        json: false,
+    }
+}
+
+fn default_stale() -> StaleArgs {
+    StaleArgs {
+        path: PathBuf::from("."),
+        only_stale: false,
         json: false,
     }
 }
