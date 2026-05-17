@@ -69,6 +69,12 @@ pub fn run(args: HooksArgs) -> Result<()> {
 
     let attrs = repo.join(".gitattributes");
     ensure_gitattributes_line(&attrs, "*.req merge=req-merge")?;
+    // REQ-0071: pin project.req to LF and disable text-mode normalization
+    // so formatters and Windows autocrlf cannot silently invalidate the
+    // integrity hash on checkout/commit. `-text` keeps git from doing
+    // ANY conversion; `eol=lf` is the explicit storage form.
+    ensure_gitattributes_line(&attrs, "project.req -text eol=lf")?;
+    ensure_gitattributes_line(&attrs, "*.req -text eol=lf")?;
 
     if args.claude_code {
         install_claude_code(&repo)?;

@@ -110,6 +110,7 @@ fn default_add() -> AddArgs {
         parent: None,
         interactive: true,
         json: false,
+        from_json: None,
     }
 }
 
@@ -137,6 +138,7 @@ fn default_update(id: String) -> UpdateArgs {
 fn default_list() -> ListArgs {
     ListArgs {
         status: None,
+        include_obsolete: false,
         kind: None,
         priority: None,
         tag: vec![],

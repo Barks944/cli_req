@@ -162,6 +162,10 @@ pub struct CoverageArgs {
     /// Actually rewrite files when --remap is used (otherwise dry-run).
     #[arg(long)]
     pub apply: bool,
+    /// Exit non-zero if orphans, ghosts, or obsolete-in-code findings
+    /// exist (default mode only). Makes coverage a pre-commit / CI gate.
+    #[arg(long)]
+    pub strict: bool,
     /// JSON output.
     #[arg(long)]
     pub json: bool,
@@ -229,6 +233,10 @@ pub struct AddArgs {
     /// Emit the created requirement as JSON on stdout; suppress human prose.
     #[arg(long)]
     pub json: bool,
+    /// Read all fields from a JSON document (file path or `-` for stdin).
+    /// Bypasses shell quoting for multi-line statements and rationale.
+    #[arg(long = "from-json")]
+    pub from_json: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -236,6 +244,10 @@ pub struct ListArgs {
     /// Filter by status.
     #[arg(long, value_enum)]
     pub status: Option<StatusArg>,
+    /// Include Obsolete requirements (hidden by default; --status obsolete
+    /// always overrides this).
+    #[arg(long)]
+    pub include_obsolete: bool,
     /// Filter by kind.
     #[arg(long, value_enum)]
     pub kind: Option<KindArg>,

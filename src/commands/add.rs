@@ -1,6 +1,6 @@
 // Discharges REQ-0001 (add sub-surface), REQ-0008 (acceptance gate at write),
 // REQ-0038 (--json output on creates).
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
 use std::path::PathBuf;
@@ -11,10 +11,16 @@ use crate::storage::{self, load_resolved};
 use crate::validate;
 
 pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
+    // REQ-0072: --from-json bypasses shell quoting for multi-line content.
+    let args = if args.from_json.is_some() {
+        let src = args.from_json.clone().unwrap();
+        merge_from_json(args, &src)?
+    } else { args };
+
     let (path, mut project) = load_resolved(file)?;
 
     let interactive = args.interactive
-        || (args.title.is_none() && args.statement.is_none() && atty_stdin());
+        || (args.title.is_none() && args.statement.is_none() && !args.from_json.is_some() && atty_stdin());
 
     let theme = ColorfulTheme::default();
 
@@ -188,4 +194,65 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
 fn atty_stdin() -> bool {
     use std::io::IsTerminal;
     std::io::stdin().is_terminal()
+}
+
+/// REQ-0072: load `--from-json` (file path or `-` for stdin) and overlay its
+/// fields onto the existing AddArgs. CLI flags take precedence when both are
+/// supplied (so `--from-json doc.json --priority must` lets you override).
+fn merge_from_json(mut args: AddArgs, src: &str) -> Result<AddArgs> {
+    use std::io::Read;
+    let raw = if src == "-" {
+        let mut buf = String::new();
+        std::io::stdin().read_to_string(&mut buf)?;
+        buf
+    } else {
+        std::fs::read_to_string(src)
+            .with_context(|| format!("read --from-json source {}", src))?
+    };
+    #[derive(serde::Deserialize, Default)]
+    struct AddDoc {
+        title: Option<String>,
+        statement: Option<String>,
+        rationale: Option<String>,
+        acceptance: Option<Vec<String>>,
+        kind: Option<String>,
+        priority: Option<String>,
+        tags: Option<Vec<String>>,
+        parent: Option<String>,
+    }
+    let doc: AddDoc = serde_json::from_str(&raw).context("parse --from-json document")?;
+    if args.title.is_none() { args.title = doc.title; }
+    if args.statement.is_none() { args.statement = doc.statement; }
+    if args.rationale.is_none() { args.rationale = doc.rationale; }
+    if args.acceptance.is_empty() {
+        if let Some(a) = doc.acceptance { args.acceptance = a; }
+    }
+    if args.kind.is_none() {
+        if let Some(k) = doc.kind {
+            args.kind = Some(match k.as_str() {
+                "functional" => crate::cli::KindArg::Functional,
+                "non-functional" | "nonfunctional" => crate::cli::KindArg::NonFunctional,
+                "constraint" => crate::cli::KindArg::Constraint,
+                "interface" => crate::cli::KindArg::Interface,
+                "business" => crate::cli::KindArg::Business,
+                other => return Err(anyhow!("--from-json: unknown kind '{}'", other)),
+            });
+        }
+    }
+    if args.priority.is_none() {
+        if let Some(p) = doc.priority {
+            args.priority = Some(match p.as_str() {
+                "must" => crate::cli::PriorityArg::Must,
+                "should" => crate::cli::PriorityArg::Should,
+                "could" => crate::cli::PriorityArg::Could,
+                "wont" => crate::cli::PriorityArg::Wont,
+                other => return Err(anyhow!("--from-json: unknown priority '{}'", other)),
+            });
+        }
+    }
+    if args.tag.is_empty() {
+        if let Some(t) = doc.tags { args.tag = t; }
+    }
+    if args.parent.is_none() { args.parent = doc.parent; }
+    Ok(args)
 }

@@ -82,6 +82,10 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
+        if args.strict {
+            let findings = report.orphans.len() + report.ghosts.len() + report.obsolete_referenced.len();
+            if findings > 0 { std::process::exit(1); }
+        }
         return Ok(());
     }
 
@@ -112,6 +116,14 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
             for r in refs {
                 println!("    {}", r);
             }
+        }
+    }
+    // REQ-0065: strict mode turns findings into a non-zero exit.
+    if args.strict {
+        let findings = report.orphans.len() + report.ghosts.len() + report.obsolete_referenced.len();
+        if findings > 0 {
+            eprintln!("\ncoverage --strict: {} finding(s); exiting non-zero.", findings);
+            std::process::exit(1);
         }
     }
     Ok(())

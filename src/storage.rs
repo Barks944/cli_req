@@ -111,7 +111,20 @@ pub fn load_with_options(path: &Path, force: bool) -> Result<Project> {
 
     match root.get("_format").and_then(|v| v.as_str()) {
         Some(FORMAT_TAG) => {}
-        Some(other) => return Err(anyhow!("unsupported _format: {}", other)),
+        Some(other) => {
+            // Order matters for the hint: legacy "req-v0" etc would be older;
+            // anything else we don't know is treated as newer.
+            let is_older = other < FORMAT_TAG;
+            let hint = if is_older {
+                "run `req migrate` to upgrade the file in place (a backup is written)"
+            } else {
+                "upgrade the `req` binary — this file uses a newer format than this binary understands"
+            };
+            return Err(anyhow!(
+                "unsupported _format: {} (this binary speaks {}). {}",
+                other, FORMAT_TAG, hint
+            ));
+        }
         None => return Err(anyhow!("not a .req file: missing _format field")),
     }
 

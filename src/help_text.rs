@@ -253,6 +253,66 @@ it last) not *authenticity* (a trusted human approved it). Lean on
 signed commits for the latter.",
     },
     Section {
+        name: "format-policy",
+        summary: "How `_format` versions evolve and what guarantees the CLI makes.",
+        body: "`project.req` carries a `_format` tag at the top of the file
+(currently `req-v1`). This section pins down what changes that tag
+and what to expect when it does.
+
+CURRENT VERSION
+
+  req-v1 — the only released format. All shipping binaries read and
+  write it. The schema is:
+    _warning / _instructions   informational, ignored by the loader
+    _format                    schema tag (required)
+    _integrity                 sha256 of canonical payload (required)
+    name / created / updated   project metadata
+    next_id                    monotonic ID counter
+    requirements               map of REQ-NNNN to Requirement objects
+
+WHEN THE TAG BUMPS
+
+  We bump `_format` only for changes that cannot be expressed as
+  backwards-compatible additions. Backwards-compatible additions —
+  new optional fields with a serde default, new enum variants used
+  only in newer files — DO NOT bump the tag. Examples of changes
+  that WOULD bump:
+    * removing or renaming an existing field
+    * changing the canonical-hash rule
+    * changing how `next_id` is interpreted
+
+ENCOUNTERING AN OLDER FORMAT
+
+  The CLI refuses to load a file whose `_format` is older than the
+  one it understands, and tells you to run:
+
+    req migrate
+
+  `req migrate` writes a sibling backup (project.req.bak-<oldver>),
+  upgrades the file in place, recomputes `_integrity`, and appends
+  a synthetic history entry to each requirement whose shape changed.
+
+ENCOUNTERING A NEWER FORMAT
+
+  The CLI refuses to load a file whose `_format` is NEWER than its
+  own. The error advises upgrading the binary rather than silently
+  attempting to read it — silent reads of unknown-shape files are
+  the bug class this policy exists to prevent.
+
+DOWNGRADE
+
+  The CLI does not provide a downgrade path. Once a file is migrated
+  to a newer format, the prior `.bak` is the only way back; restoring
+  it requires no special tooling (it's just JSON on disk).
+
+PROMISE
+
+  No `_format` bump will silently change semantic behaviour of an
+  already-stored requirement. Migrations preserve per-requirement
+  history; new fields synthesize a single history entry recording
+  the migration.",
+    },
+    Section {
         name: "env",
         summary: "Environment variables read by the tool.",
         body: "REQ_FILE         Override the default .req file path. Equivalent
