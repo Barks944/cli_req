@@ -9,6 +9,12 @@ Built for the workflow where agents and humans share the same source of truth.
 
 ---
 
+## Mission
+
+Make software requirements a first-class, machine-checked artifact that lives next to the code it governs — readable in a diff, enforceable in CI, and equally usable by humans and LLM agents — so that a project's intent and its implementation can never quietly drift apart.
+
+---
+
 ## Why `req`?
 
 Requirements rot when they live in wikis, drift when they live in code comments, and become unreviewable when they live in a database. `req` puts them in your repo as JSON, but stops anyone — human or agent — from editing them in ways that break the rules you'd want a senior engineer to enforce:
