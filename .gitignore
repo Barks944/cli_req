@@ -4,3 +4,4 @@
 # release so the inode is stable across concurrent processes on Windows.
 .*.req.lock
 .claude/settings.local.json
+.agent-sandbox/

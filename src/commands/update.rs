@@ -5,6 +5,7 @@ use chrono::Utc;
 use std::path::PathBuf;
 
 use crate::cli::UpdateArgs;
+use crate::model::Status;
 use crate::storage::{self, load_for_mutation};
 use crate::validate;
 
@@ -79,12 +80,23 @@ pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
     if let Some(s) = args.status {
-        let s = s.into();
+        let s: Status = s.into();
         if r.status != s {
-            changes.push(format!("status {} -> {}", r.status.as_str(), {
-                let ns: crate::model::Status = s;
-                ns.as_str()
-            }));
+            // Verified is a strong claim — it must be reached from
+            // Implemented so the implementation actually exists. Use
+            // `req verify ... --promote` once evidence is attached, or
+            // pass --force to override (e.g. when correcting history).
+            if s == Status::Verified && r.status != Status::Implemented && !args.force {
+                return Err(anyhow!(
+                    "cannot promote {} from {} directly to verified; \
+                     transition through implemented first, or use \
+                     `req verify --by <kind> --notes ... --promote`, \
+                     or pass --force",
+                    args.id,
+                    r.status.as_str()
+                ));
+            }
+            changes.push(format!("status {} -> {}", r.status.as_str(), s.as_str()));
             r.status = s;
         }
     }

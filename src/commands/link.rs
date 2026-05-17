@@ -18,13 +18,18 @@ pub fn run(args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
     }
     let kind: LinkKind = args.kind.into();
 
-    if matches!(kind, LinkKind::Parent)
-        && !args.remove
-        && creates_cycle(&project, &args.from, &args.to)
-    {
+    // Cycle-check every asymmetric link kind. `conflicts` is symmetric
+    // (A conflicts with B == B conflicts with A) so a "cycle" is just a
+    // duplicate — caught by the duplicate-link check below.
+    let cycle_checked = matches!(
+        kind,
+        LinkKind::Parent | LinkKind::DependsOn | LinkKind::Refines | LinkKind::Verifies
+    );
+    if cycle_checked && !args.remove && creates_cycle(&project, &args.from, &args.to, kind) {
         return Err(anyhow!(
-            "linking {} -> parent {} would create a cycle",
+            "linking {} -> {} {} would create a cycle",
             args.from,
+            kind.as_str(),
             args.to
         ));
     }
@@ -77,8 +82,17 @@ pub fn run(args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn creates_cycle(project: &crate::model::Project, from: &str, new_parent: &str) -> bool {
-    let mut current = new_parent.to_string();
+/// Walk forward along same-kind links from `target` and report whether the
+/// chain reaches `from` (which would close a cycle once the new link is
+/// added). Generalised from the original parent-only walker so every
+/// asymmetric link kind gets the same protection.
+fn creates_cycle(
+    project: &crate::model::Project,
+    from: &str,
+    target: &str,
+    kind: LinkKind,
+) -> bool {
+    let mut current = target.to_string();
     let mut visited = Vec::new();
     loop {
         if current == from {
@@ -91,7 +105,7 @@ fn creates_cycle(project: &crate::model::Project, from: &str, new_parent: &str) 
         let next = project.requirements.get(&current).and_then(|r| {
             r.links
                 .iter()
-                .find(|l| l.kind == LinkKind::Parent)
+                .find(|l| l.kind == kind)
                 .map(|l| l.target.clone())
         });
         match next {

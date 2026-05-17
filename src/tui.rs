@@ -251,6 +251,7 @@ fn default_update(id: String) -> UpdateArgs {
         add_tag: vec![],
         remove_tag: vec![],
         reason: None,
+        force: false,
         json: false,
     }
 }

@@ -160,10 +160,17 @@ fn req_0039_json_error_envelope_on_failure() {
     let bogus = format!("REQ-{:04}", 9999);
     let out = s.run(&["show", &bogus, "--json"]);
     assert!(!out.status.success());
-    let err = String::from_utf8_lossy(&out.stderr);
-    // The first line of stderr should be a JSON envelope
-    let first = err.lines().next().unwrap_or("");
-    let parsed: serde_json::Value = serde_json::from_str(first)
-        .unwrap_or_else(|e| panic!("first stderr line not JSON: {}\nstderr was: {}", e, err));
+    // --json mode emits the structured envelope to stdout (the
+    // parseable channel) so callers can JSON.parse() stdout directly.
+    // Stderr stays quiet — no duplicate anyhow chain.
+    let body = String::from_utf8_lossy(&out.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(body.trim())
+        .unwrap_or_else(|e| panic!("stdout not JSON: {}\nstdout was: {}", e, body));
     assert_eq!(parsed["code"].as_str().unwrap(), "REQ-E-NOT-FOUND");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !err.contains("Error:"),
+        "stderr should not carry an anyhow chain in --json mode: {}",
+        err
+    );
 }

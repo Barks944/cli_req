@@ -600,6 +600,177 @@ fn req_0040_next_default_skips_verified_and_obsolete() {
     assert_eq!(v["found"], false);
 }
 
+// ---------- Lifecycle guards (P1 from agent QA) ----------
+
+#[test]
+fn update_status_blocks_direct_jump_to_verified() {
+    // Verified is a strong claim — it must be reached from Implemented
+    // so the implementation actually exists. Bypassing the lifecycle
+    // hides un-implemented requirements behind a green checkmark.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Lifecycle guard fixture requirement",
+        "--statement",
+        "The system shall reject draft-to-verified jumps without force.",
+        "--rationale",
+        "Status floor regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "must",
+    ]);
+    // Direct draft -> verified must fail.
+    let out = s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "verified",
+        "--reason",
+        "trying to skip",
+    ]);
+    assert!(
+        !out.status.success(),
+        "draft -> verified should be rejected: {}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains("verify") || stderr(&out).contains("implemented"),
+        "error should mention the right path: {}",
+        stderr(&out)
+    );
+    // --force lets you do it (for history corrections).
+    let forced = s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "verified",
+        "--reason",
+        "correcting history",
+        "--force",
+    ]);
+    assert!(
+        forced.status.success(),
+        "--force should bypass the guard: {}",
+        stderr(&forced)
+    );
+}
+
+#[test]
+fn verify_promote_requires_implemented_status() {
+    // The `--promote` flag on `req verify` used to flip Draft straight
+    // to Verified. Now it requires Implemented (or --force).
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Promote-guard fixture requirement here",
+        "--statement",
+        "The system shall block promote-from-draft via verify.",
+        "--rationale",
+        "Promote-guard regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "must",
+    ]);
+    let out = s.run(&[
+        "verify",
+        "REQ-0001",
+        "--by",
+        "inspection",
+        "--notes",
+        "Reviewed for fixture",
+        "--promote",
+    ]);
+    assert!(
+        !out.status.success(),
+        "promote from draft should fail: {}",
+        stdout(&out)
+    );
+    // Walk to implemented, then promote succeeds.
+    for status in ["proposed", "approved", "implemented"] {
+        let r = s.run(&["update", "REQ-0001", "--status", status, "--reason", "t"]);
+        assert!(r.status.success(), "status={}", status);
+    }
+    let ok = s.run(&[
+        "verify",
+        "REQ-0001",
+        "--by",
+        "inspection",
+        "--notes",
+        "Reviewed for fixture",
+        "--promote",
+    ]);
+    assert!(ok.status.success(), "promote from implemented should work");
+}
+
+#[test]
+fn link_depends_on_cycle_is_rejected() {
+    // Cycle detection only covered `parent` links before. Now every
+    // asymmetric link kind (parent, depends-on, refines, verifies) is
+    // walked.
+    let s = Sandbox::new();
+    s.init("p");
+    for (i, title) in [
+        "First requirement for the cycle fixture",
+        "Second requirement for the cycle fixture",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let _ = s.run(&[
+            "add",
+            "--title",
+            title,
+            "--statement",
+            &format!("The system shall provide fixture entry {}.", i + 1),
+            "--rationale",
+            "Cycle fixture.",
+            "--kind",
+            "constraint",
+            "--priority",
+            "could",
+        ]);
+    }
+    let ok = s.run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"]);
+    assert!(ok.status.success(), "first link should succeed");
+    let cycle = s.run(&["link", "REQ-0002", "REQ-0001", "-k", "depends-on"]);
+    assert!(
+        !cycle.status.success(),
+        "reverse depends-on should be rejected as a cycle"
+    );
+    assert!(
+        stderr(&cycle).to_lowercase().contains("cycle"),
+        "error should call out the cycle: {}",
+        stderr(&cycle)
+    );
+}
+
+#[test]
+fn diff_accepts_single_ref_shorthand() {
+    // `req diff <ref>` used to error with "spec must be BASE..HEAD".
+    // Now it is treated as `<ref>..HEAD`, matching git muscle memory.
+    let s = Sandbox::new();
+    s.init("p");
+    let help = common::req(&["diff", "--help"]);
+    // Just ensure --help still works after the parse change.
+    assert!(help.status.success());
+    // Bogus single-ref still produces a sensible git error (not "spec
+    // must be BASE..HEAD"). We can't drive a real commit here without
+    // a git repo, so this asserts the parse contract.
+    let out = s.run(&["diff", "bogus-single-ref-xyz"]);
+    let err = stderr(&out);
+    assert!(
+        !err.contains("spec must be BASE..HEAD"),
+        "single ref should not trip the BASE..HEAD message: {}",
+        err
+    );
+}
+
 // ---------- REQ-0042: help --json with structured agents crib ----------
 
 #[test]

@@ -60,16 +60,35 @@ pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     ));
     r.updated = Utc::now();
     let mut promoted = false;
-    if args.promote && !matches!(r.status, Status::Verified | Status::Obsolete) {
-        r.status = Status::Verified;
-        r.history.push(super::history(
-            format!(
-                "status promoted to verified ({} evidence on HEAD)",
-                kind.as_str()
-            ),
-            None,
-        ));
-        promoted = true;
+    if args.promote {
+        // Promotion bypassed the lifecycle entirely before: Draft was
+        // promoted straight to Verified. Now Implemented is the only
+        // status that auto-promotes; everything else requires --force
+        // so the user has to acknowledge the skip.
+        let eligible = matches!(r.status, Status::Implemented);
+        if eligible || args.force {
+            if !matches!(r.status, Status::Verified | Status::Obsolete) {
+                r.status = Status::Verified;
+                r.history.push(super::history(
+                    format!(
+                        "status promoted to verified ({} evidence on HEAD)",
+                        kind.as_str()
+                    ),
+                    None,
+                ));
+                promoted = true;
+            }
+        } else if !matches!(r.status, Status::Verified | Status::Obsolete) {
+            return Err(anyhow!(
+                "{} is at status '{}'; --promote only auto-promotes from \
+                 'implemented'. Move it to implemented first (`req update \
+                 {} --status implemented --reason ...`), or pass --force \
+                 to skip the precondition.",
+                args.id,
+                r.status.as_str(),
+                args.id
+            ));
+        }
     }
     project.updated = Utc::now();
     storage::save(&path, &project)?;

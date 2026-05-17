@@ -360,6 +360,11 @@ pub struct UpdateArgs {
     /// Reason for change — recorded in history.
     #[arg(long)]
     pub reason: Option<String>,
+    /// Skip status-machine guards (e.g. allow draft -> verified without
+    /// passing through implemented). Use only when correcting a bad
+    /// historical record.
+    #[arg(long)]
+    pub force: bool,
     /// Emit the updated requirement as JSON on stdout.
     #[arg(long)]
     pub json: bool,
@@ -555,9 +560,14 @@ pub struct VerifyArgs {
     /// Cite a specific test name or REQ-ID (repeatable). Prepended to notes.
     #[arg(long = "cites")]
     pub cites: Vec<String>,
-    /// Promote the requirement to Verified after recording.
+    /// Promote the requirement to Verified after recording. Only applies
+    /// when the requirement is currently Implemented; pass --force to
+    /// override (e.g. when correcting history).
     #[arg(long)]
     pub promote: bool,
+    /// Skip the Implemented-status precondition on --promote.
+    #[arg(long)]
+    pub force: bool,
     /// JSON output.
     #[arg(long)]
     pub json: bool,

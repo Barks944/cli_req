@@ -1421,8 +1421,14 @@ fn tool_diff(args: &Value, file: &Path) -> Result<String> {
                 h.trim()
             },
         ),
-        None => return Err(anyhow!("spec must be BASE..HEAD, got '{}'", spec)),
+        // Single ref means BASE..HEAD, matching the CLI shorthand.
+        None => (spec.trim(), "HEAD"),
     };
+    if base_ref.is_empty() {
+        return Err(anyhow!(
+            "diff spec needs a base ref; pass `BASE..HEAD`, `BASE..`, or a single `BASE`"
+        ));
+    }
     let filename = file
         .file_name()
         .and_then(|s| s.to_str())
@@ -1970,14 +1976,27 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
         Some(notes.clone()),
     ));
     r.updated = Utc::now();
+    let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);
     let mut promoted = false;
-    if promote && !matches!(r.status, Status::Verified | Status::Obsolete) {
-        r.status = Status::Verified;
-        r.history.push(crate::commands::history(
-            format!("status promoted to verified ({} evidence)", kind.as_str()),
-            None,
-        ));
-        promoted = true;
+    if promote {
+        let eligible = matches!(r.status, Status::Implemented);
+        if eligible || force {
+            if !matches!(r.status, Status::Verified | Status::Obsolete) {
+                r.status = Status::Verified;
+                r.history.push(crate::commands::history(
+                    format!("status promoted to verified ({} evidence)", kind.as_str()),
+                    None,
+                ));
+                promoted = true;
+            }
+        } else if !matches!(r.status, Status::Verified | Status::Obsolete) {
+            return Err(anyhow!(
+                "{} is at status '{}'; --promote only auto-promotes from \
+                 'implemented'. Move it to implemented first, or pass force=true.",
+                id,
+                r.status.as_str()
+            ));
+        }
     }
     project.updated = Utc::now();
     crate::storage::save(&path, &project)?;
@@ -2009,29 +2028,34 @@ fn tool_batch(args: &Value, file: &Path) -> Result<String> {
         .context("invoke self for batch apply")?;
     let _ = std::fs::remove_file(&tmp);
     if !out.status.success() {
-        return Err(anyhow!("{}", first_envelope_line(&out.stderr)));
+        return Err(anyhow!("{}", first_envelope_line(&out.stdout, &out.stderr)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// When the subprocess fails in JSON mode it writes a single-line JSON
-/// envelope (`{"code":...}`) to stderr followed by anyhow's Display
-/// chain. Agents that parse the MCP error text as JSON would choke on
-/// the extra lines, so prefer the first envelope-shaped line; fall
-/// back to the first non-empty line otherwise.
-fn first_envelope_line(stderr: &[u8]) -> String {
-    let text = String::from_utf8_lossy(stderr);
-    for line in text.lines() {
-        let t = line.trim();
-        if t.starts_with('{') && t.ends_with('}') {
-            return t.to_string();
+/// When a `req --json` subprocess fails it writes the single-line JSON
+/// envelope (`{"code":...}`) to stdout; stderr is normally empty.
+/// Either stream might also carry an anyhow chain in non-JSON paths,
+/// so we scan both for the first envelope-shaped line and fall back to
+/// the first non-empty line otherwise. Keeps MCP error text parseable
+/// as JSON in one go.
+fn first_envelope_line(stdout: &[u8], stderr: &[u8]) -> String {
+    for stream in [stdout, stderr] {
+        let text = String::from_utf8_lossy(stream);
+        for line in text.lines() {
+            let t = line.trim();
+            if t.starts_with('{') && t.ends_with('}') {
+                return t.to_string();
+            }
         }
     }
-    text.lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .unwrap_or("")
-        .to_string()
+    for stream in [stdout, stderr] {
+        let text = String::from_utf8_lossy(stream);
+        if let Some(line) = text.lines().map(str::trim).find(|l| !l.is_empty()) {
+            return line.to_string();
+        }
+    }
+    String::new()
 }
 
 fn tool_import(args: &Value, file: &Path) -> Result<String> {
@@ -2062,7 +2086,7 @@ fn tool_import(args: &Value, file: &Path) -> Result<String> {
         .output()
         .context("invoke self for import")?;
     if !out.status.success() {
-        return Err(anyhow!("{}", first_envelope_line(&out.stderr)));
+        return Err(anyhow!("{}", first_envelope_line(&out.stdout, &out.stderr)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -2075,7 +2099,7 @@ fn tool_schema(args: &Value) -> Result<String> {
         .output()
         .context("invoke self for schema")?;
     if !out.status.success() {
-        return Err(anyhow!("{}", first_envelope_line(&out.stderr)));
+        return Err(anyhow!("{}", first_envelope_line(&out.stdout, &out.stderr)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }

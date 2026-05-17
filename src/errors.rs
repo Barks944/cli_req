@@ -21,7 +21,11 @@ pub fn emit(code: &str, message: impl Into<String>, hint: Option<&str>) {
         "message": message.into(),
         "hint": hint.unwrap_or(""),
     });
-    eprintln!("{}", serde_json::to_string(&body).unwrap_or_default());
+    // In --json mode the envelope is the program's structured output, so
+    // it goes to stdout (the conventional channel for tool-readable data).
+    // main.rs suppresses the human-facing anyhow chain in JSON mode so
+    // the stream stays parseable.
+    println!("{}", serde_json::to_string(&body).unwrap_or_default());
 }
 
 /// Classify an anyhow error into a stable REQ-E code by inspecting its

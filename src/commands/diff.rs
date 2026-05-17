@@ -17,10 +17,19 @@ pub fn run(args: DiffArgs, file: &Option<PathBuf>) -> Result<()> {
         .and_then(|s| s.to_str())
         .ok_or_else(|| anyhow!("project file has no name component"))?;
 
+    // Accept three shapes: `BASE..HEAD` (canonical), `BASE..` (head =
+    // working HEAD), and a single ref `BASE` as shorthand for
+    // `BASE..HEAD`. The single-ref form matches `git diff <ref>` muscle
+    // memory.
     let (base_ref, head_ref) = match args.spec.split_once("..") {
         Some((b, h)) => (b.trim(), h.trim()),
-        None => return Err(anyhow!("spec must be BASE..HEAD, got '{}'", args.spec)),
+        None => (args.spec.trim(), ""),
     };
+    if base_ref.is_empty() {
+        return Err(anyhow!(
+            "diff spec needs a base ref; pass `BASE..HEAD`, `BASE..`, or a single `BASE`"
+        ));
+    }
     let head_spec = if head_ref.is_empty() {
         "HEAD".to_string()
     } else {

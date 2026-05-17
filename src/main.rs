@@ -23,8 +23,14 @@ fn main() -> Result<()> {
         Ok(()) => Ok(()),
         Err(e) => {
             if json_mode {
+                // The envelope is the parseable stdout output. Exit with
+                // a non-zero code, but do NOT return Err — anyhow would
+                // then write its full "Error: ... Caused by: ..." chain
+                // to stderr, leaving callers with a non-JSON stream
+                // mixed across stdout and stderr.
                 let code = errors::classify(&e);
                 errors::emit(code, e.to_string(), errors::hint_for(code));
+                std::process::exit(1);
             }
             Err(e)
         }
