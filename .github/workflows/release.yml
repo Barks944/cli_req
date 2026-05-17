@@ -77,7 +77,7 @@ jobs:
       # that later fail to publish) still leave the binaries downloadable
       # from the Actions UI for verification.
       - name: upload workflow artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: req-${{ matrix.target }}
           path: |
