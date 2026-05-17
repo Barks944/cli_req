@@ -94,18 +94,26 @@ pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     if let Some(s) = args.status {
         let s: Status = s.into();
         if r.status != s {
-            // Verified is a strong claim — it must be reached from
-            // Implemented so the implementation actually exists. Use
-            // `req verify ... --promote` once evidence is attached, or
-            // pass --force to override (e.g. when correcting history).
-            if s == Status::Verified && r.status != Status::Implemented && !args.force {
+            // Lifecycle policy lives in model.rs. Natural moves are
+            // forward-one (with a Draft -> Proposed/Approved carve-out)
+            // or any -> Obsolete. Everything else needs --force so
+            // irregular moves are deliberate, with --reason on record.
+            if !crate::model::is_natural_transition(r.status, s) && !args.force {
+                // Special-case the Verified path with its longer hint
+                // because it has a built-in alternative (`req verify`).
+                let extra = if s == Status::Verified {
+                    " — use `req verify --by <kind> --notes ... --promote` to attach evidence, or"
+                } else {
+                    ""
+                };
                 return Err(anyhow!(
-                    "cannot promote {} from {} directly to verified; \
-                     transition through implemented first, or use \
-                     `req verify --by <kind> --notes ... --promote`, \
-                     or pass --force",
+                    "{} -> {} is an irregular transition for {}{}; \
+                     pass --force --reason \"...\" to record an \
+                     explicit override (e.g. correcting a bad record).",
+                    r.status.as_str(),
+                    s.as_str(),
                     args.id,
-                    r.status.as_str()
+                    extra
                 ));
             }
             changes.push(format!("status {} -> {}", r.status.as_str(), s.as_str()));

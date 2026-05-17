@@ -131,15 +131,18 @@ fn req_0069_diff_reports_added_and_changed() {
         "could",
     ]);
     assert!(add2.status.success());
-    let upd = s.run(&[
-        "update",
-        "REQ-0001",
-        "--status",
-        "implemented",
-        "--reason",
-        "Done in this branch",
-    ]);
-    assert!(upd.status.success());
+    // Walk the lifecycle naturally — Draft -> Implemented now requires --force.
+    for status in ["proposed", "approved", "implemented"] {
+        let upd = s.run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            status,
+            "--reason",
+            "Done in this branch",
+        ]);
+        assert!(upd.status.success(), "step to {}", status);
+    }
     let _ = git(s.dir.path(), &["add", "project.req"]);
     let _ = git(s.dir.path(), &["commit", "-q", "-m", "head"]);
 

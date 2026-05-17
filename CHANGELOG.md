@@ -8,6 +8,25 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-05-17
+
+### Changed (lifecycle policy)
+- **Full state-machine guard on `req update --status`** (was: only the
+  approach to Verified). The five-step ladder is now the discipline:
+  Draft -> Proposed -> Approved -> Implemented -> Verified. Natural
+  (free) transitions are forward-one-step, any-state -> Obsolete, and
+  a Draft carve-out that allows Draft -> Proposed or Draft -> Approved
+  directly (sketch-then-slot workflow). Everything else — skip-forward,
+  any backward move, resurrection from Obsolete, leaving Verified for
+  anything-but-Obsolete — requires `--force --reason "..."` so
+  irregular moves stay deliberate and traceable.
+- Same policy applied to `req batch` `update` mutations via a
+  `"force": true` per-mutation flag.
+
+This is a deliberate breaking change for anyone driving `req update`
+non-naturally; the fix is to either walk the lifecycle one step at a
+time or pass `--force` for the irregular step.
+
 ## [0.1.2] — 2026-05-17
 
 ### Fixed (P0 — closed bypasses around 0.1.1 guards)

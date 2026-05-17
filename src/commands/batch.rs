@@ -289,16 +289,16 @@ fn apply_one(
             }
             if let Some(st) = parse_status(status.as_deref())? {
                 if r.status != st {
-                    // Same lifecycle guard as `req update`: verified
-                    // is only reachable from Implemented. Batch must
-                    // not be a back door around the headline 0.1.1 fix.
-                    if st == Status::Verified && r.status != Status::Implemented && !*force {
+                    // Same lifecycle policy as `req update`. Irregular
+                    // moves need force=true on the mutation so batch
+                    // can't be a back door around the state machine.
+                    if !crate::model::is_natural_transition(r.status, st) && !*force {
                         return Err(anyhow!(
-                            "cannot promote {} from {} directly to verified \
-                             via batch; pass \"force\": true on this mutation, \
-                             or transition through implemented first",
-                            id,
-                            r.status.as_str()
+                            "{} -> {} is an irregular transition for {} via batch; \
+                             pass \"force\": true on this mutation to override.",
+                            r.status.as_str(),
+                            st.as_str(),
+                            id
                         ));
                     }
                     changes.push(format!("status -> {}", st.as_str()));

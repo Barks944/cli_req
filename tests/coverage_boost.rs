@@ -987,6 +987,199 @@ fn diff_with_req_id_returns_friendly_hint() {
     );
 }
 
+// ---------- 0.1.2 state-machine policy (Position A + Draft carve-out) ----------
+
+fn fixture_draft(s: &Sandbox) {
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "State machine fixture requirement",
+        "--statement",
+        "The system shall enforce A + Draft carve-out lifecycle policy.",
+        "--rationale",
+        "Lifecycle policy regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+}
+
+fn run_update_status(s: &Sandbox, from: &str, to: &str) -> std::process::Output {
+    // Reset to the desired starting status by force-driving, then
+    // attempt the natural transition under test.
+    s.run(&[
+        "update", "REQ-0001", "--status", from, "--reason", "reset", "--force",
+    ]);
+    s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        to,
+        "--reason",
+        "transition under test",
+    ])
+}
+
+#[test]
+fn lifecycle_forward_one_step_is_free() {
+    let s = Sandbox::new();
+    s.init("p");
+    fixture_draft(&s);
+    for (from, to) in [
+        ("draft", "proposed"),
+        ("proposed", "approved"),
+        ("approved", "implemented"),
+        ("implemented", "verified"),
+    ] {
+        let out = run_update_status(&s, from, to);
+        assert!(
+            out.status.success(),
+            "{} -> {} should be free: {}",
+            from,
+            to,
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn lifecycle_draft_carve_out_is_free() {
+    // Draft is a scratch state; sketch-then-slot directly to Proposed
+    // or Approved without ceremony is part of the natural workflow.
+    let s = Sandbox::new();
+    s.init("p");
+    fixture_draft(&s);
+    let to_proposed = run_update_status(&s, "draft", "proposed");
+    assert!(to_proposed.status.success());
+    let to_approved = run_update_status(&s, "draft", "approved");
+    assert!(
+        to_approved.status.success(),
+        "draft -> approved should be the carve-out: {}",
+        stderr(&to_approved)
+    );
+}
+
+#[test]
+fn lifecycle_to_obsolete_is_free_from_any_state() {
+    let s = Sandbox::new();
+    s.init("p");
+    fixture_draft(&s);
+    for from in ["draft", "proposed", "approved", "implemented", "verified"] {
+        let out = run_update_status(&s, from, "obsolete");
+        assert!(
+            out.status.success(),
+            "{} -> obsolete should be free: {}",
+            from,
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn lifecycle_skip_forward_requires_force() {
+    let s = Sandbox::new();
+    s.init("p");
+    fixture_draft(&s);
+    let out = run_update_status(&s, "draft", "implemented");
+    assert!(
+        !out.status.success(),
+        "draft -> implemented should require --force: {}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains("irregular"),
+        "error should label it irregular: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn lifecycle_backward_from_verified_requires_force() {
+    let s = Sandbox::new();
+    s.init("p");
+    fixture_draft(&s);
+    // Verified is sticky — leaving it for anything-but-Obsolete is
+    // irregular and needs an explicit override.
+    let out = run_update_status(&s, "verified", "implemented");
+    assert!(
+        !out.status.success(),
+        "verified -> implemented should require --force: {}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn lifecycle_resurrect_from_obsolete_requires_force() {
+    let s = Sandbox::new();
+    s.init("p");
+    fixture_draft(&s);
+    let out = run_update_status(&s, "obsolete", "draft");
+    assert!(
+        !out.status.success(),
+        "obsolete -> draft should require --force: {}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn lifecycle_force_allows_any_transition_with_reason() {
+    let s = Sandbox::new();
+    s.init("p");
+    fixture_draft(&s);
+    // Walk to Verified naturally, then demote with --force.
+    for to in ["proposed", "approved", "implemented", "verified"] {
+        let r = s.run(&["update", "REQ-0001", "--status", to, "--reason", "walking"]);
+        assert!(r.status.success(), "natural step to {} failed", to);
+    }
+    let forced = s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "implemented",
+        "--reason",
+        "verification was wrong",
+        "--force",
+    ]);
+    assert!(
+        forced.status.success(),
+        "--force with --reason should let you demote: {}",
+        stderr(&forced)
+    );
+}
+
+#[test]
+fn lifecycle_batch_honours_state_machine() {
+    // Batch must enforce the same policy. Irregular jump rejected;
+    // force=true mutation passes.
+    let s = Sandbox::new();
+    s.init("p");
+    fixture_draft(&s);
+    let batch_path = s.path().parent().unwrap().join("batch_sm.json");
+    std::fs::write(
+        &batch_path,
+        r#"{"mutations":[{"kind":"update","id":"REQ-0001","status":"implemented","reason":"skip"}]}"#,
+    )
+    .unwrap();
+    let out = s.run(&["batch", batch_path.to_str().unwrap()]);
+    assert!(
+        !out.status.success(),
+        "draft -> implemented via batch should be rejected: {}",
+        stdout(&out)
+    );
+    std::fs::write(
+        &batch_path,
+        r#"{"mutations":[{"kind":"update","id":"REQ-0001","status":"implemented","reason":"skip","force":true}]}"#,
+    )
+    .unwrap();
+    let forced = s.run(&["batch", batch_path.to_str().unwrap()]);
+    assert!(
+        forced.status.success(),
+        "batch force:true should bypass: {}",
+        stderr(&forced)
+    );
+}
+
 // ---------- Group C: 0.1.2 CLI polish ----------
 
 #[test]
@@ -1489,14 +1682,12 @@ fn req_0056_verify_inspection_promotes_to_verified() {
         "--priority",
         "could",
     ]);
-    let _ = s.run(&[
-        "update",
-        "REQ-0001",
-        "--status",
-        "implemented",
-        "--reason",
-        "manual review",
-    ]);
+    // Walk the lifecycle naturally — Draft -> Implemented is an
+    // irregular skip and would need --force.
+    for status in ["proposed", "approved", "implemented"] {
+        let r = s.run(&["update", "REQ-0001", "--status", status, "--reason", "step"]);
+        assert!(r.status.success(), "step to {}: {}", status, stderr(&r));
+    }
     let out = s.run(&[
         "verify",
         "REQ-0001",

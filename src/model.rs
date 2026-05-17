@@ -174,6 +174,42 @@ pub enum Status {
     Obsolete,
 }
 
+/// Lifecycle policy: which transitions are free (the natural workflow)
+/// versus which need an explicit `--force` to acknowledge the irregular
+/// move. Returns true when `from -> to` is natural.
+///
+/// Natural transitions:
+///   • Forward one step on the ladder.
+///   • From Draft, jump directly to Proposed or Approved (the "sketch
+///     and slot" carve-out — Draft is a scratch state).
+///   • Any active status to Obsolete (retire).
+///   • Same state (no-op handled by the caller).
+///
+/// Irregular (force-required):
+///   • Skip-forward past Approved (e.g. Draft -> Implemented).
+///   • Backward moves (e.g. Verified -> Approved). These are real,
+///     legitimate operations — a bad test record, a wrong promotion —
+///     but they should be deliberate and recorded.
+///   • Resurrection (Obsolete -> anything).
+///   • Leaving Verified for anything but Obsolete (sticky-Verified).
+pub fn is_natural_transition(from: Status, to: Status) -> bool {
+    use Status::*;
+    if from == to {
+        return true;
+    }
+    if to == Obsolete && from != Obsolete {
+        return true;
+    }
+    matches!(
+        (from, to),
+        (Draft, Proposed)
+            | (Draft, Approved) // carve-out
+            | (Proposed, Approved)
+            | (Approved, Implemented)
+            | (Implemented, Verified)
+    )
+}
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LinkKind {
     Parent,
