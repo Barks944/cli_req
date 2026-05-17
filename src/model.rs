@@ -49,6 +49,31 @@ pub struct Requirement {
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub history: Vec<HistoryEntry>,
+    /// Test records (REQ-0049 / REQ-0050). Defaults to empty so older files
+    /// load forward-compatibly.
+    #[serde(default)]
+    pub tests: Vec<TestRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRecord {
+    pub at: DateTime<Utc>,
+    pub actor: String,
+    pub commit: String,
+    pub outcome: TestOutcome,
+    pub notes: String,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TestOutcome {
+    Pass,
+    Fail,
+}
+
+impl TestOutcome {
+    pub fn as_str(&self) -> &'static str {
+        match self { TestOutcome::Pass => "pass", TestOutcome::Fail => "fail" }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

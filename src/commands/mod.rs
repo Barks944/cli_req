@@ -11,6 +11,8 @@ pub mod list;
 pub mod renumber;
 pub mod repair;
 pub mod show;
+pub mod status;
+pub mod test_cmd;
 pub mod update;
 pub mod validate_cmd;
 

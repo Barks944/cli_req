@@ -332,10 +332,17 @@ INSTALL THIS GUIDANCE INTO AGENTS.md
                                          # Use --path PATH for non-default
                                          # locations.
 
-MCP (not yet implemented)
+MCP (Model Context Protocol)
 
-  `req mcp` is reserved for a future JSON-RPC interface. For now, shell
-  out to `req <subcommand>` for every operation.
+  An MCP server is built in. Two ways to use it:
+
+  * Run it: `req mcp` — speaks JSON-RPC 2.0 over stdio. Pair with an MCP
+    client (Claude Code, etc.).
+  * Bootstrap: `req mcp --init-config` — writes a .mcp.json at the repo
+    root so MCP-capable clients can launch the server automatically.
+
+  Once connected, call tool `req_help` with {section: 'agents'} for the
+  trigger table. See `req help mcp` for the full transport detail.
 ```
 
 <!-- req:help:agents:end -->

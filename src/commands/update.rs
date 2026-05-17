@@ -101,7 +101,11 @@ pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     if changes.is_empty() {
-        println!("No changes.");
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&project.requirements[&args.id])?);
+        } else {
+            println!("No changes.");
+        }
         return Ok(());
     }
 
@@ -122,6 +126,10 @@ pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     r.history.push(super::history(changes.join("; "), args.reason));
     project.updated = Utc::now();
     storage::save(&path, &project)?;
-    println!("Updated {}", args.id);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&project.requirements[&args.id])?);
+    } else {
+        println!("Updated {}", args.id);
+    }
     Ok(())
 }

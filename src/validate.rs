@@ -6,21 +6,45 @@ use regex::Regex;
 use crate::model::{Kind, Project, Requirement, Status};
 
 /// A validation finding. `error = true` blocks the operation; otherwise it's a warning.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Finding {
     pub error: bool,
     pub field: &'static str,
+    pub rule_code: &'static str,
     pub message: String,
 }
 
 impl Finding {
-    fn err(field: &'static str, message: impl Into<String>) -> Self {
-        Self { error: true, field, message: message.into() }
+    fn err(code: &'static str, field: &'static str, message: impl Into<String>) -> Self {
+        Self { error: true, field, rule_code: code, message: message.into() }
     }
-    fn warn(field: &'static str, message: impl Into<String>) -> Self {
-        Self { error: false, field, message: message.into() }
+    fn warn(code: &'static str, field: &'static str, message: impl Into<String>) -> Self {
+        Self { error: false, field, rule_code: code, message: message.into() }
     }
 }
+
+/// Stable rule-code catalog. Keep in sync with `req help best-practice`.
+/// Adding a code is backwards-compatible; renumbering existing codes is NOT.
+pub const RULES: &[(&str, &str)] = &[
+    ("REQ-V-0001", "title is required"),
+    ("REQ-V-0002", "title is too short (min 5 characters)"),
+    ("REQ-V-0003", "title is too long (max 120 characters)"),
+    ("REQ-V-0004", "title ends with a period (warn)"),
+    ("REQ-V-0005", "statement is required"),
+    ("REQ-V-0006", "statement must be a complete sentence (>=5 words)"),
+    ("REQ-V-0007", "statement is too long (>80 words, warn)"),
+    ("REQ-V-0008", "statement must contain a normative modal verb"),
+    ("REQ-V-0009", "statement contains a weasel word (warn)"),
+    ("REQ-V-0010", "statement looks compound (warn)"),
+    ("REQ-V-0011", "statement must not be a question"),
+    ("REQ-V-0012", "rationale is required"),
+    ("REQ-V-0013", "rationale is very short (warn)"),
+    ("REQ-V-0014", "functional requirement is missing acceptance criteria"),
+    ("REQ-V-0015", "acceptance criterion is too vague (warn)"),
+    ("REQ-V-0016", "link target does not exist"),
+    ("REQ-V-0017", "self-link not allowed"),
+    ("REQ-V-0018", "status requires acceptance for functional requirement"),
+];
 
 static WEASEL_WORDS: &[&str] = &[
     "etc", "and/or", "user-friendly", "easy to use", "robust", "fast",
@@ -53,34 +77,34 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
     let title = r.title.trim();
     let title_chars = title.chars().count();
     if title.is_empty() {
-        out.push(Finding::err("title", "title is required"));
+        out.push(Finding::err("REQ-V-0001", "title", "title is required"));
     } else if title_chars < 5 {
-        out.push(Finding::err("title", "title is too short (min 5 characters)"));
+        out.push(Finding::err("REQ-V-0002", "title", "title is too short (min 5 characters)"));
     } else if title_chars > 120 {
-        out.push(Finding::err("title", "title is too long (max 120 characters)"));
+        out.push(Finding::err("REQ-V-0003", "title", "title is too long (max 120 characters)"));
     }
     if title.ends_with('.') {
-        out.push(Finding::warn("title", "drop the trailing period — titles are not sentences"));
+        out.push(Finding::warn("REQ-V-0004", "title", "drop the trailing period — titles are not sentences"));
     }
 
     let stmt = r.statement.trim();
     if stmt.is_empty() {
-        out.push(Finding::err("statement", "statement is required"));
+        out.push(Finding::err("REQ-V-0005", "statement", "statement is required"));
     } else {
         let words = stmt.split_whitespace().count();
         if words < 5 {
-            out.push(Finding::err("statement", "statement must be a complete sentence (>=5 words)"));
+            out.push(Finding::err("REQ-V-0006", "statement", "statement must be a complete sentence (>=5 words)"));
         }
         if words > 80 {
             out.push(Finding::warn(
-                "statement",
+                "REQ-V-0007", "statement",
                 format!("statement is {} words long — split into atomic requirements", words),
             ));
         }
         let prose = strip_non_prose(stmt);
         if !MODAL_RE.is_match(&prose) {
             out.push(Finding::err(
-                "statement",
+                "REQ-V-0008", "statement",
                 "statement must contain a normative modal verb (shall / must / should / will)",
             ));
         }
@@ -88,15 +112,11 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         for w in WEASEL_WORDS {
             if lower.contains(w) {
                 out.push(Finding::warn(
-                    "statement",
+                    "REQ-V-0009", "statement",
                     format!("avoid the vague term '{}': prefer a measurable criterion", w),
                 ));
             }
         }
-        // Compound-statement heuristics. Any one of these warns:
-        //   * the statement contains a semicolon (separate clauses)
-        //   * more than one normative modal verb (multiple obligations)
-        //   * 3+ comma-separated clauses joined by " and "
         let modal_hits = MODAL_RE.find_iter(&prose).count();
         let csv_clauses = stmt
             .split(',')
@@ -107,31 +127,31 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
             || (csv_clauses >= 3 && stmt.contains(" and "));
         if looks_compound {
             out.push(Finding::warn(
-                "statement",
+                "REQ-V-0010", "statement",
                 "statement looks compound — split into atomic requirements",
             ));
         }
         if stmt.contains('?') {
-            out.push(Finding::err("statement", "statement must not be a question"));
+            out.push(Finding::err("REQ-V-0011", "statement", "statement must not be a question"));
         }
     }
 
     if r.rationale.trim().is_empty() {
-        out.push(Finding::err("rationale", "rationale is required — explain WHY"));
+        out.push(Finding::err("REQ-V-0012", "rationale", "rationale is required — explain WHY"));
     } else if r.rationale.split_whitespace().count() < 3 {
-        out.push(Finding::warn("rationale", "rationale is very short"));
+        out.push(Finding::warn("REQ-V-0013", "rationale", "rationale is very short"));
     }
 
     if matches!(r.kind, Kind::Functional) && r.acceptance.is_empty() {
         out.push(Finding::err(
-            "acceptance",
+            "REQ-V-0014", "acceptance",
             "functional requirements need at least one acceptance criterion",
         ));
     }
     for (i, ac) in r.acceptance.iter().enumerate() {
         if ac.trim().split_whitespace().count() < 3 {
             out.push(Finding::warn(
-                "acceptance",
+                "REQ-V-0015", "acceptance",
                 format!("acceptance #{} is too vague to verify", i + 1),
             ));
         }
@@ -147,11 +167,11 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         for link in &r.links {
             if !p.requirements.contains_key(&link.target) {
                 findings.push(Finding::err(
-                    "links",
+                    "REQ-V-0016", "links",
                     format!("link target {} does not exist", link.target),
                 ));
             } else if link.target == r.id {
-                findings.push(Finding::err("links", "self-link is not allowed"));
+                findings.push(Finding::err("REQ-V-0017", "links", "self-link is not allowed"));
             }
         }
         if matches!(r.status, Status::Approved | Status::Implemented | Status::Verified)
@@ -159,7 +179,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             && matches!(r.kind, Kind::Functional)
         {
             findings.push(Finding::err(
-                "status",
+                "REQ-V-0018", "status",
                 "cannot be approved/implemented/verified without acceptance criteria",
             ));
         }

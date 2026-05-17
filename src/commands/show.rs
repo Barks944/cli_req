@@ -53,6 +53,34 @@ pub fn render(r: &Requirement) {
             println!("  {} -> {}", l.kind.as_str(), l.target);
         }
     }
+    println!();
+    println!("Test records:");
+    if r.tests.is_empty() {
+        println!("  (no test records)");
+    } else {
+        let head = super::test_cmd::current_head_sha_opt();
+        for (i, t) in r.tests.iter().enumerate() {
+            let is_latest = i + 1 == r.tests.len();
+            let drift = if is_latest {
+                match &head {
+                    Some(h) if *h == t.commit => " [matches HEAD]".to_string(),
+                    Some(h) => format!(" [drifted — HEAD now {}]", super::test_cmd::short(h)),
+                    None => " [HEAD unknown — not in a git tree]".to_string(),
+                }
+            } else { String::new() };
+            let notes = if t.notes.is_empty() { String::new() } else { format!(" — {}", t.notes) };
+            println!(
+                "  {} {} commit={} actor={}{}{}",
+                t.at.format("%Y-%m-%d %H:%M"),
+                t.outcome.as_str().to_uppercase(),
+                super::test_cmd::short(&t.commit),
+                t.actor,
+                drift,
+                notes,
+            );
+        }
+    }
+
     if !r.history.is_empty() {
         println!();
         println!("History:");

@@ -28,6 +28,25 @@ pub struct Cli {
     pub command: Command,
 }
 
+impl Command {
+    /// Whether the user asked for JSON output on this invocation. Drives the
+    /// stderr error envelope in main.
+    pub fn is_json(&self) -> bool {
+        match self {
+            Command::Add(a) => a.json,
+            Command::Update(a) => a.json,
+            Command::Delete(a) => a.json,
+            Command::Link(a) => a.json,
+            Command::Validate(a) => a.json,
+            Command::Status(a) => a.json,
+            Command::Test(TestCmd::Record(a)) => a.json,
+            Command::List(a) => a.json,
+            Command::Show(a) => a.json,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Create a new .req project file.
@@ -45,7 +64,12 @@ pub enum Command {
     /// Create parent/child or trace links between requirements.
     Link(LinkArgs),
     /// Validate every requirement against best-practice rules.
-    Validate,
+    Validate(ValidateArgs),
+    /// Show project-level implementation status with counts and percentages.
+    Status(StatusArgs),
+    /// Attach a test record (commit SHA + outcome + notes) to a requirement.
+    #[command(subcommand)]
+    Test(TestCmd),
     /// Export the project to another format.
     Export(ExportArgs),
     /// Launch the interactive terminal browser/editor.
@@ -179,6 +203,9 @@ pub struct AddArgs {
     /// Force interactive mode even if flags are present.
     #[arg(short, long)]
     pub interactive: bool,
+    /// Emit the created requirement as JSON on stdout; suppress human prose.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -245,6 +272,9 @@ pub struct UpdateArgs {
     /// Reason for change — recorded in history.
     #[arg(long)]
     pub reason: Option<String>,
+    /// Emit the updated requirement as JSON on stdout.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -255,6 +285,9 @@ pub struct DeleteArgs {
     pub hard: bool,
     #[arg(long)]
     pub reason: Option<String>,
+    /// Emit the deletion as JSON on stdout.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -269,6 +302,9 @@ pub struct LinkArgs {
     /// Remove the link instead of adding it.
     #[arg(long)]
     pub remove: bool,
+    /// Emit the link result as JSON on stdout.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -279,6 +315,46 @@ pub struct ExportArgs {
     /// Output path. `-` for stdout.
     #[arg(short, long, default_value = "-")]
     pub output: String,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TestCmd {
+    /// Record a test run against a requirement; captures git HEAD SHA, outcome, notes.
+    Record(TestRecordArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ValidateArgs {
+    /// Emit findings as JSON; preserves the non-zero exit on errors.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct StatusArgs {
+    /// Emit the status counts and percentages as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TestRecordArgs {
+    pub id: String,
+    /// Test result: pass or fail.
+    #[arg(long, value_enum)]
+    pub result: TestResultArg,
+    /// Free-text notes attached to the test record.
+    #[arg(long, default_value = "")]
+    pub notes: String,
+    /// Emit the resulting requirement as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum TestResultArg {
+    Pass,
+    Fail,
 }
 
 #[derive(Args, Debug)]

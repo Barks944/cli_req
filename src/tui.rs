@@ -46,10 +46,10 @@ pub fn run(file: &Option<PathBuf>) -> Result<()> {
             }
             3 => {
                 if let Some(id) = pick_id(&theme, &project)? {
-                    commands::delete::run(DeleteArgs { id, hard: false, reason: None }, file)?;
+                    commands::delete::run(DeleteArgs { id, hard: false, reason: None, json: false }, file)?;
                 }
             }
-            4 => commands::validate_cmd::run(file)?,
+            4 => commands::validate_cmd::run(crate::cli::ValidateArgs { json: false }, file)?,
             5 => commands::export::run(
                 ExportArgs { format: ExportFormat::Markdown, output: "-".into() },
                 file,
@@ -109,6 +109,7 @@ fn default_add() -> AddArgs {
         tag: vec![],
         parent: None,
         interactive: true,
+        json: false,
     }
 }
 
@@ -127,6 +128,7 @@ fn default_update(id: String) -> UpdateArgs {
         add_tag: vec![],
         remove_tag: vec![],
         reason: None,
+        json: false,
     }
 }
 

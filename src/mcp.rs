@@ -499,6 +499,7 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         tags, links,
         created: now, updated: now,
         history: vec![commands::history("created via MCP", None)],
+        tests: Vec::new(),
     };
     let findings = validate::validate_requirement(&req);
     let errs = validate::errors_only(&findings);

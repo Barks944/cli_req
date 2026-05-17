@@ -56,7 +56,14 @@ pub fn run(args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
     r.updated = Utc::now();
     project.updated = Utc::now();
     storage::save(&path, &project)?;
-    println!("OK");
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "from": args.from, "to": args.to,
+            "kind": kind.as_str(), "removed": args.remove
+        }))?);
+    } else {
+        println!("OK");
+    }
     Ok(())
 }
 

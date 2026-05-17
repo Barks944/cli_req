@@ -146,6 +146,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         created: now,
         updated: now,
         history: vec![super::history("created", None)],
+        tests: Vec::new(),
     };
 
     let findings = validate::validate_requirement(&req);
@@ -172,10 +173,14 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
 
     let id = project.allocate_id();
     req.id = id.clone();
-    project.requirements.insert(id.clone(), req);
+    project.requirements.insert(id.clone(), req.clone());
     project.updated = now;
     storage::save(&path, &project)?;
-    println!("Added {}", id);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&project.requirements[&id])?);
+    } else {
+        println!("Added {}", id);
+    }
     Ok(())
 }
 

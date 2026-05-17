@@ -253,6 +253,50 @@ it last) not *authenticity* (a trusted human approved it). Lean on
 signed commits for the latter.",
     },
     Section {
+        name: "errors",
+        summary: "Stable error and rule codes for agents and tooling.",
+        body: "Every CLI subcommand that supports --json emits errors on stderr
+as a single JSON object with three fields:
+
+  { \"code\": \"REQ-E-...\", \"message\": \"...\", \"hint\": \"...\" }
+
+ERROR CODES (stable)
+
+  REQ-E-INTEGRITY       File integrity hash mismatch. Hint names
+                        `req repair --confirm-direct-edit`.
+  REQ-E-NOT-FOUND       Referenced requirement / file / ref does not exist.
+  REQ-E-VALIDATION      Validator rejected the input.
+  REQ-E-CYCLE           A parent link would create a cycle.
+  REQ-E-DUPLICATE       Link already exists, or another uniqueness clash.
+  REQ-E-INVALID-INPUT   Malformed arguments or unknown enum value.
+  REQ-E-IO              File or process error (read/write/exec).
+
+VALIDATOR RULE CODES (stable)
+
+  REQ-V-0001  title is required
+  REQ-V-0002  title is too short (min 5 characters)
+  REQ-V-0003  title is too long (max 120 characters)
+  REQ-V-0004  title ends with a period (warn)
+  REQ-V-0005  statement is required
+  REQ-V-0006  statement must be a complete sentence (>=5 words)
+  REQ-V-0007  statement is too long (>80 words, warn)
+  REQ-V-0008  statement must contain a normative modal verb
+  REQ-V-0009  statement contains a weasel word (warn)
+  REQ-V-0010  statement looks compound (warn)
+  REQ-V-0011  statement must not be a question
+  REQ-V-0012  rationale is required
+  REQ-V-0013  rationale is very short (warn)
+  REQ-V-0014  functional requirement is missing acceptance criteria
+  REQ-V-0015  acceptance criterion is too vague (warn)
+  REQ-V-0016  link target does not exist
+  REQ-V-0017  self-link not allowed
+  REQ-V-0018  status requires acceptance for functional requirement
+
+Codes are append-only — adding a code is backwards compatible; renumbering
+existing codes is NOT. Agents may match on codes and treat messages as
+informational text.",
+    },
+    Section {
         name: "mcp",
         summary: "Run `req` as an MCP server for LLM agents.",
         body: "`req mcp` speaks the Model Context Protocol over stdio: each line
