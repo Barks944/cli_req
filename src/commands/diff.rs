@@ -30,6 +30,19 @@ pub fn run(args: DiffArgs, file: &Option<PathBuf>) -> Result<()> {
             "diff spec needs a base ref; pass `BASE..HEAD`, `BASE..`, or a single `BASE`"
         ));
     }
+    // Common confusion: passing a requirement ID as the spec. Catch it
+    // here so users see a useful hint instead of git's
+    // `fatal: invalid object name`.
+    if looks_like_req_id(base_ref) || looks_like_req_id(head_ref) {
+        return Err(anyhow!(
+            "`{}` looks like a requirement ID, not a git rev. \
+             `req diff` takes a git ref or BASE..HEAD pair (e.g. `HEAD~1`, \
+             `origin/main..HEAD`). Use `req show {}` to inspect a single \
+             requirement.",
+            args.spec,
+            base_ref,
+        ));
+    }
     let head_spec = if head_ref.is_empty() {
         "HEAD".to_string()
     } else {
@@ -125,6 +138,15 @@ pub fn run(args: DiffArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn looks_like_req_id(s: &str) -> bool {
+    let up = s.to_uppercase();
+    up.starts_with("REQ-")
+        && up
+            .strip_prefix("REQ-")
+            .map(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or(false)
 }
 
 fn load_at_ref(reference: &str, filename: &str) -> Result<Project> {

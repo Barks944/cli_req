@@ -771,6 +771,222 @@ fn diff_accepts_single_ref_shorthand() {
     );
 }
 
+// ---------- Group A: 0.1.2 P0/P1 batch + cycle-detect + repair + diff hint ----------
+
+#[test]
+fn batch_update_to_verified_blocked_without_force() {
+    // P0 regression: batch was a back door around the 0.1.1 lifecycle
+    // guard — `{kind: update, status: verified}` slid Draft straight
+    // to Verified. Same guard now lives in batch.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Batch-guard fixture requirement here",
+        "--statement",
+        "The system shall reject batch jumps to verified without force.",
+        "--rationale",
+        "Batch guard regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "must",
+    ]);
+    let batch_path = s.path().parent().unwrap().join("batch_block.json");
+    std::fs::write(
+        &batch_path,
+        r#"{"mutations":[{"kind":"update","id":"REQ-0001","status":"verified","reason":"skip"}]}"#,
+    )
+    .unwrap();
+    let out = s.run(&["batch", batch_path.to_str().unwrap()]);
+    assert!(
+        !out.status.success(),
+        "draft -> verified via batch should be rejected: {}",
+        stdout(&out)
+    );
+    // Same batch with force=true should succeed.
+    std::fs::write(
+        &batch_path,
+        r#"{"mutations":[{"kind":"update","id":"REQ-0001","status":"verified","reason":"force","force":true}]}"#,
+    )
+    .unwrap();
+    let forced = s.run(&["batch", batch_path.to_str().unwrap()]);
+    assert!(
+        forced.status.success(),
+        "force:true should bypass: {}",
+        stderr(&forced)
+    );
+}
+
+#[test]
+fn batch_link_cycle_blocked() {
+    // P0 regression: batch ignored cycle detection on link mutations,
+    // letting callers install cycles that direct `req link` rejects.
+    let s = Sandbox::new();
+    s.init("p");
+    for (i, title) in [
+        "First requirement for batch cycle fixture",
+        "Second requirement for batch cycle fixture",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let _ = s.run(&[
+            "add",
+            "--title",
+            title,
+            "--statement",
+            &format!("The system shall provide cycle fixture entry {}.", i + 1),
+            "--rationale",
+            "Cycle fixture.",
+            "--kind",
+            "constraint",
+            "--priority",
+            "could",
+        ]);
+    }
+    let _ = s.run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"]);
+    let batch_path = s.path().parent().unwrap().join("batch_cycle.json");
+    std::fs::write(
+        &batch_path,
+        r#"{"mutations":[{"kind":"link","from":"REQ-0002","to":"REQ-0001","link_kind":"depends-on"}]}"#,
+    )
+    .unwrap();
+    let out = s.run(&["batch", batch_path.to_str().unwrap()]);
+    assert!(
+        !out.status.success(),
+        "cycle-closing link via batch should be rejected: {}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).to_lowercase().contains("cycle"),
+        "error should call out the cycle: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn validate_detects_link_cycles() {
+    // P1: even if a cycle slips in (batch on an old binary, merge,
+    // manual repair), `req validate` must surface it as REQ-V-0021.
+    // We can't easily install a cycle through the CLI now, but we can
+    // verify the rule by hand-corrupting + repairing + validating.
+    let s = Sandbox::new();
+    s.init("p");
+    for (i, title) in [
+        "Cycle fixture requirement number one",
+        "Cycle fixture requirement number two",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let _ = s.run(&[
+            "add",
+            "--title",
+            title,
+            "--statement",
+            &format!(
+                "The system shall expose validate-time cycle detection {}.",
+                i + 1
+            ),
+            "--rationale",
+            "Validate cycle fixture.",
+            "--kind",
+            "constraint",
+            "--priority",
+            "could",
+        ]);
+    }
+    let _ = s.run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"]);
+    // Inject a reverse depends-on by writing JSON directly (bypassing
+    // the guard) — exactly the situation REQ-V-0021 exists to catch.
+    let text = std::fs::read_to_string(s.path()).unwrap();
+    let mut v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let reqs = v["requirements"].as_object_mut().unwrap();
+    let r2 = reqs.get_mut("REQ-0002").unwrap();
+    r2["links"] = serde_json::json!([{"kind":"DependsOn","target":"REQ-0001"}]);
+    std::fs::write(s.path(), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    // Re-sign (file is dirty, integrity hash mismatched).
+    let r = s.run(&["repair", "--confirm-direct-edit", "--force"]);
+    assert!(
+        r.status.success(),
+        "force-repair should succeed: {}",
+        stderr(&r)
+    );
+    let out = s.run(&["validate"]);
+    let body = format!("{}{}", stdout(&out), stderr(&out));
+    assert!(
+        body.contains("REQ-V-0021"),
+        "validate should report cycle via REQ-V-0021: {}",
+        body
+    );
+}
+
+#[test]
+fn repair_force_bypasses_validation_errors() {
+    // The previous flow: hand-edit + invalid + hash-broken => stuck.
+    // Repair refused, every other command refused, only escape was
+    // more hand-editing. --force re-signs so validate can surface the
+    // problems via the normal channel.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Repair-force fixture requirement here",
+        "--statement",
+        "The system shall allow force-repair on invalid hand-edits.",
+        "--rationale",
+        "Repair force fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    // Wipe the statement so validation fails AND the hash breaks.
+    let text = std::fs::read_to_string(s.path()).unwrap();
+    let mut v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    v["requirements"]["REQ-0001"]["statement"] = serde_json::json!("");
+    std::fs::write(s.path(), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    let nope = s.run(&["repair", "--confirm-direct-edit"]);
+    assert!(
+        !nope.status.success(),
+        "repair without --force should refuse"
+    );
+    let forced = s.run(&["repair", "--confirm-direct-edit", "--force"]);
+    assert!(
+        forced.status.success(),
+        "--force should re-sign anyway: {}",
+        stderr(&forced)
+    );
+    let validate_out = s.run(&["validate"]);
+    assert!(
+        !validate_out.status.success(),
+        "validate must now surface the errors (it could not while the hash was bad)"
+    );
+}
+
+#[test]
+fn diff_with_req_id_returns_friendly_hint() {
+    // Before: `req diff REQ-0001` leaked `fatal: invalid object name`.
+    let s = Sandbox::new();
+    s.init("p");
+    let out = s.run(&["diff", "REQ-0001"]);
+    assert!(!out.status.success(), "REQ-ID is not a git rev");
+    let err = stderr(&out);
+    assert!(
+        err.contains("looks like a requirement ID") || err.contains("req show"),
+        "should point user at `req show` for single-req inspection: {}",
+        err
+    );
+    assert!(
+        !err.contains("invalid object name"),
+        "should not leak git's error: {}",
+        err
+    );
+}
+
 // ---------- REQ-0042: help --json with structured agents crib ----------
 
 #[test]

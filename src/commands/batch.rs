@@ -66,6 +66,9 @@ enum Mutation {
         remove_tag: Vec<String>,
         #[serde(default)]
         reason: Option<String>,
+        /// Skip the same lifecycle guard as `req update --force`.
+        #[serde(default)]
+        force: bool,
     },
     Delete {
         id: String,
@@ -99,7 +102,12 @@ pub fn run(args: BatchArgs, file: &Option<PathBuf>) -> Result<()> {
         std::fs::read_to_string(&args.source)
             .with_context(|| format!("read batch source {}", args.source))?
     };
-    let doc: BatchDoc = serde_json::from_str(&raw).context("parse batch document")?;
+    let doc: BatchDoc = serde_json::from_str(&raw).map_err(|e| {
+        anyhow!(
+            "batch document is not valid JSON ({}). See `req schema batch` for the expected shape.",
+            e
+        )
+    })?;
 
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let project_snapshot = serde_json::to_string(&project)?; // for rollback
@@ -234,6 +242,7 @@ fn apply_one(
             add_tag,
             remove_tag,
             reason,
+            force,
         } => {
             let r = project
                 .requirements
@@ -280,6 +289,18 @@ fn apply_one(
             }
             if let Some(st) = parse_status(status.as_deref())? {
                 if r.status != st {
+                    // Same lifecycle guard as `req update`: verified
+                    // is only reachable from Implemented. Batch must
+                    // not be a back door around the headline 0.1.1 fix.
+                    if st == Status::Verified && r.status != Status::Implemented && !*force {
+                        return Err(anyhow!(
+                            "cannot promote {} from {} directly to verified \
+                             via batch; pass \"force\": true on this mutation, \
+                             or transition through implemented first",
+                            id,
+                            r.status.as_str()
+                        ));
+                    }
                     changes.push(format!("status -> {}", st.as_str()));
                     r.status = st;
                 }
@@ -356,6 +377,21 @@ fn apply_one(
                 return Err(anyhow!("target {} does not exist", to));
             }
             let kind = parse_link_kind(link_kind)?;
+            // Cycle check matches `req link` for every asymmetric kind.
+            // Without this, batch could install cycles that the direct
+            // CLI rejects.
+            let cycle_checked = matches!(
+                kind,
+                LinkKind::Parent | LinkKind::DependsOn | LinkKind::Refines | LinkKind::Verifies
+            );
+            if cycle_checked && !*remove && creates_cycle(project, from, to, kind) {
+                return Err(anyhow!(
+                    "linking {} -> {} {} would create a cycle",
+                    from,
+                    kind.as_str(),
+                    to
+                ));
+            }
             let r = project
                 .requirements
                 .get_mut(from)
@@ -388,6 +424,38 @@ fn apply_one(
             Ok(
                 json!({ "op": "link", "from": from, "to": to, "kind": kind.as_str(), "removed": remove }),
             )
+        }
+    }
+}
+
+/// Same walker as `commands::link::creates_cycle`: walk forward along
+/// same-kind links from `target` and check whether the chain reaches
+/// `from` (which would close a cycle once the new link is added).
+fn creates_cycle(
+    project: &crate::model::Project,
+    from: &str,
+    target: &str,
+    kind: LinkKind,
+) -> bool {
+    let mut current = target.to_string();
+    let mut visited = Vec::new();
+    loop {
+        if current == from {
+            return true;
+        }
+        if visited.contains(&current) {
+            return false;
+        }
+        visited.push(current.clone());
+        let next = project.requirements.get(&current).and_then(|r| {
+            r.links
+                .iter()
+                .find(|l| l.kind == kind)
+                .map(|l| l.target.clone())
+        });
+        match next {
+            Some(n) => current = n,
+            None => return false,
         }
     }
 }

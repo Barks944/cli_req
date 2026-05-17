@@ -22,9 +22,12 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
         .flat_map(|(_, fs)| fs.iter())
         .filter(|f| f.error)
         .count();
-    if errs > 0 {
+    if errs > 0 && !args.force {
         eprintln!(
-            "Refusing to repair: file contains {} validation errors. Fix them first.",
+            "Refusing to repair: file contains {} validation errors. \
+             Fix them first, or pass --force to re-sign anyway (the \
+             errors will then surface via `req validate` instead of \
+             the integrity check).",
             errs
         );
         for (id, fs) in &findings {
@@ -38,10 +41,19 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     storage::save(&path, &project)?;
-    println!(
-        "Re-signed {}. {} requirement(s).",
-        path.display(),
-        project.requirements.len()
-    );
+    if errs > 0 {
+        eprintln!(
+            "Re-signed {} with {} validation error(s) still present — \
+             surface them via `req validate`.",
+            path.display(),
+            errs
+        );
+    } else {
+        println!(
+            "Re-signed {}. {} requirement(s).",
+            path.display(),
+            project.requirements.len()
+        );
+    }
     Ok(())
 }

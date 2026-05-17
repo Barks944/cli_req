@@ -79,6 +79,10 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0020",
         "duplicate-intent: another non-obsolete requirement is semantically very similar",
     ),
+    (
+        "REQ-V-0021",
+        "link cycle detected (graph-level; one finding per cycle)",
+    ),
 ];
 
 static WEASEL_WORDS: &[&str] = &[
@@ -377,7 +381,83 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             out.push((id.clone(), findings));
         }
     }
+    // REQ-V-0021: walk the link graph per asymmetric kind and surface
+    // any cycles. Direct `req link` rejects new cycle-closing edges,
+    // but cycles can still enter a project via batch (pre-0.1.2), via
+    // hand-edit + repair, or via merge. This is the second-line
+    // defence so users see the problem before it surfaces as a hang
+    // somewhere downstream. Each cycle is reported once, attributed
+    // to its smallest-ID member.
+    for kind in [
+        crate::model::LinkKind::Parent,
+        crate::model::LinkKind::DependsOn,
+        crate::model::LinkKind::Refines,
+        crate::model::LinkKind::Verifies,
+    ] {
+        let cycles = find_cycles(p, kind);
+        for cycle in cycles {
+            let owner = cycle
+                .iter()
+                .min()
+                .cloned()
+                .unwrap_or_else(|| cycle[0].clone());
+            let path = cycle.join(" -> ");
+            let finding = Finding::err(
+                "REQ-V-0021",
+                "links",
+                format!("{} cycle: {} -> {}", kind.as_str(), path, cycle[0]),
+            );
+            // If `owner` already has findings, attach; otherwise add a
+            // new entry. Keeping output stable on (id, rule).
+            if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| *rid == owner) {
+                existing.push(finding);
+            } else {
+                out.push((owner, vec![finding]));
+            }
+        }
+    }
     out
+}
+
+/// Find every distinct cycle in the same-kind link graph. Returns each
+/// cycle as a list of IDs in walk order, with the smallest ID first to
+/// canonicalize representations across multiple discovery paths.
+fn find_cycles(p: &Project, kind: crate::model::LinkKind) -> Vec<Vec<String>> {
+    use std::collections::BTreeSet;
+    let mut seen: BTreeSet<Vec<String>> = BTreeSet::new();
+    for start in p.requirements.keys() {
+        let mut current = start.clone();
+        let mut path: Vec<String> = Vec::new();
+        loop {
+            if let Some(pos) = path.iter().position(|x| x == &current) {
+                let cycle = path[pos..].to_vec();
+                let mut canonical = cycle.clone();
+                // Rotate so the smallest ID leads, for stable dedup.
+                if let Some(min_pos) = canonical
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, v)| (*v).clone())
+                    .map(|(i, _)| i)
+                {
+                    canonical.rotate_left(min_pos);
+                }
+                seen.insert(canonical);
+                break;
+            }
+            path.push(current.clone());
+            let next = p.requirements.get(&current).and_then(|r| {
+                r.links
+                    .iter()
+                    .find(|l| l.kind == kind)
+                    .map(|l| l.target.clone())
+            });
+            match next {
+                Some(n) if p.requirements.contains_key(&n) => current = n,
+                _ => break,
+            }
+        }
+    }
+    seen.into_iter().collect()
 }
 
 pub fn errors_only(findings: &[Finding]) -> Vec<&Finding> {

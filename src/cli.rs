@@ -228,6 +228,15 @@ pub struct RepairArgs {
     /// Required acknowledgement that you reviewed the direct edits.
     #[arg(long)]
     pub confirm_direct_edit: bool,
+    /// Re-sign the file even when validation errors remain. Use when a
+    /// hand-edit broke both the hash AND introduced validation errors,
+    /// and other commands refuse to read the file — without this flag
+    /// you'd be stuck (repair refuses due to validation, every other
+    /// command refuses due to the hash). Re-signing surfaces the
+    /// validation errors via `req validate` instead of the integrity
+    /// check, which is the working state you want.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Args, Debug)]
