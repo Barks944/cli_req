@@ -1,2 +1,3 @@
 /target
 *.req.tmp
+.claude/settings.local.json
