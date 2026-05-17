@@ -9,10 +9,19 @@ use std::path::PathBuf;
 /// file directly; every change is mediated by this tool, which enforces
 /// requirements best practice (atomic, testable, unambiguous statements).
 #[derive(Parser, Debug)]
-#[command(name = "req", version, about, long_about, propagate_version = true)]
+#[command(
+    name = "req",
+    version,
+    about,
+    long_about,
+    propagate_version = true,
+    disable_help_subcommand = true,
+)]
 pub struct Cli {
     /// Path to the .req project file. Defaults to ./project.req or $REQ_FILE.
-    #[arg(short = 'f', long = "file", global = true, env = "REQ_FILE")]
+    /// Use `--file PATH` (no short; `-f` is reserved for per-subcommand use such
+    /// as `req export -f markdown`).
+    #[arg(long = "file", global = true, env = "REQ_FILE")]
     pub file: Option<PathBuf>,
 
     #[command(subcommand)]
