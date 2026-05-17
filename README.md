@@ -242,10 +242,12 @@ The hash gives **integrity** ("the CLI wrote this last"). For **authenticity** (
 
 ## Status
 
-Single static binary, Rust, no runtime dependencies. `serve` and `mcp` are reserved subcommands — `serve` ships a read-only HTTP view; the MCP JSON-RPC interface is on the roadmap. For agent use today, shell out to `req <subcommand>`.
+Single static binary, Rust, no runtime dependencies. `req serve` runs a local web view of the spec; `req mcp` exposes the same operations as MCP tools over JSON-RPC, and `req mcp --init-config` writes a `.mcp.json` so MCP-capable clients (Claude Code, etc.) can launch the server automatically.
+
+Issues and contributions: <https://github.com/Barks944/cli_req/issues>
 
 ---
 
 ## License
 
-See repository.
+[MIT](LICENSE).
