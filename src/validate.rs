@@ -33,16 +33,31 @@ static MODAL_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)\b(shall|must|should|will)\b").unwrap()
 });
 
+static URL_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\b[a-z][a-z0-9+.-]*://\S+").unwrap()
+});
+
+static BACKTICK_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"`[^`]*`").unwrap());
+
+/// Strip URLs and inline `code` so the modal-verb check doesn't match a
+/// `shall.example.com` host or a `should_run()` identifier.
+fn strip_non_prose(s: &str) -> String {
+    let no_urls = URL_RE.replace_all(s, " ");
+    let no_code = BACKTICK_RE.replace_all(&no_urls, " ");
+    no_code.into_owned()
+}
+
 pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
     let mut out = Vec::new();
 
     let title = r.title.trim();
+    let title_chars = title.chars().count();
     if title.is_empty() {
         out.push(Finding::err("title", "title is required"));
-    } else if title.len() < 5 {
-        out.push(Finding::err("title", "title is too short (min 5 chars)"));
-    } else if title.len() > 120 {
-        out.push(Finding::err("title", "title is too long (max 120 chars)"));
+    } else if title_chars < 5 {
+        out.push(Finding::err("title", "title is too short (min 5 characters)"));
+    } else if title_chars > 120 {
+        out.push(Finding::err("title", "title is too long (max 120 characters)"));
     }
     if title.ends_with('.') {
         out.push(Finding::warn("title", "drop the trailing period — titles are not sentences"));
@@ -52,10 +67,18 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
     if stmt.is_empty() {
         out.push(Finding::err("statement", "statement is required"));
     } else {
-        if stmt.split_whitespace().count() < 5 {
+        let words = stmt.split_whitespace().count();
+        if words < 5 {
             out.push(Finding::err("statement", "statement must be a complete sentence (>=5 words)"));
         }
-        if !MODAL_RE.is_match(stmt) {
+        if words > 80 {
+            out.push(Finding::warn(
+                "statement",
+                format!("statement is {} words long — split into atomic requirements", words),
+            ));
+        }
+        let prose = strip_non_prose(stmt);
+        if !MODAL_RE.is_match(&prose) {
             out.push(Finding::err(
                 "statement",
                 "statement must contain a normative modal verb (shall / must / should / will)",
@@ -70,7 +93,19 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
                 ));
             }
         }
-        if stmt.contains(" and ") && stmt.contains(',') && stmt.split(',').count() > 3 {
+        // Compound-statement heuristics. Any one of these warns:
+        //   * the statement contains a semicolon (separate clauses)
+        //   * more than one normative modal verb (multiple obligations)
+        //   * 3+ comma-separated clauses joined by " and "
+        let modal_hits = MODAL_RE.find_iter(&prose).count();
+        let csv_clauses = stmt
+            .split(',')
+            .filter(|s| !s.trim().is_empty())
+            .count();
+        let looks_compound = stmt.contains(';')
+            || modal_hits > 1
+            || (csv_clauses >= 3 && stmt.contains(" and "));
+        if looks_compound {
             out.push(Finding::warn(
                 "statement",
                 "statement looks compound — split into atomic requirements",
