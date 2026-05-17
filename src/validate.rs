@@ -115,9 +115,12 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
                 "statement must contain a normative modal verb (shall / must / should / will)",
             ));
         }
-        let lower = stmt.to_lowercase();
+        // Weasel + compound checks both run against the stripped-prose form
+        // so that backtick-wrapped cited terms and embedded enumerations do
+        // not trip rules they exist only to describe.
+        let prose_lower = prose.to_lowercase();
         for w in WEASEL_WORDS {
-            if lower.contains(w) {
+            if prose_lower.contains(w) {
                 out.push(Finding::warn(
                     "REQ-V-0009", "statement",
                     format!("avoid the vague term '{}': prefer a measurable criterion", w),
@@ -125,13 +128,13 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
             }
         }
         let modal_hits = MODAL_RE.find_iter(&prose).count();
-        let csv_clauses = stmt
+        let csv_clauses = prose
             .split(',')
             .filter(|s| !s.trim().is_empty())
             .count();
-        let looks_compound = stmt.contains(';')
+        let looks_compound = prose.contains(';')
             || modal_hits > 1
-            || (csv_clauses >= 3 && stmt.contains(" and "));
+            || (csv_clauses >= 3 && prose.contains(" and "));
         if looks_compound {
             out.push(Finding::warn(
                 "REQ-V-0010", "statement",
@@ -203,6 +206,12 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         .collect();
     for (id, r) in &p.requirements {
         let mut findings = validate_requirement(r);
+        // Advisory (warning-level) findings on retired requirements are
+        // pure noise — they cannot be re-edited via the normal flow and
+        // Obsolete is a terminal state. Drop warnings; keep errors.
+        if matches!(r.status, crate::model::Status::Obsolete) {
+            findings.retain(|f| f.error);
+        }
         // REQ-0076: duplicate-intent detection across non-obsolete reqs.
         if !matches!(r.status, crate::model::Status::Obsolete) {
             let my_tokens: Option<&std::collections::HashSet<String>> = active.iter()
