@@ -5,7 +5,7 @@
       "args": [
         "mcp"
       ],
-      "command": "e:\\Development\\cli_req\\target\\release\\req.exe",
+      "command": "req",
       "description": "Managed requirements for this project. Tools: req_list, req_show, req_add, req_update, req_delete, req_link, req_validate, req_coverage, req_export, req_help. Call req_help with {section: 'agents'} on first contact for the trigger table."
     }
   }
