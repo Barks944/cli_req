@@ -62,6 +62,12 @@ pub struct TestRecord {
     pub commit: String,
     pub outcome: TestOutcome,
     pub notes: String,
+    /// Implements the policy that Verified status can be backed by an
+    /// automated test OR a written justification (composition or
+    /// inspection). Defaults to Automated for forward compat with
+    /// older project.req files.
+    #[serde(default = "EvidenceKind::automated")]
+    pub kind: EvidenceKind,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -73,6 +79,28 @@ pub enum TestOutcome {
 impl TestOutcome {
     pub fn as_str(&self) -> &'static str {
         match self { TestOutcome::Pass => "pass", TestOutcome::Fail => "fail" }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EvidenceKind {
+    /// Captured by `req test run` from a cargo (or other) test suite.
+    Automated,
+    /// Verified by citing another requirement's passing tests; the notes
+    /// should name the cited evidence.
+    Composition,
+    /// Verified by human review of the code at the recorded commit.
+    Inspection,
+}
+
+impl EvidenceKind {
+    pub fn automated() -> Self { EvidenceKind::Automated }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EvidenceKind::Automated => "automated",
+            EvidenceKind::Composition => "composition",
+            EvidenceKind::Inspection => "inspection",
+        }
     }
 }
 

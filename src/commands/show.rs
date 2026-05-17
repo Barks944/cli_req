@@ -70,9 +70,10 @@ pub fn render(r: &Requirement) {
             } else { String::new() };
             let notes = if t.notes.is_empty() { String::new() } else { format!(" — {}", t.notes) };
             println!(
-                "  {} {} commit={} actor={}{}{}",
+                "  {} {} [{}] commit={} actor={}{}{}",
                 t.at.format("%Y-%m-%d %H:%M"),
                 t.outcome.as_str().to_uppercase(),
+                t.kind.as_str(),
                 super::test_cmd::short(&t.commit),
                 t.actor,
                 drift,

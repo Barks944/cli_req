@@ -1,6 +1,10 @@
-// Implements REQ-0049 (record test runs with git HEAD SHA + outcome + notes)
-// and REQ-0055 (req test run — drive cargo test, parse output, attach one
-// pass/fail record per REQ).
+// Implements REQ-0049 (record test runs with git HEAD SHA + outcome + notes),
+// REQ-0055 (req test run — drive cargo test, parse output, attach one
+// pass/fail record per REQ), and REQ-0056 (verify-by-evidence policy:
+// Verified status is backed by an automated test OR a written justification,
+// recorded as a composition or inspection EvidenceKind on the same TestRecord
+// shape with --promote auto-flipping status when a fresh passing record of
+// any kind exists against current HEAD).
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use once_cell::sync::Lazy;
@@ -10,8 +14,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::cli::{TestCmd, TestRecordArgs, TestResultArg, TestRunArgs};
-use crate::model::{TestOutcome, TestRecord};
+use crate::cli::{TestCmd, TestRecordArgs, TestResultArg, TestRunArgs, VerifyArgs, VerifyKindArg};
+use crate::model::{EvidenceKind, Status, TestOutcome, TestRecord};
 use crate::storage::{self, load_resolved};
 
 pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
@@ -19,6 +23,62 @@ pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
         TestCmd::Record(args) => record(args, file),
         TestCmd::Run(args) => run_suite(args, file),
     }
+}
+
+pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project) = load_resolved(file)?;
+    if !project.requirements.contains_key(&args.id) {
+        return Err(anyhow!("no such requirement: {}", args.id));
+    }
+    let kind = match args.by {
+        VerifyKindArg::Composition => EvidenceKind::Composition,
+        VerifyKindArg::Inspection => EvidenceKind::Inspection,
+    };
+    let commit = current_head_sha_opt().unwrap_or_else(|| "(no git)".into());
+    let cites_prefix = if args.cites.is_empty() {
+        String::new()
+    } else {
+        format!("cites: {} — ", args.cites.join(", "))
+    };
+    let record = TestRecord {
+        at: Utc::now(),
+        actor: super::current_actor(),
+        commit: commit.clone(),
+        outcome: TestOutcome::Pass,
+        notes: format!("{}{}", cites_prefix, args.notes),
+        kind,
+    };
+    let r = project.requirements.get_mut(&args.id).unwrap();
+    r.tests.push(record.clone());
+    r.history.push(super::history(
+        format!("{} evidence recorded against commit {}", kind.as_str(), short(&commit)),
+        Some(args.notes.clone()),
+    ));
+    r.updated = Utc::now();
+    let mut promoted = false;
+    if args.promote && !matches!(r.status, Status::Verified | Status::Obsolete) {
+        r.status = Status::Verified;
+        r.history.push(super::history(
+            format!("status promoted to verified ({} evidence on HEAD)", kind.as_str()),
+            None,
+        ));
+        promoted = true;
+    }
+    project.updated = Utc::now();
+    storage::save(&path, &project)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "id": args.id, "kind": kind.as_str(),
+            "commit": commit, "promoted": promoted,
+            "requirement": project.requirements[&args.id],
+        }))?);
+    } else {
+        println!("Recorded {} evidence on {} against commit {}.{}",
+            kind.as_str(), args.id, short(&commit),
+            if promoted { " Promoted to Verified." } else { "" });
+    }
+    Ok(())
 }
 
 fn record(args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
@@ -37,6 +97,7 @@ fn record(args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
         commit,
         outcome,
         notes: args.notes,
+        kind: EvidenceKind::Automated,
     };
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
@@ -168,10 +229,12 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             commit: commit.clone().unwrap_or_else(|| "(no git)".into()),
             outcome,
             notes,
+            kind: EvidenceKind::Automated,
         };
         records_to_apply.push((req_id.clone(), record));
     }
 
+    let mut promoted: Vec<String> = Vec::new();
     if !args.dry_run {
         for (req_id, record) in &records_to_apply {
             let r = project.requirements.get_mut(req_id).unwrap();
@@ -183,7 +246,28 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             ));
             r.updated = Utc::now();
         }
-        if !records_to_apply.is_empty() {
+        // Auto-promote pass after writing records, so the latest record is
+        // already on r.tests when we evaluate "is there fresh evidence?".
+        if args.promote {
+            let head = current_head_sha_opt();
+            for (req_id, _) in &records_to_apply {
+                let r = project.requirements.get_mut(req_id).unwrap();
+                if matches!(r.status, Status::Verified | Status::Obsolete) { continue; }
+                let fresh = match &head {
+                    Some(h) => r.tests.iter().any(|t| t.outcome == TestOutcome::Pass && &t.commit == h),
+                    None => false,
+                };
+                if fresh {
+                    r.status = Status::Verified;
+                    r.history.push(super::history(
+                        "status promoted to verified (req test run --promote, fresh passing record on HEAD)",
+                        None,
+                    ));
+                    promoted.push(req_id.clone());
+                }
+            }
+        }
+        if !records_to_apply.is_empty() || !promoted.is_empty() {
             project.updated = Utc::now();
             storage::save(&path, &project)?;
         }
@@ -214,6 +298,9 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         if !args.dry_run {
             println!();
             println!("Recorded {} test record(s).", records_to_apply.len());
+            if args.promote {
+                println!("Promoted {} requirement(s) to Verified.", promoted.len());
+            }
         }
     }
 

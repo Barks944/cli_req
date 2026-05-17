@@ -41,6 +41,7 @@ impl Command {
             Command::Status(a) => a.json,
             Command::Test(TestCmd::Record(a)) => a.json,
             Command::Test(TestCmd::Run(a)) => a.json,
+            Command::Verify(a) => a.json,
             Command::List(a) => a.json,
             Command::Show(a) => a.json,
             Command::Version(a) => a.json,
@@ -81,6 +82,9 @@ pub enum Command {
     /// Attach a test record (commit SHA + outcome + notes) to a requirement.
     #[command(subcommand)]
     Test(TestCmd),
+    /// Record a composition or inspection evidence record, optionally
+    /// promoting the requirement to Verified.
+    Verify(VerifyArgs),
     /// Export the project to another format.
     Export(ExportArgs),
     /// Launch the interactive terminal browser/editor.
@@ -380,6 +384,36 @@ pub enum TestCmd {
 }
 
 #[derive(Args, Debug)]
+pub struct VerifyArgs {
+    /// Requirement to verify.
+    pub id: String,
+    /// Evidence kind: composition or inspection. Use `req test record` for
+    /// automated evidence (the default kind there).
+    #[arg(long = "by", value_enum)]
+    pub by: VerifyKindArg,
+    /// Notes describing the verification. For composition this should name
+    /// the cited tests or requirements; for inspection it should describe
+    /// what was reviewed.
+    #[arg(long)]
+    pub notes: String,
+    /// Cite a specific test name or REQ-ID (repeatable). Prepended to notes.
+    #[arg(long = "cites")]
+    pub cites: Vec<String>,
+    /// Promote the requirement to Verified after recording.
+    #[arg(long)]
+    pub promote: bool,
+    /// JSON output.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum VerifyKindArg {
+    Composition,
+    Inspection,
+}
+
+#[derive(Args, Debug)]
 pub struct TestRunArgs {
     /// Custom test command. Defaults to `cargo test --release`.
     #[arg(long, default_value = "cargo test --release")]
@@ -387,6 +421,10 @@ pub struct TestRunArgs {
     /// Show what would be recorded without writing.
     #[arg(long)]
     pub dry_run: bool,
+    /// After recording, auto-promote any requirement with a fresh passing
+    /// record (any kind) against the current HEAD to status=Verified.
+    #[arg(long)]
+    pub promote: bool,
     /// Emit the full result map as JSON.
     #[arg(long)]
     pub json: bool,

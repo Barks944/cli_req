@@ -268,6 +268,59 @@ REQ_ACTOR_KIND   Tag history entries (and downstream audit output) with
                  edits when auditing.",
     },
     Section {
+        name: "verification",
+        summary: "What it takes to mark a requirement as Verified.",
+        body: "Verified means there is a HEAD-current evidence record on file.
+Evidence comes in three kinds, all stored on the same TestRecord
+shape with a `kind` discriminator:
+
+  automated     captured by `req test run` from a cargo test suite
+  composition   verified by citing another requirement's passing tests
+                (e.g. REQ-0020 'agents shall not edit directly' is
+                discharged by REQ-0003's integrity-hash test)
+  inspection    verified by human review of the code at the recorded
+                commit (use when the requirement is a negative
+                assertion or pure policy not testable in code)
+
+Every record pins the current git HEAD SHA. A record is FRESH if its
+commit matches current HEAD. `req show REQ-XXXX` annotates the latest
+record with [matches HEAD] or [drifted — HEAD now ...] so reviewers
+see staleness at a glance.
+
+RECORDING
+
+  # automated — usually via the runner
+  req test run --promote                     # runs cargo test + flips
+                                             # status to Verified for any
+                                             # req with a fresh pass
+
+  # composition — cite tests/reqs that imply this one
+  req verify REQ-0020 --by composition \\
+    --cites REQ-0003 --cites req_0003_integrity_blocks_load_after_semantic_tamper \\
+    --notes \"agents-shall-not-edit-directly is enforced by integrity hash\" \\
+    --promote
+
+  # inspection — human review at HEAD
+  req verify REQ-0028 --by inspection \\
+    --notes \"reviewed src/ for crypto deps; only sha2 used for hashing\" \\
+    --promote
+
+POLICY
+
+  * Verified requires fresh evidence on the current HEAD.
+  * Composition records should name the cited test or REQ in --cites.
+  * Inspection records should describe what was reviewed; if the
+    code at the cited commit has drifted, re-inspect or re-verify.
+  * `req test run --promote` is safe to wire into CI: it only
+    flips Implemented -> Verified, never the other way.
+
+When HEAD moves, drifted records are clearly visible in `req show`
+but do NOT automatically demote status. That's a judgement call —
+sometimes a test still applies after unrelated changes; sometimes it
+doesn't. Re-running `req test run` will land a fresh record; the
+status stays Verified throughout.",
+    },
+    Section {
         name: "testing",
         summary: "How to wire cargo tests into requirement test records.",
         body: "Convention: name every #[test] function `req_NNNN_description` where
