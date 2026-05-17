@@ -8,6 +8,42 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-17
+
+### Fixed
+- **Lifecycle guard on `req update --status verified`**: reject direct
+  jumps from any status other than Implemented. Pass `--force` to
+  override (e.g. when correcting history). Closes a path where a Draft
+  could be marked Verified in one command.
+- **Lifecycle guard on `req verify --promote`**: only auto-promotes
+  from Implemented. Adds `--force` (CLI) / `force` (MCP) for history
+  fixes.
+- **Link cycle detection** generalised across all asymmetric link
+  kinds: `parent`, `depends-on`, `refines`, `verifies`. Previously
+  only `parent` was checked.
+- **`--json` errors** now write the structured envelope to stdout (the
+  parseable channel) and exit non-zero without propagating the anyhow
+  chain to stderr. Callers can `JSON.parse(stdout)` directly.
+- **`req diff <ref>`** accepts a single ref as shorthand for
+  `<ref>..HEAD`, matching `git diff <ref>` muscle memory. Same in MCP
+  `req_diff`.
+- **`req_import` MCP error envelope** no longer concatenates anyhow's
+  Display chain — first envelope-shaped line wins.
+- **`req_export` MCP** csv/html now actually returns the rendered
+  output instead of an isError hint.
+- **`req_help` MCP description** points at `section="_index"` as the
+  authoritative section list (was a hardcoded list that drifted).
+- **`req_next` default** excludes Verified as well as Obsolete — the
+  "no filter" call no longer suggests already-shipped work.
+
+### Internal
+- New `first_envelope_line` helper for MCP subprocess error rendering;
+  scans stdout (the envelope channel) before stderr.
+- Regression tests for every fix in `tests/coverage_boost.rs` and
+  `tests/mcp_tools.rs`.
+
+## [0.1.0] — 2026-05-17
+
 ### Added
 - `req batch` for transactional multi-mutation JSON input (REQ-0066).
 - `req import` ingest from markdown or JSON, routed through the validator (REQ-0067).
