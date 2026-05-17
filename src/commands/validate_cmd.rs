@@ -1,3 +1,5 @@
+// Validator dispatcher — drives REQ-0006, REQ-0007, REQ-0008, REQ-0009, REQ-0029,
+// REQ-0030. (Rule bodies live in src/validate.rs.)
 use anyhow::Result;
 use std::path::PathBuf;
 

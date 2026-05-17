@@ -100,22 +100,60 @@ direct editing.",
     },
     Section {
         name: "agents",
-        summary: "How LLM agents should drive this tool.",
-        body: "Two supported modes:
+        summary: "How LLM agents should drive this tool — read this first.",
+        body: "This project uses the `req` CLI for managed requirements. As an
+agent working on this project you MUST drive every requirements change
+through `req` — never read or edit project.req directly.
 
-  STDIO MCP   — `req mcp`. The agent speaks JSON-RPC 2.0 over stdio.
-                Tools exposed: req.list, req.show, req.add, req.update,
-                req.delete, req.link, req.validate, req.export, req.help.
+WHEN TO REACH FOR `req`
 
-  CLI        — Agents can also shell out to `req <subcommand>`. Each
-                command exits non-zero on error and prints structured
-                messages, so an agent can parse them.
+  trigger                                              first command
+  ---------------------------------------------------  --------------------------
+  user describes new behaviour the system should have  req add ...
+  starting work on a feature                           req list / req show <id>
+  about to commit                                      req validate
+  changed behaviour covered by a requirement           req update <id> --reason
+  refactor; unsure what's load-bearing                 req coverage --path src
+  finding code with no requirement link                req coverage --unlinked-files
+  requirement is no longer relevant                    req delete <id> --reason
+  file won't load (integrity error)                    req repair --confirm-direct-edit
+  merge brought in colliding IDs                       req renumber --base origin/main
 
-Rules for agents:
-  * Never try to read project.req directly.
-  * Always pass --reason on update/delete.
-  * Run `req validate` before considering work done.
-  * Use `req help <section>` to refresh context.",
+QUICK COMMAND CRIB
+
+  req list                              # what exists
+  req show REQ-0007                     # full detail with history
+  req add --title ... --statement ...   # see `req add --help`
+  req update <id> --status implemented --reason \"...\"
+  req link <from> <to> -k parent
+  req validate                          # must be clean before ship
+  req coverage --path src               # spec ↔ code
+  req help <section>                    # docs (overview, concepts,
+                                        # best-practice, workflow,
+                                        # integration, audit)
+
+RULES
+
+  * Statements need a normative modal verb (shall / must / should / will)
+    and one obligation per requirement. The validator rejects bad input
+    and warns on smells — let it. Don't argue with the validator; rewrite.
+  * Pass --reason on every update / delete so history attributes the why.
+  * Drop // REQ-NNNN markers in source where you implement a requirement;
+    `req coverage` connects spec to code via those markers.
+  * Never `cat` / `read_file` project.req. The integrity hash will block
+    the next operation if you edit it by hand.
+
+INSTALL THIS GUIDANCE INTO AGENTS.md
+
+  req help agents --install              # idempotent; updates a managed
+                                         # block between sentinel markers.
+                                         # Use --path PATH for non-default
+                                         # locations.
+
+MCP (not yet implemented)
+
+  `req mcp` is reserved for a future JSON-RPC interface. For now, shell
+  out to `req <subcommand>` for every operation.",
     },
     Section {
         name: "web",

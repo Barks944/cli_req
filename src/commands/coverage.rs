@@ -25,13 +25,17 @@ struct Report {
 }
 
 pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
-    let (_, project) = load_resolved(file)?;
     let exts: Vec<String> = if args.extensions.is_empty() {
         DEFAULT_EXTS.iter().map(|s| s.to_string()).collect()
     } else {
         args.extensions.clone()
     };
 
+    if args.unlinked_files {
+        return run_unlinked_files(&args.path, &exts, args.json);
+    }
+
+    let (_, project) = load_resolved(file)?;
     let mut hits: BTreeMap<String, Vec<String>> = BTreeMap::new();
     walk(&args.path, &exts, &mut |path, line_no, line| {
         for m in REQ_RE.find_iter(line) {
@@ -105,6 +109,77 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct UnlinkedReport {
+    scanned: usize,
+    linked: usize,
+    unlinked: Vec<String>,
+}
+
+fn run_unlinked_files(root: &Path, exts: &[String], json: bool) -> Result<()> {
+    let mut scanned = 0usize;
+    let mut linked = 0usize;
+    let mut unlinked: Vec<String> = Vec::new();
+    walk_files(root, exts, &mut |path, has_marker| {
+        scanned += 1;
+        if has_marker {
+            linked += 1;
+        } else {
+            unlinked.push(path.display().to_string());
+        }
+    });
+    unlinked.sort();
+    let report = UnlinkedReport { scanned, linked, unlinked };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    let pct = if report.scanned == 0 {
+        0.0
+    } else {
+        100.0 * (report.linked as f64) / (report.scanned as f64)
+    };
+    println!("Unlinked-files report (root: {})", root.display());
+    println!("  scanned   : {}", report.scanned);
+    println!("  linked    : {} ({:.0}%)", report.linked, pct);
+    println!("  unlinked  : {}", report.unlinked.len());
+    if !report.unlinked.is_empty() {
+        println!("\nFiles with no REQ-NNNN markers:");
+        for f in &report.unlinked {
+            println!("  {}", f);
+        }
+    }
+    Ok(())
+}
+
+fn walk_files(root: &Path, exts: &[String], visit: &mut impl FnMut(&Path, bool)) {
+    let entries = match fs::read_dir(root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_s = name.to_string_lossy();
+        if path.is_dir() {
+            if SKIP_DIRS.iter().any(|s| *s == name_s.as_ref()) {
+                continue;
+            }
+            walk_files(&path, exts, visit);
+        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            if !exts.iter().any(|x| x == ext) {
+                continue;
+            }
+            let has = fs::read_to_string(&path)
+                .map(|t| REQ_RE.is_match(&t))
+                .unwrap_or(false);
+            visit(&path, has);
+        }
+    }
 }
 
 fn walk(root: &Path, exts: &[String], visit: &mut impl FnMut(&Path, usize, &str)) {

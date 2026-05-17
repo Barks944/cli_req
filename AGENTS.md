@@ -273,3 +273,69 @@ req help all                             # everything
 If `cargo build --release` is clean, `req validate` reports 0 errors,
 and `req coverage` shows no new ghosts, you have a green baseline. Make
 your change. Re-run all three. Done.
+
+<!-- req:help:agents:begin -->
+
+<!-- Managed by `req help agents --install`. Re-run to refresh; edit OUTSIDE the markers to add your own notes. -->
+
+## req — agents
+
+_How LLM agents should drive this tool — read this first._
+
+```
+This project uses the `req` CLI for managed requirements. As an
+agent working on this project you MUST drive every requirements change
+through `req` — never read or edit project.req directly.
+
+WHEN TO REACH FOR `req`
+
+  trigger                                              first command
+  ---------------------------------------------------  --------------------------
+  user describes new behaviour the system should have  req add ...
+  starting work on a feature                           req list / req show <id>
+  about to commit                                      req validate
+  changed behaviour covered by a requirement           req update <id> --reason
+  refactor; unsure what's load-bearing                 req coverage --path src
+  finding code with no requirement link                req coverage --unlinked-files
+  requirement is no longer relevant                    req delete <id> --reason
+  file won't load (integrity error)                    req repair --confirm-direct-edit
+  merge brought in colliding IDs                       req renumber --base origin/main
+
+QUICK COMMAND CRIB
+
+  req list                              # what exists
+  req show REQ-0007                     # full detail with history
+  req add --title ... --statement ...   # see `req add --help`
+  req update <id> --status implemented --reason "..."
+  req link <from> <to> -k parent
+  req validate                          # must be clean before ship
+  req coverage --path src               # spec ↔ code
+  req help <section>                    # docs (overview, concepts,
+                                        # best-practice, workflow,
+                                        # integration, audit)
+
+RULES
+
+  * Statements need a normative modal verb (shall / must / should / will)
+    and one obligation per requirement. The validator rejects bad input
+    and warns on smells — let it. Don't argue with the validator; rewrite.
+  * Pass --reason on every update / delete so history attributes the why.
+  * Drop // REQ-NNNN markers in source where you implement a requirement;
+    `req coverage` connects spec to code via those markers.
+  * Never `cat` / `read_file` project.req. The integrity hash will block
+    the next operation if you edit it by hand.
+
+INSTALL THIS GUIDANCE INTO AGENTS.md
+
+  req help agents --install              # idempotent; updates a managed
+                                         # block between sentinel markers.
+                                         # Use --path PATH for non-default
+                                         # locations.
+
+MCP (not yet implemented)
+
+  `req mcp` is reserved for a future JSON-RPC interface. For now, shell
+  out to `req <subcommand>` for every operation.
+```
+
+<!-- req:help:agents:end -->

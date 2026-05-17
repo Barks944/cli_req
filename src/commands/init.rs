@@ -1,3 +1,4 @@
+// Discharges REQ-0001 for the project-creation sub-surface.
 use anyhow::{anyhow, Result};
 
 use crate::cli::InitArgs;

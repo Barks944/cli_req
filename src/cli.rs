@@ -99,6 +99,10 @@ pub struct CoverageArgs {
     /// File extensions to scan (repeatable). Default: rs,py,js,ts,go,java,md,toml.
     #[arg(long = "ext")]
     pub extensions: Vec<String>,
+    /// Flip the report: list source files that contain NO REQ-NNNN markers
+    /// (i.e. code with no traceability link to any requirement).
+    #[arg(long)]
+    pub unlinked_files: bool,
     /// JSON output.
     #[arg(long)]
     pub json: bool,
@@ -278,6 +282,13 @@ pub struct HelpArgs {
     /// List available sections.
     #[arg(short, long)]
     pub list: bool,
+    /// Install the named section into a markdown file (default: AGENTS.md).
+    /// Idempotent — uses sentinel markers so re-running updates in place.
+    #[arg(long)]
+    pub install: bool,
+    /// Target file for --install.
+    #[arg(long, default_value = "AGENTS.md")]
+    pub path: PathBuf,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]

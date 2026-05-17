@@ -1,3 +1,4 @@
+// Discharges REQ-0001 (add sub-surface) and REQ-0008 (acceptance gate at write).
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};

@@ -1,3 +1,4 @@
+// Discharges REQ-0001 (list sub-surface).
 use anyhow::Result;
 use comfy_table::{presets::UTF8_FULL, Cell, ContentArrangement, Table};
 use std::path::PathBuf;

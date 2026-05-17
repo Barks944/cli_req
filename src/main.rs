@@ -1,3 +1,4 @@
+// Top-level dispatch for REQ-0001 (single managed CLI binary).
 mod cli;
 mod commands;
 mod help_text;

@@ -1,3 +1,4 @@
+// Discharges REQ-0001 (show sub-surface).
 use anyhow::{anyhow, Result};
 use std::path::PathBuf;
 
