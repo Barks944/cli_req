@@ -48,6 +48,8 @@ impl Command {
             Command::Version(a) => a.json,
             Command::Next(a) => a.json,
             Command::Check(a) => a.json,
+            Command::Doctor(a) => a.json,
+            Command::Diff(a) => a.json,
             Command::Help(a) => a.json,
             _ => false,
         }
@@ -80,6 +82,10 @@ pub enum Command {
     Next(NextArgs),
     /// Validate requirements changed since a git ref + coverage for changed files.
     Check(CheckArgs),
+    /// Report per-clone setup health (hooks, merge driver, signing, gitattributes).
+    Doctor(DoctorArgs),
+    /// Summarize per-requirement changes between two git revisions of project.req.
+    Diff(DiffArgs),
     /// Attach a test record (commit SHA + outcome + notes) to a requirement.
     #[command(subcommand)]
     Test(TestCmd),
@@ -374,6 +380,22 @@ pub struct NextArgs {
     #[arg(long)]
     pub tag: Vec<String>,
     /// Emit JSON instead of a one-line summary.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DoctorArgs {
+    /// JSON output for tooling / CI.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DiffArgs {
+    /// Spec: BASE..HEAD git ref pair.
+    pub spec: String,
+    /// JSON output.
     #[arg(long)]
     pub json: bool,
 }

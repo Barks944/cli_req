@@ -3,6 +3,8 @@ pub mod audit;
 pub mod check;
 pub mod coverage;
 pub mod delete;
+pub mod diff;
+pub mod doctor;
 pub mod export;
 pub mod help_cmd;
 pub mod hooks;

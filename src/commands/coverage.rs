@@ -19,6 +19,10 @@ const SKIP_DIRS: &[&str] = &[".git", "target", "node_modules", "dist", "build", 
 #[derive(serde::Serialize)]
 struct Report {
     referenced: BTreeMap<String, Vec<String>>,
+    /// REQ-0070: requirements referenced ONLY by test files — implementation
+    /// markers absent. Distinct from `referenced` so a test-only marker
+    /// does not falsely claim impl coverage.
+    test_only: BTreeMap<String, Vec<String>>,
     orphans: Vec<String>,
     ghosts: BTreeMap<String, Vec<String>>,
     obsolete_referenced: BTreeMap<String, Vec<String>>,
@@ -53,15 +57,21 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     let known: BTreeSet<&String> = project.requirements.keys().collect();
     let mut report = Report {
         referenced: BTreeMap::new(),
+        test_only: BTreeMap::new(),
         orphans: Vec::new(),
         ghosts: BTreeMap::new(),
         obsolete_referenced: BTreeMap::new(),
     };
 
     for (id, refs) in &hits {
+        let has_impl = refs.iter().any(|r| !is_test_path(r));
         match project.requirements.get(id) {
             Some(r) if matches!(r.status, Status::Obsolete) => {
                 report.obsolete_referenced.insert(id.clone(), refs.clone());
+            }
+            Some(_) if !has_impl => {
+                // REQ-0070: only test files reference this requirement.
+                report.test_only.insert(id.clone(), refs.clone());
             }
             Some(_) => {
                 report.referenced.insert(id.clone(), refs.clone());
@@ -90,7 +100,8 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     println!("Coverage report (root: {})", args.path.display());
-    println!("  referenced       : {}", report.referenced.len());
+    println!("  referenced       : {}  (impl + maybe test markers)", report.referenced.len());
+    println!("  test-only        : {}  (test marker but no impl marker)", report.test_only.len());
     println!("  orphans          : {}", report.orphans.len());
     println!("  ghosts           : {}", report.ghosts.len());
     println!("  obsolete-in-code : {}", report.obsolete_referenced.len());
@@ -103,6 +114,15 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     if !report.ghosts.is_empty() {
         println!("\nGHOSTS (code mentions an unknown ID):");
         for (id, refs) in &report.ghosts {
+            println!("  {}", id);
+            for r in refs {
+                println!("    {}", r);
+            }
+        }
+    }
+    if !report.test_only.is_empty() {
+        println!("\nTEST-ONLY (referenced only by test files):");
+        for (id, refs) in &report.test_only {
             println!("  {}", id);
             for r in refs {
                 println!("    {}", r);
@@ -302,6 +322,21 @@ fn run_remap(root: &Path, exts: &[String], pairs: &[String], apply: bool) -> Res
     }
     println!("\nRewrote {} file(s).", files.len());
     Ok(())
+}
+
+/// REQ-0070: classify a file:line marker as test-source or implementation.
+/// Heuristic by path: anything under a `tests/` directory or matching
+/// `*_test.<ext>` / `*_tests.<ext>` / `*.test.<ext>` counts as test.
+pub fn is_test_path(file_ref: &str) -> bool {
+    let normalised = file_ref.replace('\\', "/");
+    let lower = normalised.to_lowercase();
+    if lower.contains("/tests/") || lower.starts_with("tests/") || lower.starts_with("./tests/") {
+        return true;
+    }
+    // strip `:lineno` suffix before suffix-matching
+    let path_only = lower.split(':').next().unwrap_or(&lower);
+    let suffixes = ["_test.rs", "_tests.rs", ".test.ts", ".test.tsx", ".test.js", "_test.py", "_test.go"];
+    suffixes.iter().any(|s| path_only.ends_with(s))
 }
 
 fn walk(root: &Path, exts: &[String], visit: &mut impl FnMut(&Path, usize, &str)) {

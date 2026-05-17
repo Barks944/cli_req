@@ -48,6 +48,8 @@ fn run(cli: Cli) -> Result<()> {
         Command::Version(args) => commands::version::run(args),
         Command::Next(args) => commands::next::run(args, &cli.file),
         Command::Check(args) => commands::check::run(args, &cli.file),
+        Command::Doctor(args) => commands::doctor::run(args),
+        Command::Diff(args) => commands::diff::run(args, &cli.file),
         Command::Export(args) => commands::export::run(args, &cli.file),
         Command::Tui => tui::run(&cli.file),
         Command::Serve(args) => web::run(args, &cli.file),
