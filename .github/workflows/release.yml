@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: package (unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/req dist/
+          cp README.md LICENSE dist/
+          tar -czf req-${{ github.ref_name }}-${{ matrix.target }}.tar.gz -C dist .
+      - name: package (windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/req.exe dist/
+          Copy-Item README.md, LICENSE dist/
+          Compress-Archive -Path dist/* -DestinationPath "req-${{ github.ref_name }}-${{ matrix.target }}.zip"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            req-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+            req-${{ github.ref_name }}-${{ matrix.target }}.zip
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false

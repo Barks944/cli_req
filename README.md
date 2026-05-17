@@ -25,12 +25,21 @@ The validator IS the product. The CLI is the only legitimate way to mutate the f
 
 ## Install
 
+**Prebuilt binaries** — grab the archive for your platform from the [latest release](https://github.com/Barks944/cli_req/releases/latest), extract, and put `req` (or `req.exe`) on your `PATH`.
+
+**From crates.io** (Rust toolchain required):
+
 ```sh
-cargo build --release
-# binary lands at ./target/release/req
+cargo install req-cli
 ```
 
-Put it on your `PATH`, or run from `./target/release/req` directly.
+**From source**:
+
+```sh
+git clone https://github.com/Barks944/cli_req
+cd cli_req
+cargo install --path .
+```
 
 ---
 

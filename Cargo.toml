@@ -1,9 +1,13 @@
 [package]
-name = "req"
+name = "req-cli"
 version = "0.1.0"
 edition = "2021"
 description = "Managed requirements CLI for LLM agents and humans"
 license = "MIT"
+repository = "https://github.com/Barks944/cli_req"
+readme = "README.md"
+keywords = ["requirements", "cli", "agents", "llm", "traceability"]
+categories = ["command-line-utilities", "development-tools"]
 # Implements REQ-0021 (Rust + single static binary).
 
 [[bin]]
