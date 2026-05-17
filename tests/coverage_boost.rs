@@ -987,6 +987,254 @@ fn diff_with_req_id_returns_friendly_hint() {
     );
 }
 
+// ---------- 0.2.1 gate hardening + LLM hook + split fixes ----------
+
+#[test]
+fn review_gate_fails_closed_on_bogus_base_ref() {
+    // P1 from agent QA: a CI YAML typo silently disabled the gate.
+    // Without --gate the report still produces (advisory); with --gate
+    // the missing base is an error.
+    let s = Sandbox::new();
+    s.init("p");
+    let advisory = s.run(&["review", "--base", "bogus-ref-zzz"]);
+    assert!(
+        advisory.status.success(),
+        "advisory mode should still work: {}",
+        stderr(&advisory)
+    );
+    let gated = s.run(&["review", "--base", "bogus-ref-zzz", "--gate"]);
+    assert!(
+        !gated.status.success(),
+        "--gate on a missing base must exit non-zero: stdout {}",
+        stdout(&gated)
+    );
+    assert!(
+        stderr(&gated).contains("does not exist"),
+        "error should name the missing ref: {}",
+        stderr(&gated)
+    );
+}
+
+#[test]
+fn add_prints_marker_nudge() {
+    // Discoverability nudge from the discipline agent: after a
+    // successful add, point the user at the marker convention so
+    // "REQ first, then code" is the path of least resistance.
+    let s = Sandbox::new();
+    s.init("p");
+    let out = s.run(&[
+        "add",
+        "--title",
+        "Nudge fixture for marker hint",
+        "--statement",
+        "The system shall surface a marker nudge after add.",
+        "--rationale",
+        "Discoverability regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    assert!(out.status.success());
+    let body = stdout(&out);
+    assert!(
+        body.contains("// REQ-0001:"),
+        "expected marker nudge in add output: {}",
+        body
+    );
+    assert!(
+        body.contains("req coverage"),
+        "nudge should reference coverage: {}",
+        body
+    );
+}
+
+#[test]
+fn split_inherits_acceptance_from_functional_parent() {
+    // P2 from agent QA: functional parents failed split because parts
+    // started with empty acceptance and REQ-V-0014 tripped on part #1.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Functional split fixture compound",
+        "--statement",
+        "The system shall handle case A and shall handle case B.",
+        "--rationale",
+        "Functional split regression.",
+        "--kind",
+        "functional",
+        "--priority",
+        "must",
+        "--accept",
+        "Case A behaviour observed",
+        "--accept",
+        "Case B behaviour observed",
+    ]);
+    let out = s.run(&[
+        "split",
+        "REQ-0001",
+        "--into",
+        "The system shall handle case A.",
+        "--into",
+        "The system shall handle case B.",
+        "--reason",
+        "atomic split",
+    ]);
+    assert!(
+        out.status.success(),
+        "functional split should succeed when acceptance inherits: {}",
+        stderr(&out)
+    );
+    // Each child should now carry the parent's acceptance criteria
+    // (the user can prune per child afterwards).
+    let show = stdout(&s.run(&["show", "REQ-0002"]));
+    assert!(
+        show.contains("Case A behaviour observed"),
+        "child should inherit acceptance: {}",
+        show
+    );
+}
+
+#[test]
+fn review_skips_project_req_and_test_paths() {
+    // P2 from agent QA: project.req's instructions block contains
+    // example REQ-NNNN tokens that should never count as ghosts, and
+    // test-path files should not trip the markerless check.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Coverage exclude fixture title",
+        "--statement",
+        "The system shall exclude project.req and tests/ from the gate.",
+        "--rationale",
+        "Coverage exclude regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let out = s.run(&["review", "--base", "bogus", "--json"]);
+    let body = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&body)
+        .unwrap_or_else(|e| panic!("review json parse: {} on {}", e, body));
+    let ghosts = v["coverage"]["ghosts"]
+        .as_array()
+        .expect("ghosts is an array");
+    for g in ghosts {
+        let s = g.as_str().unwrap_or("");
+        assert!(
+            !s.contains("project.req"),
+            "project.req should be excluded from ghost scan: {}",
+            s
+        );
+    }
+}
+
+#[test]
+fn review_marker_in_string_literal_does_not_satisfy_gate() {
+    // P1 from gate-breaker: `let x = "REQ-0001";` shouldn't pass the
+    // gate when the file has no actual comment marker.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "String marker fixture title",
+        "--statement",
+        "The system shall require markers in comments not strings.",
+        "--rationale",
+        "Comment-context regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    // Stage a fake source file with the marker only in a string.
+    let src_dir = s.dir.path().join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    let fake_src = src_dir.join("bypass_attempt.rs");
+    std::fs::write(&fake_src, "fn pretend() { let _ = \"REQ-0001\"; }\n").unwrap();
+    // Use git to get a changed-files set. Use cmd run from sandbox dir.
+    let git_init = Command::new("git")
+        .current_dir(s.dir.path())
+        .args(["init", "-q", "-b", "main"])
+        .output()
+        .expect("git init");
+    assert!(git_init.status.success());
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "config",
+            "user.email",
+            "t@t.t",
+        ])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args(["-c", "commit.gpgsign=false", "config", "user.name", "t"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        ])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args(["add", "-A"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "added bypass attempt",
+        ])
+        .output();
+    let out = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "review",
+            "--base",
+            "HEAD~1",
+            "--gate",
+        ])
+        .output()
+        .expect("review");
+    let body = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !out.status.success(),
+        "string-literal marker should not satisfy the gate: {}",
+        body
+    );
+    assert!(
+        body.contains("bypass_attempt.rs"),
+        "gate should name the offending file: {}",
+        body
+    );
+}
+
 // ---------- 0.2.0 features ----------
 
 #[test]

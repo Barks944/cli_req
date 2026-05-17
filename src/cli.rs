@@ -156,10 +156,24 @@ pub struct ReviewArgs {
     /// coverage. Defaults to the repo root.
     #[arg(long, default_value = ".")]
     pub path: PathBuf,
+    /// File extensions to treat as source for the markerless check
+    /// (repeat for multiple). Without this flag the gate uses an
+    /// extensive default list that covers most common languages.
+    /// Pass `--ext` once with no value to disable the extension
+    /// filter entirely (every changed text file becomes source).
+    #[arg(long = "ext")]
+    pub ext: Vec<String>,
+    /// Glob pattern (matched on the relative path with `/` separators)
+    /// to exclude from the markerless check. Repeat for multiple.
+    /// Defaults already cover tests/, build.rs, generated/, and the
+    /// `.req` project file itself.
+    #[arg(long = "ignore")]
+    pub ignore: Vec<String>,
     /// Exit non-zero when the report finds anything blocking: validate
-    /// errors, coverage ghosts, or source files changed in this range
-    /// that carry zero REQ markers (the missing-spec-for-new-code
-    /// signal). Use in CI to gate PRs on spec hygiene.
+    /// errors, coverage ghosts, source files changed in this range
+    /// that carry zero REQ markers, OR — critically — a missing/
+    /// invalid base ref (no silent fail-open on a CI YAML typo).
+    /// Use in CI to gate PRs on spec hygiene.
     #[arg(long)]
     pub gate: bool,
     /// Emit the report as JSON instead of markdown.

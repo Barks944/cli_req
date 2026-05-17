@@ -53,6 +53,14 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
     let now = Utc::now();
     let mut staged: Vec<Requirement> = Vec::new();
     for (i, stmt) in statements.iter().enumerate() {
+        // Inherit acceptance criteria from the parent. Functional
+        // requirements require at least one acceptance entry, and
+        // pre-0.2.1 split started every child with an empty list,
+        // which tripped REQ-V-0014 on the first part and aborted the
+        // split — meaning functional parents couldn't be split at
+        // all. Inheriting matches the obvious intent ("each part
+        // gets the parent's contract") and the user can edit per
+        // child afterwards with `req update --accept` / `--remove-acceptance`.
         let part = Requirement {
             id: String::new(),
             title: synth_title(&original.title, i, statements.len()),
@@ -64,7 +72,7 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
                 statements.len(),
                 original.rationale
             ),
-            acceptance: Vec::new(),
+            acceptance: original.acceptance.clone(),
             kind: original.kind,
             priority: original.priority,
             status: Status::Draft,

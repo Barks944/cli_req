@@ -8,6 +8,59 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-05-17
+
+Closes every finding from the 0.2.0 adversarial agent sweep.
+
+### Fixed — `req review --gate` hardening (P1)
+- **Broader source-extension defaults** for the markerless check.
+  Now covers 50+ languages (Kotlin, Swift, Scala, C#, Ruby, PHP, Lua,
+  Haskell, OCaml, Elixir, Erlang, Clojure, Dart, Zig, Nim, V, Crystal,
+  F#, Groovy, Perl, shell, PowerShell, Objective-C, …). `--ext` to
+  override. Was: hardcoded 10-entry Rust-leaning list, silently
+  invisible to Kotlin/Swift/etc.
+- **Fail-closed on missing base ref under --gate.** A CI YAML typo
+  (`origin/master` vs `origin/main`) previously disabled the gate
+  silently; now `req review --base bogus --gate` exits non-zero with
+  a clear error. Advisory mode (no `--gate`) still produces the
+  report.
+- **Comment-context marker matching.** A `REQ-NNNN` token only
+  counts as a marker on lines that look like a comment (start with
+  `//`, `#`, `--`, `;`, `*`, or contain `//`/`#` before the token).
+  String literals, doc attributes, and incidental string matches no
+  longer satisfy the gate.
+- **Default `--ignore` patterns** carve out test trees, build
+  helpers, generated code, and the .req project file itself. The
+  spec file's instructions block contains example REQ-NNNN tokens
+  that should never be treated as markers or ghosts. `--ignore
+  <glob>` to add more.
+- **Ghosts deduplicated** to one finding per (id, file) pair, not
+  one per textual occurrence.
+- **Path separators normalised** to `/` everywhere in markdown and
+  JSON output.
+
+### Fixed — LLM hook usability (P1)
+- **Stdin closed after payload write.** A naive
+  `sys.stdin.read()` hook used to hang until the 10s timeout because
+  the pipe stayed open. Now it returns immediately.
+- **`REQ_VALIDATE_LLM_CMD` documented** in `req help env` with the
+  full stdin/stdout/exit-code/timeout contract, an example, and a
+  caching note.
+
+### Fixed — split + ergonomics (P2)
+- **`req split` inherits acceptance** from the parent. Functional
+  reqs could not be split pre-0.2.1 because empty acceptance on
+  part #1 tripped REQ-V-0014.
+- **`req add` prints a follow-up nudge** pointing at the
+  `// REQ-NNNN:` marker convention and `req coverage --path src`.
+  Closes the discoverability gap between "REQ created" and "REQ
+  referenced from code".
+
+### Notes
+- Sequential per-requirement hook calls remain the model. For paid
+  LLM APIs cache by `sha256(statement)` in your hook; bounded
+  parallelism is a 0.3 design question.
+
 ## [0.2.0] — 2026-05-17
 
 ### Added — new commands and rules

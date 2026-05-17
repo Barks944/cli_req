@@ -221,6 +221,15 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         );
     } else {
         println!("Added {}", id);
+        // Discoverability nudge: the gate fires on changed source
+        // files with no `// REQ-NNNN:` reference. Closing the loop
+        // from "REQ created" to "REQ referenced from code" is the
+        // discipline that prevents 0.1.x-era drift.
+        println!(
+            "Next: add `// {}:` to the source file that implements this, \
+             or run `req coverage --path src` to find unlinked files.",
+            id
+        );
     }
     Ok(())
 }

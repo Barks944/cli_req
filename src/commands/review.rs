@@ -20,7 +20,25 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     let current = storage::load(&path).context("load project.req")?;
     let base_ref = resolve_base(&args.base);
 
-    let base = load_at_ref(&base_ref, &path).ok();
+    // Fail closed on missing base ref under --gate so a CI YAML typo
+    // (`origin/master` vs `origin/main`) does not silently disable the
+    // whole check. Without --gate this is still advisory: the rest of
+    // the report is useful even without a comparison point.
+    let base_ref_exists = rev_exists(&base_ref);
+    if args.gate && !base_ref_exists {
+        return Err(anyhow!(
+            "base ref `{}` does not exist (or this is not a git repository) — \
+             refusing to gate on an empty diff. Pass an explicit --base, or \
+             drop --gate if you want the advisory report.",
+            base_ref
+        ));
+    }
+
+    let base = if base_ref_exists {
+        load_at_ref(&base_ref, &path).ok()
+    } else {
+        None
+    };
 
     // --- changed requirements diff -----------------------------------
     let (added, removed, changed) = diff_buckets(base.as_ref(), &current);
@@ -39,39 +57,100 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         .count();
 
     // --- coverage on changed files -----------------------------------
-    // Also surface "changed source file with zero REQ markers" — the
-    // missing-spec-for-new-code signal. Without this the validator
-    // can only check that recorded REQs are well-formed; new behaviour
-    // can ship without any backing requirement and nothing catches it.
-    // Source extensions match coverage's defaults so the two checks
-    // see the same file universe.
-    let source_exts: &[&str] = &["rs", "py", "js", "ts", "tsx", "go", "java", "c", "cpp", "h"];
+    // Source extension set defaults to a broad list covering every
+    // common language the gate has been asked about. Override via
+    // --ext if your codebase needs a narrower or wider scope.
+    let default_source_exts: &[&str] = &[
+        "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "kt", "kts", "scala", "swift", "cs",
+        "rb", "php", "lua", "hs", "ml", "ex", "exs", "erl", "clj", "cljs", "dart", "zig", "nim",
+        "v", "cr", "fs", "fsx", "groovy", "pl", "pm", "sh", "bash", "ps1", "psm1", "c", "cc",
+        "cpp", "cxx", "h", "hh", "hpp", "hxx", "m", "mm", "rsx",
+    ];
+    let source_exts: Vec<String> = if args.ext.is_empty() {
+        default_source_exts.iter().map(|s| s.to_string()).collect()
+    } else {
+        args.ext.clone()
+    };
+
+    // Paths to skip from the markerless check (still counted for
+    // ghost references). Defaults skip test trees, build helpers,
+    // generated code, and the .req project file itself — which is
+    // documentation, not code, and contains REQ-NNNN strings in its
+    // instructions block that should never be treated as markers.
+    let project_file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("project.req")
+        .to_string();
+    let default_ignore: Vec<String> = vec![
+        format!("**/{}", project_file_name),
+        project_file_name.clone(),
+        "**/tests/**".into(),
+        "**/test/**".into(),
+        "**/__tests__/**".into(),
+        "**/spec/**".into(),
+        "**/specs/**".into(),
+        "**/*_test.*".into(),
+        "**/*.test.*".into(),
+        "**/*.spec.*".into(),
+        "build.rs".into(),
+        "**/build.rs".into(),
+        "**/generated/**".into(),
+        "**/.generated/**".into(),
+    ];
+    let mut ignore_patterns: Vec<String> = default_ignore;
+    ignore_patterns.extend(args.ignore.iter().cloned());
+
     let changed_files = git_changed_files(&base_ref).unwrap_or_default();
-    let mut coverage_ghosts: Vec<String> = Vec::new();
+    // Dedup ghosts: one finding per (id, file) pair, not per occurrence.
+    let mut ghost_set: BTreeSet<(String, String)> = BTreeSet::new();
     let mut coverage_referenced: BTreeSet<String> = BTreeSet::new();
     let mut markerless_changed_source: Vec<String> = Vec::new();
-    let req_re = regex::Regex::new(r"REQ-\d{4}").unwrap();
+    // Tightened to comment-context only: a `REQ-NNNN` token only
+    // counts as a marker when it appears on a comment line. String
+    // literals, doc attributes, and incidental matches in data files
+    // do NOT satisfy the gate.
+    let marker_line_re =
+        regex::Regex::new(r#"(?m)^\s*(?:(?://|#|--|;|/\*|\*)|.*?(?://|#))\s*.*?(REQ-\d{4})"#)
+            .unwrap();
+    let any_req_re = regex::Regex::new(r"REQ-\d{4}").unwrap();
     for f in &changed_files {
+        let rel_normalised = f.replace('\\', "/");
         let full = args.path.join(f);
-        let is_source = full
+        let ext_lower = full
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| source_exts.contains(&e))
+            .map(|e| e.to_lowercase());
+        let is_source = ext_lower
+            .as_ref()
+            .map(|e| source_exts.iter().any(|x| x == e))
             .unwrap_or(false);
+        let ignored = ignore_patterns
+            .iter()
+            .any(|p| glob_match(p, &rel_normalised));
         match std::fs::read_to_string(&full) {
             Ok(text) => {
-                let mut saw_marker = false;
-                for cap in req_re.find_iter(&text) {
-                    saw_marker = true;
+                let mut saw_marker_in_comment = false;
+                // Ghost scan stays broad: a ghost in a string literal
+                // is still worth knowing about.
+                for cap in any_req_re.find_iter(&text) {
                     let id = cap.as_str().to_string();
                     if !current.requirements.contains_key(&id) {
-                        coverage_ghosts.push(format!("{} (in {})", id, full.display()));
+                        ghost_set.insert((id, rel_normalised.clone()));
                     } else {
                         coverage_referenced.insert(id);
                     }
                 }
-                if is_source && !saw_marker {
-                    markerless_changed_source.push(full.display().to_string());
+                // Comment-context scan decides "is this file marked?"
+                for cap in marker_line_re.captures_iter(&text) {
+                    let id = cap.get(1).unwrap().as_str().to_string();
+                    if current.requirements.contains_key(&id) {
+                        saw_marker_in_comment = true;
+                        break;
+                    }
+                }
+                if is_source && !ignored && !saw_marker_in_comment {
+                    markerless_changed_source.push(rel_normalised);
                 }
             }
             Err(_) => {
@@ -79,6 +158,10 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         }
     }
+    let coverage_ghosts: Vec<String> = ghost_set
+        .into_iter()
+        .map(|(id, file)| format!("{} (in {})", id, file))
+        .collect();
 
     // --- stale records ------------------------------------------------
     // Reuse the staleness scanner but only summarise counts here; the
@@ -366,6 +449,72 @@ fn git_changed_files(base: &str) -> Result<Vec<String>> {
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect())
+}
+
+/// Minimal glob matcher: supports `**` (any subpath), `*` (any segment
+/// without separator), and literal chars. Sufficient for the gate's
+/// ignore patterns; no need for a full crate dependency.
+fn glob_match(pattern: &str, path: &str) -> bool {
+    fn matches(pat: &[u8], text: &[u8]) -> bool {
+        let mut pi = 0;
+        let mut ti = 0;
+        let mut star_pi: Option<usize> = None;
+        let mut star_ti = 0;
+        while ti < text.len() {
+            if pi < pat.len() && pat[pi] == b'*' {
+                // Detect `**` for "match across separators".
+                if pi + 1 < pat.len() && pat[pi + 1] == b'*' {
+                    // `**/` — collapse trailing slash if present.
+                    let next = if pi + 2 < pat.len() && pat[pi + 2] == b'/' {
+                        pi + 3
+                    } else {
+                        pi + 2
+                    };
+                    // Try to match the rest of the pattern at every position.
+                    if next >= pat.len() {
+                        return true;
+                    }
+                    let remaining = &pat[next..];
+                    for skip in 0..=text.len() - ti {
+                        if matches(remaining, &text[ti + skip..]) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                star_pi = Some(pi);
+                star_ti = ti;
+                pi += 1;
+                continue;
+            }
+            if pi < pat.len() && (pat[pi] == text[ti]) && text[ti] != b'/' {
+                pi += 1;
+                ti += 1;
+                continue;
+            }
+            if pi < pat.len() && pat[pi] != b'*' && pat[pi] == text[ti] {
+                pi += 1;
+                ti += 1;
+                continue;
+            }
+            if let Some(spi) = star_pi {
+                pi = spi + 1;
+                star_ti += 1;
+                ti = star_ti;
+                if ti > text.len() || text.get(ti - 1) == Some(&b'/') {
+                    // Single-segment `*` doesn't cross slashes; bail.
+                    return false;
+                }
+                continue;
+            }
+            return false;
+        }
+        while pi < pat.len() && pat[pi] == b'*' {
+            pi += 1;
+        }
+        pi == pat.len()
+    }
+    matches(pattern.as_bytes(), path.as_bytes())
 }
 
 fn audit_summary_for_file(path: &Path) -> serde_json::Value {

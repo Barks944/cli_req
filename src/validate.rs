@@ -540,10 +540,16 @@ fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
         .spawn()
         .map_err(|e| format!("spawn: {}", e))?;
     {
-        let stdin = child.stdin.as_mut().ok_or("stdin unavailable")?;
+        // Take ownership of stdin so it is dropped (and the pipe is
+        // closed) at the end of this block. Without the close, a hook
+        // that does `read_to_end` on stdin hangs until the 10s timeout
+        // even though the payload arrived in the first millisecond.
+        let mut stdin = child.stdin.take().ok_or("stdin unavailable")?;
         stdin
             .write_all(payload.as_bytes())
             .map_err(|e| format!("write: {}", e))?;
+        // Explicit drop here makes the close intent unmissable.
+        drop(stdin);
     }
     // Hard ten-second cap. A hung hook should never lock validate.
     let deadline = Instant::now() + Duration::from_secs(10);

@@ -109,6 +109,8 @@ fn dispatch(
             crate::cli::ReviewArgs {
                 base: "origin/main".into(),
                 path: PathBuf::from("."),
+                ext: vec![],
+                ignore: vec![],
                 gate: false,
                 json: false,
             },

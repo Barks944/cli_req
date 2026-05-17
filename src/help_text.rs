@@ -400,7 +400,35 @@ REQ_ACTOR_KIND   Tag history entries (and downstream audit output) with
                  'human' or 'agent'. Defaults to 'unknown' if unset.
                  Agents driving req over MCP or CLI should set this to
                  'agent' so reviewers can separate human vs automated
-                 edits when auditing.",
+                 edits when auditing.
+
+REQ_VALIDATE_LLM_CMD
+                 OPTIONAL statement-quality hook. When set, `req
+                 validate` invokes this command once per non-obsolete
+                 requirement and surfaces the verdict as REQ-V-0023.
+                 The command is run via the platform shell (`sh -c`
+                 on Unix, `cmd /C` on Windows).
+
+                 Contract:
+                   - stdin: JSON object {id, title, statement, rationale}
+                     followed by EOF (we close the pipe immediately so
+                     a `read_to_end()` hook returns at once).
+                   - stdout: JSON {ok: bool, message: string}.
+                   - exit 0 expected; non-zero surfaces as a transport
+                     warning (not a validate error).
+                   - 10s hard timeout per requirement; timeouts surface
+                     as transport warnings, validate continues.
+                   - ok: true is silent; ok: false produces a
+                     REQ-V-0023 warning carrying `message`.
+
+                 Example (sh): echo '{\"ok\":false,\"message\":\"too vague\"}'
+
+                 Notes:
+                   - Calls are sequential, so a 1s hook × 100 reqs is
+                     ~100s. Cache verdicts by sha256(statement) in your
+                     hook if you call a paid model.
+                   - Default validator stays deterministic and offline
+                     when this var is unset.",
     },
     Section {
         name: "verification",
