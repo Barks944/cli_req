@@ -1,7 +1,7 @@
-// Implements REQ-0017 (MCP server for agents). Speaks JSON-RPC 2.0 over
-// stdio using newline-delimited JSON messages. Every tool here mirrors a
-// CLI subcommand and runs the same validator. `repair` is deliberately
-// not exposed — the integrity-recovery escape hatch is humans-only.
+// Implements REQ-0017 (MCP server for agents), REQ-0047 (.mcp.json bootstrap
+// via --init-config), and REQ-0048 (first-class agent guidance baked into
+// every tool description). Speaks JSON-RPC 2.0 over newline-delimited stdio.
+// `repair` is deliberately not exposed — integrity recovery is humans-only.
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};

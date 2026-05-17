@@ -1,4 +1,5 @@
-// Discharges REQ-0001 (add sub-surface) and REQ-0008 (acceptance gate at write).
+// Discharges REQ-0001 (add sub-surface), REQ-0008 (acceptance gate at write),
+// REQ-0038 (--json output on creates).
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};

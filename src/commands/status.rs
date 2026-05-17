@@ -1,5 +1,5 @@
-// Implements the project-level implementation-status summary (count and
-// percentage per status bucket; a single "delivery_progress" percentage).
+// Implements REQ-0054 (project-level implementation-status summary with
+// count and percentage per status bucket and a single delivery_progress %).
 use anyhow::Result;
 use serde_json::json;
 use std::path::PathBuf;

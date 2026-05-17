@@ -1,5 +1,5 @@
-// Implements REQ-0026 (scan source tree for REQ-XXXX markers; report
-// referenced, orphans, ghosts, obsolete-in-code).
+// Implements REQ-0026 (default coverage scan), REQ-0032 (--unlinked-files),
+// REQ-0033 (--by-file) and REQ-0034 (--remap with --apply).
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;

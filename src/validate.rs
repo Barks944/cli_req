@@ -1,5 +1,7 @@
 // Implements REQ-0006 (modal verb), REQ-0007 (weasel words),
-// REQ-0008 (acceptance for functional), REQ-0009 (status-transition guard).
+// REQ-0008 (acceptance for functional), REQ-0009 (status-transition guard),
+// REQ-0029 (compound-statement heuristics), REQ-0030 (Unicode-char title
+// length), REQ-0045 (stable REQ-V-NNNN rule codes on every Finding).
 use once_cell::sync::Lazy;
 use regex::Regex;
 

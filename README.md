@@ -1,3 +1,4 @@
+<!-- REQ-0036: project README is the canonical landing page. -->
 # req
 
 **A managed requirements CLI for LLM agents and humans.**

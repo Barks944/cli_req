@@ -1,4 +1,5 @@
-// Discharges REQ-0001 (update sub-surface) and contributes to REQ-0011 (history).
+// Discharges REQ-0001 (update sub-surface), contributes to REQ-0011 (history),
+// and implements REQ-0035 (--add-acceptance / --remove-acceptance flags).
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use std::path::PathBuf;

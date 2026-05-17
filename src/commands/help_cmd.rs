@@ -1,5 +1,6 @@
-// Implements REQ-0018 (structured sectioned help) and REQ-0031 (idempotent
-// install of any section into AGENTS.md via sentinel-delimited managed blocks).
+// Implements REQ-0018 (structured sectioned help), REQ-0031 (idempotent
+// install of any section into AGENTS.md), and REQ-0042 (--json with a
+// structured agents-crib payload).
 use anyhow::{anyhow, Context, Result};
 use std::fs;
 

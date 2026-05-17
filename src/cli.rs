@@ -146,7 +146,7 @@ pub struct CoverageArgs {
     #[arg(long, conflicts_with_all = ["unlinked_files", "remap"])]
     pub by_file: bool,
     /// Rewrite REQ-NNNN markers in source files. Pass repeatedly:
-    ///   --remap REQ-0099=REQ-0003 --remap REQ-0042=REQ-0007
+    ///   --remap REQ-OLD=REQ-NEW --remap REQ-AAA=REQ-BBB
     /// Dry-run by default; pass --apply to write.
     #[arg(long, value_name = "OLD=NEW")]
     pub remap: Vec<String>,
