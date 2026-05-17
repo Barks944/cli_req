@@ -35,10 +35,21 @@ jobs:
           RUSTFLAGS: "-D warnings"
         run: cargo build --release --locked
 
-      - name: cargo test (--test-threads=1 for the concurrency suite)
-        # Serial test threads keep the file-lock contention test under the
-        # 30s acquisition timeout on slow / loaded CI runners.
-        run: cargo test --release --locked -- --test-threads=1
+      - name: cargo test (serial within and across binaries)
+        # --test-threads=1 serialises tests WITHIN a binary. Cargo also runs
+        # different test binaries in parallel; the concurrency suite spawns
+        # child `req` processes that race with other binaries' children for
+        # OS resources on slow / loaded CI runners. Run each test binary
+        # one at a time to keep the file-lock contention test inside its
+        # 30s acquisition timeout.
+        shell: bash
+        run: |
+          set -euo pipefail
+          for t in cli concurrency edge_cases slice_a slice_b slice_c slice_g storage validator; do
+            echo "::group::cargo test --test $t"
+            cargo test --release --locked --test "$t" -- --test-threads=1
+            echo "::endgroup::"
+          done
 
       - name: req validate (zero errors AND zero warnings)
         shell: bash

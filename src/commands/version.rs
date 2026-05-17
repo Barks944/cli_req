@@ -12,13 +12,16 @@ pub fn run(args: VersionArgs) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let package = env!("CARGO_PKG_NAME");
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "name": bin_name,
-            "package": package,
-            "version": version,
-            "file_format": crate::storage::FORMAT_TAG,
-            "mcp_protocol": "2024-11-05",
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "name": bin_name,
+                "package": package,
+                "version": version,
+                "file_format": crate::storage::FORMAT_TAG,
+                "mcp_protocol": "2024-11-05",
+            }))?
+        );
     } else {
         println!("{} {}", bin_name, version);
     }

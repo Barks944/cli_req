@@ -22,11 +22,14 @@ pub fn run(args: CheckArgs, file: &Option<PathBuf>) -> Result<()> {
         Err(e) => {
             // If the base ref doesn't exist, exit non-zero with a clear message.
             if args.json {
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "ok": false,
-                    "base": args.base,
-                    "error": e.to_string(),
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "ok": false,
+                        "base": args.base,
+                        "error": e.to_string(),
+                    }))?
+                );
             } else {
                 eprintln!("req check: {}", e);
             }
@@ -44,7 +47,11 @@ pub fn run(args: CheckArgs, file: &Option<PathBuf>) -> Result<()> {
     for id in &changed_reqs {
         if let Some(r) = current.requirements.get(id) {
             for f in validate::validate_requirement(r) {
-                if f.error { errs += 1 } else { warns += 1 }
+                if f.error {
+                    errs += 1
+                } else {
+                    warns += 1
+                }
                 findings.push(json!({
                     "req_id": id,
                     "rule_code": f.rule_code,
@@ -62,8 +69,14 @@ pub fn run(args: CheckArgs, file: &Option<PathBuf>) -> Result<()> {
     for f in &changed_files {
         let full = args.path.join(f);
         if let Ok(text) = std::fs::read_to_string(&full) {
-            let ids: BTreeSet<String> = REQ_RE.find_iter(&text).map(|m| m.as_str().to_string()).collect();
-            let unknown: Vec<&String> = ids.iter().filter(|id| !current.requirements.contains_key(*id)).collect();
+            let ids: BTreeSet<String> = REQ_RE
+                .find_iter(&text)
+                .map(|m| m.as_str().to_string())
+                .collect();
+            let unknown: Vec<&String> = ids
+                .iter()
+                .filter(|id| !current.requirements.contains_key(*id))
+                .collect();
             coverage.push(json!({
                 "file": full.display().to_string(),
                 "req_ids": ids,
@@ -74,16 +87,19 @@ pub fn run(args: CheckArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "ok": errs == 0,
-            "base": args.base,
-            "changed_requirements": changed_reqs,
-            "errors": errs,
-            "warnings": warns,
-            "findings": findings,
-            "changed_files": changed_files,
-            "coverage": coverage,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ok": errs == 0,
+                "base": args.base,
+                "changed_requirements": changed_reqs,
+                "errors": errs,
+                "warnings": warns,
+                "findings": findings,
+                "changed_files": changed_files,
+                "coverage": coverage,
+            }))?
+        );
     } else {
         println!("req check {}", args.base);
         println!("  changed requirements : {}", changed_reqs.len());
@@ -92,16 +108,20 @@ pub fn run(args: CheckArgs, file: &Option<PathBuf>) -> Result<()> {
         if !findings.is_empty() {
             println!("\nFindings:");
             for f in &findings {
-                println!("  {} {} [{}] {}",
+                println!(
+                    "  {} {} [{}] {}",
                     f["req_id"].as_str().unwrap_or("?"),
                     f["rule_code"].as_str().unwrap_or("?"),
                     f["severity"].as_str().unwrap_or("?"),
-                    f["message"].as_str().unwrap_or("?"));
+                    f["message"].as_str().unwrap_or("?")
+                );
             }
         }
     }
 
-    if errs > 0 { std::process::exit(1); }
+    if errs > 0 {
+        std::process::exit(1);
+    }
     Ok(())
 }
 
@@ -111,10 +131,16 @@ fn load_base(base: &str, current_path: &std::path::Path) -> Result<Project> {
         .and_then(|s| s.to_str())
         .ok_or_else(|| anyhow!("project file path has no name component"))?;
     let spec = format!("{}:{}", base, filename);
-    let out = Command::new("git").args(["show", &spec]).output()
+    let out = Command::new("git")
+        .args(["show", &spec])
+        .output()
         .with_context(|| format!("git show {}", spec))?;
     if !out.status.success() {
-        return Err(anyhow!("git show {} failed: {}", spec, String::from_utf8_lossy(&out.stderr)));
+        return Err(anyhow!(
+            "git show {} failed: {}",
+            spec,
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let tmp = std::env::temp_dir().join(format!("req-check-base-{}.req", std::process::id()));
     std::fs::write(&tmp, &out.stdout)?;
@@ -126,27 +152,37 @@ fn load_base(base: &str, current_path: &std::path::Path) -> Result<Project> {
 fn changed_req_ids(current: &Project, base: Option<&Project>) -> Vec<String> {
     match base {
         None => current.requirements.keys().cloned().collect(),
-        Some(b) => current.requirements.iter().filter(|(id, r)| {
-            match b.requirements.get(*id) {
+        Some(b) => current
+            .requirements
+            .iter()
+            .filter(|(id, r)| match b.requirements.get(*id) {
                 None => true,
-                Some(prev) => prev.updated != r.updated
-                    || prev.title != r.title
-                    || prev.statement != r.statement
-                    || prev.rationale != r.rationale
-                    || prev.acceptance != r.acceptance
-                    || prev.status != r.status
-                    || prev.priority != r.priority
-                    || prev.kind != r.kind
-                    || prev.links.len() != r.links.len(),
-            }
-        }).map(|(id, _)| id.clone()).collect(),
+                Some(prev) => {
+                    prev.updated != r.updated
+                        || prev.title != r.title
+                        || prev.statement != r.statement
+                        || prev.rationale != r.rationale
+                        || prev.acceptance != r.acceptance
+                        || prev.status != r.status
+                        || prev.priority != r.priority
+                        || prev.kind != r.kind
+                        || prev.links.len() != r.links.len()
+                }
+            })
+            .map(|(id, _)| id.clone())
+            .collect(),
     }
 }
 
 fn git_changed_files(base: &str) -> Result<Vec<String>> {
-    let out = Command::new("git").args(["diff", "--name-only", &format!("{}...HEAD", base)]).output()?;
+    let out = Command::new("git")
+        .args(["diff", "--name-only", &format!("{}...HEAD", base)])
+        .output()?;
     if !out.status.success() {
-        return Err(anyhow!("git diff failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(anyhow!(
+            "git diff failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout)
         .lines()

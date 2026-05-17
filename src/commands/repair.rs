@@ -23,7 +23,10 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
         .filter(|f| f.error)
         .count();
     if errs > 0 {
-        eprintln!("Refusing to repair: file contains {} validation errors. Fix them first.", errs);
+        eprintln!(
+            "Refusing to repair: file contains {} validation errors. Fix them first.",
+            errs
+        );
         for (id, fs) in &findings {
             for f in fs {
                 if f.error {
@@ -35,6 +38,10 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     storage::save(&path, &project)?;
-    println!("Re-signed {}. {} requirement(s).", path.display(), project.requirements.len());
+    println!(
+        "Re-signed {}. {} requirement(s).",
+        path.display(),
+        project.requirements.len()
+    );
     Ok(())
 }

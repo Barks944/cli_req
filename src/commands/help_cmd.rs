@@ -10,10 +10,14 @@ use crate::help_text::{self, Section};
 pub fn run(args: HelpArgs) -> Result<()> {
     if args.list || args.section.is_none() {
         if args.json {
-            let sections: Vec<_> = help_text::sections().iter()
+            let sections: Vec<_> = help_text::sections()
+                .iter()
                 .map(|s| serde_json::json!({ "name": s.name, "summary": s.summary }))
                 .collect();
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "sections": sections }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({ "sections": sections }))?
+            );
             return Ok(());
         }
         println!("Help sections — `req help <name>`:\n");
@@ -38,10 +42,16 @@ pub fn run(args: HelpArgs) -> Result<()> {
     }
     if want == "all" {
         if args.json {
-            let sections: Vec<_> = help_text::sections().iter()
-                .map(|s| serde_json::json!({ "name": s.name, "summary": s.summary, "body": s.body }))
+            let sections: Vec<_> = help_text::sections()
+                .iter()
+                .map(
+                    |s| serde_json::json!({ "name": s.name, "summary": s.summary, "body": s.body }),
+                )
                 .collect();
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "sections": sections }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({ "sections": sections }))?
+            );
             return Ok(());
         }
         for s in help_text::sections() {

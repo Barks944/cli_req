@@ -7,7 +7,8 @@ use std::fs;
 
 #[test]
 fn req_0066_batch_applies_multiple_mutations_atomically() {
-    let s = Sandbox::new(); s.init("p");
+    let s = Sandbox::new();
+    s.init("p");
     let doc = serde_json::json!({
         "reason": "First batch smoke",
         "mutations": [
@@ -35,7 +36,8 @@ fn req_0066_batch_applies_multiple_mutations_atomically() {
 
 #[test]
 fn req_0066_batch_rolls_back_on_validation_failure() {
-    let s = Sandbox::new(); s.init("p");
+    let s = Sandbox::new();
+    s.init("p");
     // Take a snapshot of the project file BEFORE the bad batch
     let before = fs::read(s.path()).unwrap();
     let doc = serde_json::json!({
@@ -59,14 +61,18 @@ fn req_0066_batch_rolls_back_on_validation_failure() {
     assert!(!out.status.success());
     // File must be byte-identical to its pre-batch state
     let after = fs::read(s.path()).unwrap();
-    assert_eq!(before, after, "project.req should be unchanged after rollback");
+    assert_eq!(
+        before, after,
+        "project.req should be unchanged after rollback"
+    );
 }
 
 // ---------- REQ-0067: req import ----------
 
 #[test]
 fn req_0067_import_markdown_accepts_well_formed_items() {
-    let s = Sandbox::new(); s.init("p");
+    let s = Sandbox::new();
+    s.init("p");
     let md = r#"
 ## First imported requirement here
 
@@ -101,7 +107,8 @@ Acceptance:
 
 #[test]
 fn req_0067_import_dry_run_does_not_write() {
-    let s = Sandbox::new(); s.init("p");
+    let s = Sandbox::new();
+    s.init("p");
     let before = fs::read(s.path()).unwrap();
     let md = r#"
 ## Dry-run imported requirement
@@ -112,7 +119,13 @@ Rationale: Test the --dry-run flag.
 "#;
     let path = s.dir.path().join("dry.md");
     fs::write(&path, md).unwrap();
-    let out = s.run(&["import", "-f", "markdown", path.to_str().unwrap(), "--dry-run"]);
+    let out = s.run(&[
+        "import",
+        "-f",
+        "markdown",
+        path.to_str().unwrap(),
+        "--dry-run",
+    ]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let after = fs::read(s.path()).unwrap();
     assert_eq!(before, after, "project.req unchanged on dry-run");
@@ -120,7 +133,8 @@ Rationale: Test the --dry-run flag.
 
 #[test]
 fn req_0067_import_json_array_schema() {
-    let s = Sandbox::new(); s.init("p");
+    let s = Sandbox::new();
+    s.init("p");
     let doc = serde_json::json!([
         {
             "title": "From JSON array form",

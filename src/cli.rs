@@ -16,7 +16,7 @@ use std::path::PathBuf;
     long_about,
     propagate_version = true,
     disable_help_subcommand = true,
-    disable_version_flag = true,
+    disable_version_flag = true
 )]
 pub struct Cli {
     /// Print the version and exit (also `req version` or `req --version`).

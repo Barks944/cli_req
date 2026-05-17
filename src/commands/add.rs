@@ -15,12 +15,17 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     let args = if args.from_json.is_some() {
         let src = args.from_json.clone().unwrap();
         merge_from_json(args, &src)?
-    } else { args };
+    } else {
+        args
+    };
 
     let (path, mut project, _lock) = load_for_mutation(file)?;
 
     let interactive = args.interactive
-        || (args.title.is_none() && args.statement.is_none() && !args.from_json.is_some() && atty_stdin());
+        || (args.title.is_none()
+            && args.statement.is_none()
+            && args.from_json.is_none()
+            && atty_stdin());
 
     let theme = ColorfulTheme::default();
 
@@ -51,7 +56,13 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     let kind: Kind = match args.kind {
         Some(k) => k.into(),
         None if interactive => {
-            let opts = ["Functional", "NonFunctional", "Constraint", "Interface", "Business"];
+            let opts = [
+                "Functional",
+                "NonFunctional",
+                "Constraint",
+                "Interface",
+                "Business",
+            ];
             let idx = Select::with_theme(&theme)
                 .with_prompt("Kind")
                 .items(&opts)
@@ -120,7 +131,10 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         if !project.requirements.contains_key(parent) {
             return Err(anyhow!("parent {} does not exist", parent));
         }
-        links.push(Link { kind: LinkKind::Parent, target: parent.clone() });
+        links.push(Link {
+            kind: LinkKind::Parent,
+            target: parent.clone(),
+        });
     } else if interactive && !project.requirements.is_empty() {
         let ids: Vec<&String> = project.requirements.keys().collect();
         let display: Vec<String> = ids
@@ -132,7 +146,10 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
             .items(&display)
             .interact()?;
         for i in picks {
-            links.push(Link { kind: LinkKind::Parent, target: ids[i].clone() });
+            links.push(Link {
+                kind: LinkKind::Parent,
+                target: ids[i].clone(),
+            });
         }
     }
 
@@ -161,7 +178,12 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     if !findings.is_empty() {
         eprintln!("Validation:");
         for f in &findings {
-            eprintln!("  {} [{}] {}", if f.error { "ERR " } else { "WARN" }, f.field, f.message);
+            eprintln!(
+                "  {} [{}] {}",
+                if f.error { "ERR " } else { "WARN" },
+                f.field,
+                f.message
+            );
         }
     }
     if !errors.is_empty() {
@@ -174,7 +196,10 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
                 return Err(anyhow!("aborted"));
             }
         } else {
-            return Err(anyhow!("{} validation errors — fix and retry", errors.len()));
+            return Err(anyhow!(
+                "{} validation errors — fix and retry",
+                errors.len()
+            ));
         }
     }
 
@@ -184,7 +209,10 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     project.updated = now;
     storage::save(&path, &project)?;
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&project.requirements[&id])?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&project.requirements[&id])?
+        );
     } else {
         println!("Added {}", id);
     }
@@ -206,8 +234,7 @@ fn merge_from_json(mut args: AddArgs, src: &str) -> Result<AddArgs> {
         std::io::stdin().read_to_string(&mut buf)?;
         buf
     } else {
-        std::fs::read_to_string(src)
-            .with_context(|| format!("read --from-json source {}", src))?
+        std::fs::read_to_string(src).with_context(|| format!("read --from-json source {}", src))?
     };
     #[derive(serde::Deserialize, Default)]
     struct AddDoc {
@@ -221,11 +248,19 @@ fn merge_from_json(mut args: AddArgs, src: &str) -> Result<AddArgs> {
         parent: Option<String>,
     }
     let doc: AddDoc = serde_json::from_str(&raw).context("parse --from-json document")?;
-    if args.title.is_none() { args.title = doc.title; }
-    if args.statement.is_none() { args.statement = doc.statement; }
-    if args.rationale.is_none() { args.rationale = doc.rationale; }
+    if args.title.is_none() {
+        args.title = doc.title;
+    }
+    if args.statement.is_none() {
+        args.statement = doc.statement;
+    }
+    if args.rationale.is_none() {
+        args.rationale = doc.rationale;
+    }
     if args.acceptance.is_empty() {
-        if let Some(a) = doc.acceptance { args.acceptance = a; }
+        if let Some(a) = doc.acceptance {
+            args.acceptance = a;
+        }
     }
     if args.kind.is_none() {
         if let Some(k) = doc.kind {
@@ -251,8 +286,12 @@ fn merge_from_json(mut args: AddArgs, src: &str) -> Result<AddArgs> {
         }
     }
     if args.tag.is_empty() {
-        if let Some(t) = doc.tags { args.tag = t; }
+        if let Some(t) = doc.tags {
+            args.tag = t;
+        }
     }
-    if args.parent.is_none() { args.parent = doc.parent; }
+    if args.parent.is_none() {
+        args.parent = doc.parent;
+    }
     Ok(args)
 }

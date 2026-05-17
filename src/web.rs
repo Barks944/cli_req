@@ -76,7 +76,9 @@ fn load_project(state: &AppState) -> Result<Project, (StatusCode, String)> {
     storage::load(&state.file).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
-async fn api_list(State(state): State<Arc<AppState>>) -> Result<Json<Vec<Requirement>>, (StatusCode, String)> {
+async fn api_list(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<Requirement>>, (StatusCode, String)> {
     let project = load_project(&state)?;
     Ok(Json(project.requirements.into_values().collect()))
 }
@@ -88,11 +90,16 @@ async fn api_show(
     let project = load_project(&state)?;
     match project.requirements.get(&id) {
         Some(r) => Ok(Json(r.clone())),
-        None => Err((StatusCode::NOT_FOUND, format!("no such requirement: {}", id))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("no such requirement: {}", id),
+        )),
     }
 }
 
-async fn index_html(State(state): State<Arc<AppState>>) -> Result<Html<String>, (StatusCode, String)> {
+async fn index_html(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, (StatusCode, String)> {
     let project = load_project(&state)?;
     let mut rows = String::new();
     for r in project.requirements.values() {
@@ -127,7 +134,12 @@ async fn show_html(
     let project = load_project(&state)?;
     let r = match project.requirements.get(&id) {
         Some(r) => r.clone(),
-        None => return Err((StatusCode::NOT_FOUND, format!("no such requirement: {}", id))),
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("no such requirement: {}", id),
+            ))
+        }
     };
     let mut acc = String::new();
     for (i, a) in r.acceptance.iter().enumerate() {

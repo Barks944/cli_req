@@ -16,7 +16,11 @@ pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut warns = 0usize;
     for (_, findings) in &report {
         for f in findings {
-            if f.error { errs += 1 } else { warns += 1 }
+            if f.error {
+                errs += 1
+            } else {
+                warns += 1
+            }
         }
     }
 
@@ -35,15 +39,23 @@ pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
                 })
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "errors": errs, "warnings": warns, "findings": findings
-        }))?);
-        if errs > 0 { std::process::exit(1); }
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "errors": errs, "warnings": warns, "findings": findings
+            }))?
+        );
+        if errs > 0 {
+            std::process::exit(1);
+        }
         return Ok(());
     }
 
     if report.is_empty() {
-        println!("OK — {} requirement(s), no findings.", project.requirements.len());
+        println!(
+            "OK — {} requirement(s), no findings.",
+            project.requirements.len()
+        );
         return Ok(());
     }
 

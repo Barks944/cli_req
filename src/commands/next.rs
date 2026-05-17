@@ -19,9 +19,9 @@ pub fn run(args: NextArgs, file: &Option<PathBuf>) -> Result<()> {
         .requirements
         .values()
         .filter(|r| !matches!(r.status, Status::Obsolete))
-        .filter(|r| status.map_or(true, |s| r.status == s))
-        .filter(|r| kind.map_or(true, |k| r.kind == k))
-        .filter(|r| priority.map_or(true, |p| r.priority == p))
+        .filter(|r| status.is_none_or(|s| r.status == s))
+        .filter(|r| kind.is_none_or(|k| r.kind == k))
+        .filter(|r| priority.is_none_or(|p| r.priority == p))
         .filter(|r| tags.iter().all(|t| r.tags.iter().any(|rt| rt == t)))
         .filter(|r| dependencies_satisfied(r, &project))
         .collect();
@@ -29,7 +29,10 @@ pub fn run(args: NextArgs, file: &Option<PathBuf>) -> Result<()> {
     if candidates.is_empty() {
         let msg = "no requirement matches the filters with all dependencies satisfied";
         if args.json {
-            println!("{}", serde_json::to_string_pretty(&json!({ "found": false, "message": msg }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({ "found": false, "message": msg }))?
+            );
         } else {
             eprintln!("{}", msg);
         }
@@ -60,9 +63,14 @@ pub fn run(args: NextArgs, file: &Option<PathBuf>) -> Result<()> {
     if args.json {
         println!("{}", serde_json::to_string_pretty(pick)?);
     } else {
-        println!("{} — {} [{} / {} / {}]",
-            pick.id, pick.title,
-            pick.kind.as_str(), pick.priority.as_str(), pick.status.as_str());
+        println!(
+            "{} — {} [{} / {} / {}]",
+            pick.id,
+            pick.title,
+            pick.kind.as_str(),
+            pick.priority.as_str(),
+            pick.status.as_str()
+        );
         if !pick.acceptance.is_empty() {
             println!("\nAcceptance:");
             for (i, ac) in pick.acceptance.iter().enumerate() {
@@ -86,4 +94,6 @@ fn dependencies_satisfied(r: &Requirement, project: &Project) -> bool {
 }
 
 #[allow(dead_code)]
-fn _unused() -> Result<()> { Err(anyhow!("unused")) }
+fn _unused() -> Result<()> {
+    Err(anyhow!("unused"))
+}

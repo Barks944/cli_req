@@ -53,13 +53,16 @@ pub fn run(args: RenumberArgs, file: &Option<PathBuf>) -> Result<()> {
     apply_renames(&mut current, &renames);
     current.next_id = next_id;
     storage::save(&path, &current)?;
-    println!("Renumbered {} requirement(s) and re-signed {}.", renames.len(), path.display());
+    println!(
+        "Renumbered {} requirement(s) and re-signed {}.",
+        renames.len(),
+        path.display()
+    );
     Ok(())
 }
 
 fn apply_renames(project: &mut Project, renames: &[(String, String)]) {
-    let map: std::collections::HashMap<String, String> =
-        renames.iter().cloned().collect();
+    let map: std::collections::HashMap<String, String> = renames.iter().cloned().collect();
 
     let mut taken: Vec<Requirement> = Vec::new();
     for (old, _) in renames {

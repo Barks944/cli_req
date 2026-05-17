@@ -29,42 +29,66 @@ enum Mutation {
         title: String,
         statement: String,
         rationale: String,
-        #[serde(default)] req_kind: Option<String>,
-        #[serde(default)] priority: Option<String>,
-        #[serde(default)] acceptance: Vec<String>,
-        #[serde(default)] tags: Vec<String>,
-        #[serde(default)] parent: Option<String>,
-        #[serde(default)] reason: Option<String>,
+        #[serde(default)]
+        req_kind: Option<String>,
+        #[serde(default)]
+        priority: Option<String>,
+        #[serde(default)]
+        acceptance: Vec<String>,
+        #[serde(default)]
+        tags: Vec<String>,
+        #[serde(default)]
+        parent: Option<String>,
+        #[serde(default)]
+        reason: Option<String>,
     },
     Update {
         id: String,
-        #[serde(default)] title: Option<String>,
-        #[serde(default)] statement: Option<String>,
-        #[serde(default)] rationale: Option<String>,
-        #[serde(default)] acceptance: Option<Vec<String>>,
-        #[serde(default)] add_acceptance: Vec<String>,
-        #[serde(default)] req_kind: Option<String>,
-        #[serde(default)] priority: Option<String>,
-        #[serde(default)] status: Option<String>,
-        #[serde(default)] add_tag: Vec<String>,
-        #[serde(default)] remove_tag: Vec<String>,
-        #[serde(default)] reason: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        statement: Option<String>,
+        #[serde(default)]
+        rationale: Option<String>,
+        #[serde(default)]
+        acceptance: Option<Vec<String>>,
+        #[serde(default)]
+        add_acceptance: Vec<String>,
+        #[serde(default)]
+        req_kind: Option<String>,
+        #[serde(default)]
+        priority: Option<String>,
+        #[serde(default)]
+        status: Option<String>,
+        #[serde(default)]
+        add_tag: Vec<String>,
+        #[serde(default)]
+        remove_tag: Vec<String>,
+        #[serde(default)]
+        reason: Option<String>,
     },
     Delete {
         id: String,
-        #[serde(default)] hard: bool,
-        #[serde(default)] reason: Option<String>,
+        #[serde(default)]
+        hard: bool,
+        #[serde(default)]
+        reason: Option<String>,
     },
     Link {
         from: String,
         to: String,
-        #[serde(default = "default_link_kind")] link_kind: String,
-        #[serde(default)] remove: bool,
-        #[serde(default)] reason: Option<String>,
+        #[serde(default = "default_link_kind")]
+        link_kind: String,
+        #[serde(default)]
+        remove: bool,
+        #[serde(default)]
+        reason: Option<String>,
     },
 }
 
-fn default_link_kind() -> String { "parent".into() }
+fn default_link_kind() -> String {
+    "parent".into()
+}
 
 pub fn run(args: BatchArgs, file: &Option<PathBuf>) -> Result<()> {
     let raw = if args.source == "-" {
@@ -78,7 +102,7 @@ pub fn run(args: BatchArgs, file: &Option<PathBuf>) -> Result<()> {
     let doc: BatchDoc = serde_json::from_str(&raw).context("parse batch document")?;
 
     let (path, mut project, _lock) = load_for_mutation(file)?;
-    let project_snapshot = serde_json::to_string(&project)?;  // for rollback
+    let project_snapshot = serde_json::to_string(&project)?; // for rollback
 
     let now = Utc::now();
     let mut applied: Vec<serde_json::Value> = Vec::new();
@@ -92,17 +116,19 @@ pub fn run(args: BatchArgs, file: &Option<PathBuf>) -> Result<()> {
                 // The reassignment is for clarity even though we return
                 // immediately afterwards — keeps the snapshot semantics
                 // explicit if a future change adds work after this point.
-                let _rolled_back: crate::model::Project =
-                    serde_json::from_str(&project_snapshot)?;
+                let _rolled_back: crate::model::Project = serde_json::from_str(&project_snapshot)?;
                 let envelope = json!({
                     "applied_before_failure": applied,
                     "failed_index": idx,
                     "error": e.to_string(),
                 });
                 if args.json {
-                    println!("{}", serde_json::to_string_pretty(&json!({
-                        "ok": false, "rolled_back": true, "details": envelope
-                    }))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "ok": false, "rolled_back": true, "details": envelope
+                        }))?
+                    );
                 }
                 return Err(anyhow!("batch rolled back at mutation #{}: {}", idx, e));
             }
@@ -115,11 +141,14 @@ pub fn run(args: BatchArgs, file: &Option<PathBuf>) -> Result<()> {
         storage::save(&path, &project)?;
     }
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "ok": true,
-            "applied": applied.len(),
-            "results": applied,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ok": true,
+                "applied": applied.len(),
+                "results": applied,
+            }))?
+        );
     } else {
         println!("Applied {} mutation(s) in one batch.", applied.len());
         for a in &applied {
@@ -136,7 +165,17 @@ fn apply_one(
     now: chrono::DateTime<Utc>,
 ) -> Result<serde_json::Value> {
     match m {
-        Mutation::Add { title, statement, rationale, req_kind, priority, acceptance, tags, parent, reason } => {
+        Mutation::Add {
+            title,
+            statement,
+            rationale,
+            req_kind,
+            priority,
+            acceptance,
+            tags,
+            parent,
+            reason,
+        } => {
             let kind = parse_kind(req_kind.as_deref())?.unwrap_or(Kind::Functional);
             let prio = parse_priority(priority.as_deref())?.unwrap_or(Priority::Should);
             let mut links = Vec::new();
@@ -144,7 +183,10 @@ fn apply_one(
                 if !project.requirements.contains_key(p) {
                     return Err(anyhow!("parent {} does not exist", p));
                 }
-                links.push(Link { kind: LinkKind::Parent, target: p.clone() });
+                links.push(Link {
+                    kind: LinkKind::Parent,
+                    target: p.clone(),
+                });
             }
             let mut req = Requirement {
                 id: String::new(),
@@ -152,11 +194,13 @@ fn apply_one(
                 statement: statement.clone(),
                 rationale: rationale.clone(),
                 acceptance: acceptance.clone(),
-                kind, priority: prio,
+                kind,
+                priority: prio,
                 status: Status::Draft,
                 tags: tags.clone(),
                 links,
-                created: now, updated: now,
+                created: now,
+                updated: now,
                 history: vec![super::history(
                     "created via batch",
                     reason.clone().or_else(|| default_reason.clone()),
@@ -166,7 +210,10 @@ fn apply_one(
             let findings = validate::validate_requirement(&req);
             let errs = validate::errors_only(&findings);
             if !errs.is_empty() {
-                let msg: Vec<String> = errs.iter().map(|f| format!("[{}] {}", f.field, f.message)).collect();
+                let msg: Vec<String> = errs
+                    .iter()
+                    .map(|f| format!("[{}] {}", f.field, f.message))
+                    .collect();
                 return Err(anyhow!("validation failed: {}", msg.join("; ")));
             }
             let id = project.allocate_id();
@@ -174,78 +221,173 @@ fn apply_one(
             project.requirements.insert(id.clone(), req);
             Ok(json!({ "op": "add", "id": id }))
         }
-        Mutation::Update { id, title, statement, rationale, acceptance, add_acceptance, req_kind, priority, status, add_tag, remove_tag, reason } => {
-            let r = project.requirements.get_mut(id)
+        Mutation::Update {
+            id,
+            title,
+            statement,
+            rationale,
+            acceptance,
+            add_acceptance,
+            req_kind,
+            priority,
+            status,
+            add_tag,
+            remove_tag,
+            reason,
+        } => {
+            let r = project
+                .requirements
+                .get_mut(id)
                 .ok_or_else(|| anyhow!("no such requirement: {}", id))?;
             let mut changes = Vec::new();
-            if let Some(t) = title.clone() { if r.title != t { changes.push("title".into()); r.title = t; } }
-            if let Some(s) = statement.clone() { if r.statement != s { changes.push("statement".into()); r.statement = s; } }
-            if let Some(rt) = rationale.clone() { if r.rationale != rt { changes.push("rationale".into()); r.rationale = rt; } }
-            if let Some(ac) = acceptance.clone() { r.acceptance = ac; changes.push("acceptance replaced".into()); }
-            for ac in add_acceptance { r.acceptance.push(ac.clone()); changes.push(format!("+acceptance: {:?}", ac)); }
+            if let Some(t) = title.clone() {
+                if r.title != t {
+                    changes.push("title".into());
+                    r.title = t;
+                }
+            }
+            if let Some(s) = statement.clone() {
+                if r.statement != s {
+                    changes.push("statement".into());
+                    r.statement = s;
+                }
+            }
+            if let Some(rt) = rationale.clone() {
+                if r.rationale != rt {
+                    changes.push("rationale".into());
+                    r.rationale = rt;
+                }
+            }
+            if let Some(ac) = acceptance.clone() {
+                r.acceptance = ac;
+                changes.push("acceptance replaced".into());
+            }
+            for ac in add_acceptance {
+                r.acceptance.push(ac.clone());
+                changes.push(format!("+acceptance: {:?}", ac));
+            }
             if let Some(k) = parse_kind(req_kind.as_deref())? {
-                if r.kind != k { changes.push(format!("kind -> {}", k.as_str())); r.kind = k; }
+                if r.kind != k {
+                    changes.push(format!("kind -> {}", k.as_str()));
+                    r.kind = k;
+                }
             }
             if let Some(p) = parse_priority(priority.as_deref())? {
-                if r.priority != p { changes.push(format!("priority -> {}", p.as_str())); r.priority = p; }
+                if r.priority != p {
+                    changes.push(format!("priority -> {}", p.as_str()));
+                    r.priority = p;
+                }
             }
             if let Some(st) = parse_status(status.as_deref())? {
-                if r.status != st { changes.push(format!("status -> {}", st.as_str())); r.status = st; }
+                if r.status != st {
+                    changes.push(format!("status -> {}", st.as_str()));
+                    r.status = st;
+                }
             }
-            for t in add_tag { if !r.tags.iter().any(|x| x == t) { r.tags.push(t.clone()); changes.push(format!("+tag {}", t)); } }
-            for t in remove_tag { if let Some(p) = r.tags.iter().position(|x| x == t) { r.tags.remove(p); changes.push(format!("-tag {}", t)); } }
+            for t in add_tag {
+                if !r.tags.iter().any(|x| x == t) {
+                    r.tags.push(t.clone());
+                    changes.push(format!("+tag {}", t));
+                }
+            }
+            for t in remove_tag {
+                if let Some(p) = r.tags.iter().position(|x| x == t) {
+                    r.tags.remove(p);
+                    changes.push(format!("-tag {}", t));
+                }
+            }
             let findings = validate::validate_requirement(r);
             let errs = validate::errors_only(&findings);
             if !errs.is_empty() {
-                let msg: Vec<String> = errs.iter().map(|f| format!("[{}] {}", f.field, f.message)).collect();
+                let msg: Vec<String> = errs
+                    .iter()
+                    .map(|f| format!("[{}] {}", f.field, f.message))
+                    .collect();
                 return Err(anyhow!("validation failed on {}: {}", id, msg.join("; ")));
             }
             r.updated = now;
-            r.history.push(super::history(changes.join("; "), reason.clone().or_else(|| default_reason.clone())));
+            r.history.push(super::history(
+                changes.join("; "),
+                reason.clone().or_else(|| default_reason.clone()),
+            ));
             Ok(json!({ "op": "update", "id": id, "changes": changes }))
         }
         Mutation::Delete { id, hard, reason } => {
             if !project.requirements.contains_key(id) {
                 return Err(anyhow!("no such requirement: {}", id));
             }
-            let inbound: Vec<String> = project.requirements.values()
+            let inbound: Vec<String> = project
+                .requirements
+                .values()
                 .filter(|r| r.links.iter().any(|l| l.target == *id))
-                .map(|r| r.id.clone()).collect();
+                .map(|r| r.id.clone())
+                .collect();
             if *hard {
                 if !inbound.is_empty() {
-                    return Err(anyhow!("hard-delete blocked: {} referenced by {}", id, inbound.join(", ")));
+                    return Err(anyhow!(
+                        "hard-delete blocked: {} referenced by {}",
+                        id,
+                        inbound.join(", ")
+                    ));
                 }
                 project.requirements.remove(id);
             } else {
                 let r = project.requirements.get_mut(id).unwrap();
                 r.status = Status::Obsolete;
                 r.updated = now;
-                r.history.push(super::history("marked obsolete via batch", reason.clone().or_else(|| default_reason.clone())));
+                r.history.push(super::history(
+                    "marked obsolete via batch",
+                    reason.clone().or_else(|| default_reason.clone()),
+                ));
             }
             Ok(json!({ "op": "delete", "id": id, "mode": if *hard { "hard" } else { "soft" } }))
         }
-        Mutation::Link { from, to, link_kind, remove, reason } => {
-            if from == to { return Err(anyhow!("cannot link {} to itself", from)); }
-            if !project.requirements.contains_key(to) { return Err(anyhow!("target {} does not exist", to)); }
+        Mutation::Link {
+            from,
+            to,
+            link_kind,
+            remove,
+            reason,
+        } => {
+            if from == to {
+                return Err(anyhow!("cannot link {} to itself", from));
+            }
+            if !project.requirements.contains_key(to) {
+                return Err(anyhow!("target {} does not exist", to));
+            }
             let kind = parse_link_kind(link_kind)?;
-            let r = project.requirements.get_mut(from)
+            let r = project
+                .requirements
+                .get_mut(from)
                 .ok_or_else(|| anyhow!("source {} does not exist", from))?;
             if *remove {
                 let before = r.links.len();
                 r.links.retain(|l| !(l.kind == kind && l.target == *to));
-                if r.links.len() == before { return Err(anyhow!("no such link {} -> {}", from, to)); }
+                if r.links.len() == before {
+                    return Err(anyhow!("no such link {} -> {}", from, to));
+                }
             } else {
                 if r.links.iter().any(|l| l.kind == kind && l.target == *to) {
                     return Err(anyhow!("link already exists"));
                 }
-                r.links.push(Link { kind, target: to.clone() });
+                r.links.push(Link {
+                    kind,
+                    target: to.clone(),
+                });
             }
             r.updated = now;
             r.history.push(super::history(
-                format!("{} {} link to {} via batch", if *remove { "removed" } else { "added" }, kind.as_str(), to),
+                format!(
+                    "{} {} link to {} via batch",
+                    if *remove { "removed" } else { "added" },
+                    kind.as_str(),
+                    to
+                ),
                 reason.clone().or_else(|| default_reason.clone()),
             ));
-            Ok(json!({ "op": "link", "from": from, "to": to, "kind": kind.as_str(), "removed": remove }))
+            Ok(
+                json!({ "op": "link", "from": from, "to": to, "kind": kind.as_str(), "removed": remove }),
+            )
         }
     }
 }

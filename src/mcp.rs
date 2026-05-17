@@ -65,9 +65,7 @@ fn serve(file: &Option<PathBuf>) -> Result<()> {
 
     loop {
         line.clear();
-        let n = stdin
-            .read_line(&mut line)
-            .context("read from stdin")?;
+        let n = stdin.read_line(&mut line).context("read from stdin")?;
         if n == 0 {
             break;
         }
@@ -356,16 +354,16 @@ fn help_schema() -> Value {
 
 fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
     match name {
-        "req_list"     => tool_list(args, file),
-        "req_show"     => tool_show(args, file),
-        "req_add"      => tool_add(args, file),
-        "req_update"   => tool_update(args, file),
-        "req_delete"   => tool_delete(args, file),
-        "req_link"     => tool_link(args, file),
+        "req_list" => tool_list(args, file),
+        "req_show" => tool_show(args, file),
+        "req_add" => tool_add(args, file),
+        "req_update" => tool_update(args, file),
+        "req_delete" => tool_delete(args, file),
+        "req_link" => tool_link(args, file),
         "req_validate" => tool_validate(file),
         "req_coverage" => tool_coverage(args, file),
-        "req_export"   => tool_export(args, file),
-        "req_help"     => tool_help(args),
+        "req_export" => tool_export(args, file),
+        "req_help" => tool_help(args),
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
 }
@@ -423,20 +421,41 @@ fn tool_list(args: &Value, file: &Path) -> Result<String> {
     let project = storage::load(file)?;
     let status = s(args, "status").map(|s| parse_status(&s)).transpose()?;
     let kind = s(args, "kind").map(|s| parse_kind(&s)).transpose()?;
-    let priority = s(args, "priority").map(|s| parse_priority(&s)).transpose()?;
+    let priority = s(args, "priority")
+        .map(|s| parse_priority(&s))
+        .transpose()?;
     let tags: Vec<String> = args
         .get("tag")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
     let query = s(args, "query").map(|q| q.to_lowercase());
 
     let mut rows = Vec::new();
     for r in project.requirements.values() {
-        if let Some(k) = kind { if r.kind != k { continue; } }
-        if let Some(p) = priority { if r.priority != p { continue; } }
-        if let Some(st) = status { if r.status != st { continue; } }
-        if !tags.iter().all(|t| r.tags.iter().any(|rt| rt == t)) { continue; }
+        if let Some(k) = kind {
+            if r.kind != k {
+                continue;
+            }
+        }
+        if let Some(p) = priority {
+            if r.priority != p {
+                continue;
+            }
+        }
+        if let Some(st) = status {
+            if r.status != st {
+                continue;
+            }
+        }
+        if !tags.iter().all(|t| r.tags.iter().any(|rt| rt == t)) {
+            continue;
+        }
         if let Some(q) = &query {
             if !r.title.to_lowercase().contains(q) && !r.statement.to_lowercase().contains(q) {
                 continue;
@@ -473,13 +492,33 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
     let title = req_s(args, "title")?;
     let statement = req_s(args, "statement")?;
     let rationale = req_s(args, "rationale")?;
-    let kind = s(args, "kind").map(|s| parse_kind(&s)).transpose()?.unwrap_or(Kind::Functional);
-    let priority = s(args, "priority").map(|s| parse_priority(&s)).transpose()?.unwrap_or(Priority::Should);
-    let acceptance: Vec<String> = args.get("acceptance").and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+    let kind = s(args, "kind")
+        .map(|s| parse_kind(&s))
+        .transpose()?
+        .unwrap_or(Kind::Functional);
+    let priority = s(args, "priority")
+        .map(|s| parse_priority(&s))
+        .transpose()?
+        .unwrap_or(Priority::Should);
+    let acceptance: Vec<String> = args
+        .get("acceptance")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
-    let tags: Vec<String> = args.get("tags").and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+    let tags: Vec<String> = args
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
 
     let now = Utc::now();
@@ -488,23 +527,35 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         if !project.requirements.contains_key(&parent) {
             return Err(anyhow!("parent {} does not exist", parent));
         }
-        links.push(Link { kind: LinkKind::Parent, target: parent });
+        links.push(Link {
+            kind: LinkKind::Parent,
+            target: parent,
+        });
     }
     // Validate BEFORE allocating an ID, so a rejected add does not burn one.
     let mut req = Requirement {
         id: String::new(),
-        title, statement, rationale, acceptance,
-        kind, priority,
+        title,
+        statement,
+        rationale,
+        acceptance,
+        kind,
+        priority,
         status: Status::Draft,
-        tags, links,
-        created: now, updated: now,
+        tags,
+        links,
+        created: now,
+        updated: now,
         history: vec![commands::history("created via MCP", None)],
         tests: Vec::new(),
     };
     let findings = validate::validate_requirement(&req);
     let errs = validate::errors_only(&findings);
     if !errs.is_empty() {
-        let msgs: Vec<String> = errs.iter().map(|f| format!("[{}] {}", f.field, f.message)).collect();
+        let msgs: Vec<String> = errs
+            .iter()
+            .map(|f| format!("[{}] {}", f.field, f.message))
+            .collect();
         return Err(anyhow!("rejected: {}", msgs.join("; ")));
     }
     let id = project.allocate_id();
@@ -512,8 +563,11 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
     project.requirements.insert(id.clone(), req);
     project.updated = now;
     storage::save(file, &project)?;
-    let warns: Vec<String> = findings.iter().filter(|f| !f.error)
-        .map(|f| format!("[{}] {}", f.field, f.message)).collect();
+    let warns: Vec<String> = findings
+        .iter()
+        .filter(|f| !f.error)
+        .map(|f| format!("[{}] {}", f.field, f.message))
+        .collect();
     Ok(json!({ "id": id, "warnings": warns }).to_string())
 }
 
@@ -521,14 +575,35 @@ fn tool_update(args: &Value, file: &Path) -> Result<String> {
     let id = req_s(args, "id")?;
     let reason = req_s(args, "reason")?;
     let mut project = storage::load(file)?;
-    let r = project.requirements.get_mut(&id)
+    let r = project
+        .requirements
+        .get_mut(&id)
         .ok_or_else(|| anyhow!("no such requirement: {}", id))?;
     let mut changes = Vec::new();
-    if let Some(t) = s(args, "title")     { if r.title != t     { changes.push("title".into());     r.title = t; } }
-    if let Some(t) = s(args, "statement") { if r.statement != t { changes.push("statement".into()); r.statement = t; } }
-    if let Some(t) = s(args, "rationale") { if r.rationale != t { changes.push("rationale".into()); r.rationale = t; } }
+    if let Some(t) = s(args, "title") {
+        if r.title != t {
+            changes.push("title".into());
+            r.title = t;
+        }
+    }
+    if let Some(t) = s(args, "statement") {
+        if r.statement != t {
+            changes.push("statement".into());
+            r.statement = t;
+        }
+    }
+    if let Some(t) = s(args, "rationale") {
+        if r.rationale != t {
+            changes.push("rationale".into());
+            r.rationale = t;
+        }
+    }
     if let Some(arr) = args.get("acceptance").and_then(Value::as_array) {
-        r.acceptance = arr.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect();
+        r.acceptance = arr
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|s| s.to_string())
+            .collect();
         changes.push("acceptance replaced".into());
     }
     if let Some(arr) = args.get("add_acceptance").and_then(Value::as_array) {
@@ -538,43 +613,75 @@ fn tool_update(args: &Value, file: &Path) -> Result<String> {
         }
     }
     if let Some(arr) = args.get("remove_acceptance").and_then(Value::as_array) {
-        let mut idxs: Vec<usize> = arr.iter().filter_map(Value::as_u64).map(|u| u as usize).collect();
-        idxs.sort_unstable(); idxs.dedup(); idxs.reverse();
+        let mut idxs: Vec<usize> = arr
+            .iter()
+            .filter_map(Value::as_u64)
+            .map(|u| u as usize)
+            .collect();
+        idxs.sort_unstable();
+        idxs.dedup();
+        idxs.reverse();
         for i in idxs {
-            if i == 0 || i > r.acceptance.len() { return Err(anyhow!("remove_acceptance index {} out of range", i)); }
+            if i == 0 || i > r.acceptance.len() {
+                return Err(anyhow!("remove_acceptance index {} out of range", i));
+            }
             let g = r.acceptance.remove(i - 1);
             changes.push(format!("-acceptance #{}: {:?}", i, g));
         }
     }
     if let Some(k) = s(args, "kind").map(|s| parse_kind(&s)).transpose()? {
-        if r.kind != k { changes.push(format!("kind→{}", k.as_str())); r.kind = k; }
+        if r.kind != k {
+            changes.push(format!("kind→{}", k.as_str()));
+            r.kind = k;
+        }
     }
-    if let Some(p) = s(args, "priority").map(|s| parse_priority(&s)).transpose()? {
-        if r.priority != p { changes.push(format!("priority→{}", p.as_str())); r.priority = p; }
+    if let Some(p) = s(args, "priority")
+        .map(|s| parse_priority(&s))
+        .transpose()?
+    {
+        if r.priority != p {
+            changes.push(format!("priority→{}", p.as_str()));
+            r.priority = p;
+        }
     }
     if let Some(st) = s(args, "status").map(|s| parse_status(&s)).transpose()? {
-        if r.status != st { changes.push(format!("status→{}", st.as_str())); r.status = st; }
+        if r.status != st {
+            changes.push(format!("status→{}", st.as_str()));
+            r.status = st;
+        }
     }
     if let Some(arr) = args.get("add_tag").and_then(Value::as_array) {
         for t in arr.iter().filter_map(Value::as_str) {
-            if !r.tags.iter().any(|x| x == t) { r.tags.push(t.into()); changes.push(format!("+tag {}", t)); }
+            if !r.tags.iter().any(|x| x == t) {
+                r.tags.push(t.into());
+                changes.push(format!("+tag {}", t));
+            }
         }
     }
     if let Some(arr) = args.get("remove_tag").and_then(Value::as_array) {
         for t in arr.iter().filter_map(Value::as_str) {
-            if let Some(p) = r.tags.iter().position(|x| x == t) { r.tags.remove(p); changes.push(format!("-tag {}", t)); }
+            if let Some(p) = r.tags.iter().position(|x| x == t) {
+                r.tags.remove(p);
+                changes.push(format!("-tag {}", t));
+            }
         }
     }
-    if changes.is_empty() { return Ok(json!({ "id": id, "changes": [] }).to_string()); }
+    if changes.is_empty() {
+        return Ok(json!({ "id": id, "changes": [] }).to_string());
+    }
 
     let findings = validate::validate_requirement(r);
     let errs = validate::errors_only(&findings);
     if !errs.is_empty() {
-        let msgs: Vec<String> = errs.iter().map(|f| format!("[{}] {}", f.field, f.message)).collect();
+        let msgs: Vec<String> = errs
+            .iter()
+            .map(|f| format!("[{}] {}", f.field, f.message))
+            .collect();
         return Err(anyhow!("rejected: {}", msgs.join("; ")));
     }
     r.updated = Utc::now();
-    r.history.push(commands::history(changes.join("; "), Some(reason)));
+    r.history
+        .push(commands::history(changes.join("; "), Some(reason)));
     project.updated = Utc::now();
     storage::save(file, &project)?;
     Ok(json!({ "id": id, "changes": changes }).to_string())
@@ -585,20 +692,30 @@ fn tool_delete(args: &Value, file: &Path) -> Result<String> {
     let reason = req_s(args, "reason")?;
     let hard = args.get("hard").and_then(Value::as_bool).unwrap_or(false);
     let mut project = storage::load(file)?;
-    if !project.requirements.contains_key(&id) { return Err(anyhow!("no such requirement: {}", id)); }
-    let inbound: Vec<String> = project.requirements.values()
+    if !project.requirements.contains_key(&id) {
+        return Err(anyhow!("no such requirement: {}", id));
+    }
+    let inbound: Vec<String> = project
+        .requirements
+        .values()
         .filter(|r| r.links.iter().any(|l| l.target == id))
-        .map(|r| r.id.clone()).collect();
+        .map(|r| r.id.clone())
+        .collect();
     if hard {
         if !inbound.is_empty() {
-            return Err(anyhow!("{} is referenced by {} — soft-delete instead", id, inbound.join(", ")));
+            return Err(anyhow!(
+                "{} is referenced by {} — soft-delete instead",
+                id,
+                inbound.join(", ")
+            ));
         }
         project.requirements.remove(&id);
     } else {
         let r = project.requirements.get_mut(&id).unwrap();
         r.status = Status::Obsolete;
         r.updated = Utc::now();
-        r.history.push(commands::history("marked obsolete via MCP", Some(reason)));
+        r.history
+            .push(commands::history("marked obsolete via MCP", Some(reason)));
     }
     project.updated = Utc::now();
     storage::save(file, &project)?;
@@ -608,29 +725,48 @@ fn tool_delete(args: &Value, file: &Path) -> Result<String> {
 fn tool_link(args: &Value, file: &Path) -> Result<String> {
     let from = req_s(args, "from")?;
     let to = req_s(args, "to")?;
-    if from == to { return Err(anyhow!("cannot link to self")); }
-    let kind = s(args, "kind").map(|s| parse_link_kind(&s)).transpose()?.unwrap_or(LinkKind::Parent);
+    if from == to {
+        return Err(anyhow!("cannot link to self"));
+    }
+    let kind = s(args, "kind")
+        .map(|s| parse_link_kind(&s))
+        .transpose()?
+        .unwrap_or(LinkKind::Parent);
     let remove = args.get("remove").and_then(Value::as_bool).unwrap_or(false);
     let mut project = storage::load(file)?;
-    if !project.requirements.contains_key(&to) { return Err(anyhow!("target {} does not exist", to)); }
-
-    if matches!(kind, LinkKind::Parent) && !remove {
-        if would_cycle(&project, &from, &to) {
-            return Err(anyhow!("parent {} -> {} would create a cycle", from, to));
-        }
+    if !project.requirements.contains_key(&to) {
+        return Err(anyhow!("target {} does not exist", to));
     }
-    let r = project.requirements.get_mut(&from).ok_or_else(|| anyhow!("source {} does not exist", from))?;
+
+    if matches!(kind, LinkKind::Parent) && !remove && would_cycle(&project, &from, &to) {
+        return Err(anyhow!("parent {} -> {} would create a cycle", from, to));
+    }
+    let r = project
+        .requirements
+        .get_mut(&from)
+        .ok_or_else(|| anyhow!("source {} does not exist", from))?;
     if remove {
         let before = r.links.len();
         r.links.retain(|l| !(l.kind == kind && l.target == to));
-        if r.links.len() == before { return Err(anyhow!("no such link to remove")); }
-        r.history.push(commands::history(format!("removed {} link to {}", kind.as_str(), to), None));
+        if r.links.len() == before {
+            return Err(anyhow!("no such link to remove"));
+        }
+        r.history.push(commands::history(
+            format!("removed {} link to {}", kind.as_str(), to),
+            None,
+        ));
     } else {
         if r.links.iter().any(|l| l.kind == kind && l.target == to) {
             return Err(anyhow!("link already exists"));
         }
-        r.links.push(Link { kind, target: to.clone() });
-        r.history.push(commands::history(format!("added {} link to {}", kind.as_str(), to), None));
+        r.links.push(Link {
+            kind,
+            target: to.clone(),
+        });
+        r.history.push(commands::history(
+            format!("added {} link to {}", kind.as_str(), to),
+            None,
+        ));
     }
     r.updated = Utc::now();
     project.updated = Utc::now();
@@ -642,13 +778,23 @@ fn would_cycle(project: &crate::model::Project, from: &str, new_parent: &str) ->
     let mut cur = new_parent.to_string();
     let mut seen = Vec::new();
     loop {
-        if cur == from { return true; }
-        if seen.contains(&cur) { return false; }
+        if cur == from {
+            return true;
+        }
+        if seen.contains(&cur) {
+            return false;
+        }
         seen.push(cur.clone());
         let next = project.requirements.get(&cur).and_then(|r| {
-            r.links.iter().find(|l| l.kind == LinkKind::Parent).map(|l| l.target.clone())
+            r.links
+                .iter()
+                .find(|l| l.kind == LinkKind::Parent)
+                .map(|l| l.target.clone())
         });
-        match next { Some(n) => cur = n, None => return false }
+        match next {
+            Some(n) => cur = n,
+            None => return false,
+        }
     }
 }
 
@@ -660,7 +806,11 @@ fn tool_validate(file: &Path) -> Result<String> {
     let mut findings = Vec::new();
     for (id, fs) in &report {
         for f in fs {
-            if f.error { errors += 1 } else { warnings += 1 }
+            if f.error {
+                errors += 1
+            } else {
+                warnings += 1
+            }
             findings.push(json!({ "id": id, "level": if f.error {"error"} else {"warning"}, "field": f.field, "message": f.message }));
         }
     }
@@ -673,42 +823,79 @@ fn tool_coverage(args: &Value, file: &Path) -> Result<String> {
     use once_cell::sync::Lazy;
     use regex::Regex;
     static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
-    const DEFAULTS: &[&str] = &["rs","py","js","ts","tsx","go","java","md","toml","c","cpp","h"];
-    const SKIP: &[&str] = &[".git","target","node_modules","dist","build",".venv",".idea",".vscode"];
+    const DEFAULTS: &[&str] = &[
+        "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h",
+    ];
+    const SKIP: &[&str] = &[
+        ".git",
+        "target",
+        "node_modules",
+        "dist",
+        "build",
+        ".venv",
+        ".idea",
+        ".vscode",
+    ];
 
     let root = PathBuf::from(s(args, "path").unwrap_or_else(|| ".".into()));
-    let exts: Vec<String> = args.get("extensions").and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+    let exts: Vec<String> = args
+        .get("extensions")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .filter(|v: &Vec<String>| !v.is_empty())
         .unwrap_or_else(|| DEFAULTS.iter().map(|s| s.to_string()).collect());
-    let unlinked = args.get("unlinked_files").and_then(Value::as_bool).unwrap_or(false);
-    let by_file = args.get("by_file").and_then(Value::as_bool).unwrap_or(false);
+    let unlinked = args
+        .get("unlinked_files")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let by_file = args
+        .get("by_file")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     let mut per_file: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut scanned = 0usize;
     walk(&root, &exts, SKIP, &mut |p, content| {
         scanned += 1;
         let mut found = Vec::new();
-        for m in REQ_RE.find_iter(content) { found.push(m.as_str().to_string()); }
-        if !found.is_empty() { per_file.insert(p.display().to_string(), found); }
+        for m in REQ_RE.find_iter(content) {
+            found.push(m.as_str().to_string());
+        }
+        if !found.is_empty() {
+            per_file.insert(p.display().to_string(), found);
+        }
     });
 
     if unlinked {
         let mut files = Vec::new();
         walk(&root, &exts, SKIP, &mut |p, content| {
-            if !REQ_RE.is_match(content) { files.push(p.display().to_string()); }
+            if !REQ_RE.is_match(content) {
+                files.push(p.display().to_string());
+            }
         });
-        files.sort(); files.dedup();
+        files.sort();
+        files.dedup();
         return Ok(serde_json::to_string_pretty(&json!({
             "mode": "unlinked_files", "scanned": scanned, "unlinked": files
         }))?);
     }
     if by_file {
-        let entries: Vec<Value> = per_file.into_iter().map(|(f, mut ids)| {
-            ids.sort(); ids.dedup();
-            json!({ "file": f, "req_ids": ids })
-        }).collect();
-        return Ok(serde_json::to_string_pretty(&json!({ "mode": "by_file", "files": entries }))?);
+        let entries: Vec<Value> = per_file
+            .into_iter()
+            .map(|(f, mut ids)| {
+                ids.sort();
+                ids.dedup();
+                json!({ "file": f, "req_ids": ids })
+            })
+            .collect();
+        return Ok(serde_json::to_string_pretty(
+            &json!({ "mode": "by_file", "files": entries }),
+        )?);
     }
     let project = storage::load(file)?;
     let known: std::collections::BTreeSet<String> = project.requirements.keys().cloned().collect();
@@ -723,15 +910,23 @@ fn tool_coverage(args: &Value, file: &Path) -> Result<String> {
     }
     for (id, refs) in &hits {
         match project.requirements.get(id) {
-            Some(r) if matches!(r.status, Status::Obsolete) => { obsolete_in_code.insert(id.clone(), refs.clone()); }
-            Some(_) => { referenced.insert(id.clone(), refs.clone()); }
-            None => { ghosts.insert(id.clone(), refs.clone()); }
+            Some(r) if matches!(r.status, Status::Obsolete) => {
+                obsolete_in_code.insert(id.clone(), refs.clone());
+            }
+            Some(_) => {
+                referenced.insert(id.clone(), refs.clone());
+            }
+            None => {
+                ghosts.insert(id.clone(), refs.clone());
+            }
         }
     }
-    let orphans: Vec<String> = known.iter()
+    let orphans: Vec<String> = known
+        .iter()
         .filter(|id| !hits.contains_key(*id))
         .filter(|id| !matches!(project.requirements[*id].status, Status::Obsolete))
-        .cloned().collect();
+        .cloned()
+        .collect();
     Ok(serde_json::to_string_pretty(&json!({
         "mode": "default",
         "referenced": referenced, "orphans": orphans,
@@ -740,17 +935,26 @@ fn tool_coverage(args: &Value, file: &Path) -> Result<String> {
 }
 
 fn walk(root: &Path, exts: &[String], skip: &[&str], visit: &mut impl FnMut(&Path, &str)) {
-    let entries = match fs::read_dir(root) { Ok(e) => e, Err(_) => return };
+    let entries = match fs::read_dir(root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name();
         let name_s = name.to_string_lossy();
         if path.is_dir() {
-            if skip.iter().any(|s| *s == name_s.as_ref()) { continue; }
+            if skip.iter().any(|s| *s == name_s.as_ref()) {
+                continue;
+            }
             walk(&path, exts, skip, visit);
         } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if !exts.iter().any(|x| x == ext) { continue; }
-            if let Ok(text) = fs::read_to_string(&path) { visit(&path, &text); }
+            if !exts.iter().any(|x| x == ext) {
+                continue;
+            }
+            if let Ok(text) = fs::read_to_string(&path) {
+                visit(&path, &text);
+            }
         }
     }
 }
@@ -773,9 +977,14 @@ fn tool_export(args: &Value, file: &Path) -> Result<String> {
 fn tool_help(args: &Value) -> Result<String> {
     let section = s(args, "section").unwrap_or_else(|| "_index".into());
     if section == "_index" {
-        let list: Vec<Value> = help_text::sections().iter().map(|s| json!({
-            "name": s.name, "summary": s.summary
-        })).collect();
+        let list: Vec<Value> = help_text::sections()
+            .iter()
+            .map(|s| {
+                json!({
+                    "name": s.name, "summary": s.summary
+                })
+            })
+            .collect();
         return Ok(serde_json::to_string_pretty(&json!({ "sections": list }))?);
     }
     match help_text::section(&section) {

@@ -29,9 +29,11 @@ pub fn run(args: ExportArgs, file: &Option<PathBuf>) -> Result<()> {
 pub fn to_markdown(p: &Project) -> String {
     let mut s = String::new();
     s.push_str(&format!("# {}\n\n", p.name));
-    s.push_str(&format!("_{} requirement(s). Generated {}._\n\n",
+    s.push_str(&format!(
+        "_{} requirement(s). Generated {}._\n\n",
         p.requirements.len(),
-        chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")));
+        chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")
+    ));
     for r in p.requirements.values() {
         s.push_str(&fmt_md(r));
         s.push_str("\n---\n\n");
@@ -107,5 +109,7 @@ fn to_html(p: &Project) -> String {
 }
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

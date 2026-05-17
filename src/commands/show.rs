@@ -64,8 +64,14 @@ pub fn render(r: &Requirement) {
             let drift = if is_latest {
                 let s = super::test_cmd::staleness(&t.commit, &r.id, &cwd);
                 format!(" {}", s.tag())
-            } else { String::new() };
-            let notes = if t.notes.is_empty() { String::new() } else { format!(" — {}", t.notes) };
+            } else {
+                String::new()
+            };
+            let notes = if t.notes.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", t.notes)
+            };
             println!(
                 "  {} {} [{}] commit={} actor={}{}{}",
                 t.at.format("%Y-%m-%d %H:%M"),
@@ -94,7 +100,11 @@ pub fn render(r: &Requirement) {
                 h.actor,
                 kind_tag,
                 h.action,
-                if r.is_empty() { String::new() } else { format!("— {}", r) }
+                if r.is_empty() {
+                    String::new()
+                } else {
+                    format!("— {}", r)
+                }
             );
         }
     }

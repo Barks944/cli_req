@@ -18,13 +18,13 @@ pub mod next;
 pub mod renumber;
 pub mod repair;
 pub mod schema;
-pub mod version;
 pub mod show;
 pub mod stale;
 pub mod status;
 pub mod test_cmd;
 pub mod update;
 pub mod validate_cmd;
+pub mod version;
 
 use chrono::Utc;
 use std::env;

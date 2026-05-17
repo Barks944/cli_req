@@ -51,7 +51,11 @@ pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
     r.history.push(super::history(
-        format!("{} evidence recorded against commit {}", kind.as_str(), short(&commit)),
+        format!(
+            "{} evidence recorded against commit {}",
+            kind.as_str(),
+            short(&commit)
+        ),
         Some(args.notes.clone()),
     ));
     r.updated = Utc::now();
@@ -59,7 +63,10 @@ pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     if args.promote && !matches!(r.status, Status::Verified | Status::Obsolete) {
         r.status = Status::Verified;
         r.history.push(super::history(
-            format!("status promoted to verified ({} evidence on HEAD)", kind.as_str()),
+            format!(
+                "status promoted to verified ({} evidence on HEAD)",
+                kind.as_str()
+            ),
             None,
         ));
         promoted = true;
@@ -68,15 +75,26 @@ pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     storage::save(&path, &project)?;
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "id": args.id, "kind": kind.as_str(),
-            "commit": commit, "promoted": promoted,
-            "requirement": project.requirements[&args.id],
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": args.id, "kind": kind.as_str(),
+                "commit": commit, "promoted": promoted,
+                "requirement": project.requirements[&args.id],
+            }))?
+        );
     } else {
-        println!("Recorded {} evidence on {} against commit {}.{}",
-            kind.as_str(), args.id, short(&commit),
-            if promoted { " Promoted to Verified." } else { "" });
+        println!(
+            "Recorded {} evidence on {} against commit {}.{}",
+            kind.as_str(),
+            args.id,
+            short(&commit),
+            if promoted {
+                " Promoted to Verified."
+            } else {
+                ""
+            }
+        );
     }
     Ok(())
 }
@@ -86,7 +104,8 @@ fn record(args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
     if !project.requirements.contains_key(&args.id) {
         return Err(anyhow!("no such requirement: {}", args.id));
     }
-    let commit = current_head_sha().context("not in a git working tree — cannot record a test run without a commit SHA")?;
+    let commit = current_head_sha()
+        .context("not in a git working tree — cannot record a test run without a commit SHA")?;
     let outcome = match args.result {
         TestResultArg::Pass => TestOutcome::Pass,
         TestResultArg::Fail => TestOutcome::Fail,
@@ -102,7 +121,11 @@ fn record(args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
     r.history.push(super::history(
-        format!("test {} recorded against commit {}", outcome.as_str(), short(&record.commit)),
+        format!(
+            "test {} recorded against commit {}",
+            outcome.as_str(),
+            short(&record.commit)
+        ),
         Some(record.notes.clone()).filter(|s| !s.is_empty()),
     ));
     r.updated = Utc::now();
@@ -110,9 +133,17 @@ fn record(args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
     storage::save(&path, &project)?;
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&project.requirements[&args.id])?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&project.requirements[&args.id])?
+        );
     } else {
-        println!("Recorded {} test for {} against {}.", outcome.as_str(), args.id, short(&record.commit));
+        println!(
+            "Recorded {} test for {} against {}.",
+            outcome.as_str(),
+            args.id,
+            short(&record.commit)
+        );
     }
     Ok(())
 }
@@ -120,7 +151,10 @@ fn record(args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
 fn current_head_sha() -> Result<String> {
     let out = Command::new("git").args(["rev-parse", "HEAD"]).output()?;
     if !out.status.success() {
-        return Err(anyhow!("git rev-parse HEAD failed: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(anyhow!(
+            "git rev-parse HEAD failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
@@ -144,13 +178,18 @@ pub enum Staleness {
     Fresh,
     /// HEAD moved but none of the requirement's linked files changed.
     /// The number is how many linked files exist.
-    Drifted { linked: usize },
+    Drifted {
+        linked: usize,
+    },
     /// At least one linked file changed since the record commit.
     /// `linked` is kept on the variant so `req stale --json` callers can
     /// see how many files the requirement is linked to alongside the
     /// changed-files list. Read by the JSON renderer in commands/stale.rs.
     #[allow(dead_code)]
-    Stale { changed: Vec<String>, linked: usize },
+    Stale {
+        changed: Vec<String>,
+        linked: usize,
+    },
     /// No git context — neither fresh nor stale can be computed.
     Unknown,
 }
@@ -176,22 +215,46 @@ pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path:
     use once_cell::sync::Lazy;
     use regex::Regex;
     static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
-    const DEFAULTS: &[&str] = &["rs","py","js","ts","tsx","go","java","md","toml","c","cpp","h"];
-    const SKIP: &[&str] = &[".git","target","node_modules","dist","build",".venv",".idea",".vscode"];
+    const DEFAULTS: &[&str] = &[
+        "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h",
+    ];
+    const SKIP: &[&str] = &[
+        ".git",
+        "target",
+        "node_modules",
+        "dist",
+        "build",
+        ".venv",
+        ".idea",
+        ".vscode",
+    ];
 
     let mut hits = Vec::new();
-    fn walk(root: &std::path::Path, exts: &[&str], skip: &[&str], req_id: &str,
-            req_re: &regex::Regex, hits: &mut Vec<std::path::PathBuf>) {
-        let entries = match std::fs::read_dir(root) { Ok(e) => e, Err(_) => return };
+    fn walk(
+        root: &std::path::Path,
+        exts: &[&str],
+        skip: &[&str],
+        req_id: &str,
+        req_re: &regex::Regex,
+        hits: &mut Vec<std::path::PathBuf>,
+    ) {
+        let entries = match std::fs::read_dir(root) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name();
             let name_s = name.to_string_lossy();
             if path.is_dir() {
-                if skip.iter().any(|s| *s == name_s.as_ref()) { continue; }
+                if skip.iter().any(|s| *s == name_s.as_ref()) {
+                    continue;
+                }
                 walk(&path, exts, skip, req_id, req_re, hits);
             } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if !exts.iter().any(|x| *x == ext) { continue; }
+                if !exts.contains(&ext) {
+                    continue;
+                }
                 if let Ok(text) = std::fs::read_to_string(&path) {
                     if req_re.find_iter(&text).any(|m| m.as_str() == req_id) {
                         hits.push(path);
@@ -208,35 +271,57 @@ pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path:
 fn git_changed_since(record_commit: &str) -> Option<std::collections::BTreeSet<String>> {
     let out = std::process::Command::new("git")
         .args(["diff", "--name-only", &format!("{}..HEAD", record_commit)])
-        .output().ok()?;
-    if !out.status.success() { return None; }
-    Some(String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
+    )
 }
 
 pub fn staleness(record_commit: &str, req_id: &str, source_root: &std::path::Path) -> Staleness {
-    let head = match current_head_sha_opt() { Some(h) => h, None => return Staleness::Unknown };
-    if head == record_commit { return Staleness::Fresh; }
+    let head = match current_head_sha_opt() {
+        Some(h) => h,
+        None => return Staleness::Unknown,
+    };
+    if head == record_commit {
+        return Staleness::Fresh;
+    }
     let linked = files_referencing(req_id, source_root);
-    let linked_strs: std::collections::BTreeSet<String> = linked.iter()
+    let linked_strs: std::collections::BTreeSet<String> = linked
+        .iter()
         .map(|p| p.to_string_lossy().replace('\\', "/"))
         .collect();
     let changed = match git_changed_since(record_commit) {
         Some(c) => c,
         None => return Staleness::Unknown,
     };
-    let mut overlap: Vec<String> = linked_strs.iter()
-        .filter(|f| changed.iter().any(|c| c.replace('\\', "/").ends_with(f.as_str()) || f.ends_with(c)))
+    let mut overlap: Vec<String> = linked_strs
+        .iter()
+        .filter(|f| {
+            changed
+                .iter()
+                .any(|c| c.replace('\\', "/").ends_with(f.as_str()) || f.ends_with(c))
+        })
         .cloned()
         .collect();
-    overlap.sort(); overlap.dedup();
+    overlap.sort();
+    overlap.dedup();
     if overlap.is_empty() {
-        Staleness::Drifted { linked: linked.len() }
+        Staleness::Drifted {
+            linked: linked.len(),
+        }
     } else {
-        Staleness::Stale { changed: overlap, linked: linked.len() }
+        Staleness::Stale {
+            changed: overlap,
+            linked: linked.len(),
+        }
     }
 }
 
@@ -286,7 +371,12 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     if by_req.is_empty() {
         let msg = "no test names matched the `req_NNNN_*` convention";
         if args.json {
-            println!("{}", serde_json::to_string_pretty(&json!({ "ok": out.status.success(), "matched": 0, "message": msg }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &json!({ "ok": out.status.success(), "matched": 0, "message": msg })
+                )?
+            );
         } else {
             eprintln!("{}", msg);
         }
@@ -300,7 +390,11 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut summary: Vec<serde_json::Value> = Vec::new();
     for (req_id, res) in &by_req {
         let exists = project.requirements.contains_key(req_id);
-        let outcome = if !res.failed.is_empty() { TestOutcome::Fail } else { TestOutcome::Pass };
+        let outcome = if !res.failed.is_empty() {
+            TestOutcome::Fail
+        } else {
+            TestOutcome::Pass
+        };
         let total = res.passed.len() + res.failed.len() + res.ignored.len();
         let notes = format!(
             "cargo test: {} pass / {} fail / {} ignored — {}",
@@ -308,7 +402,12 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             res.failed.len(),
             res.ignored.len(),
             if res.failed.is_empty() {
-                res.passed.iter().chain(res.ignored.iter()).cloned().collect::<Vec<_>>().join(", ")
+                res.passed
+                    .iter()
+                    .chain(res.ignored.iter())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             } else {
                 res.failed.join(", ")
             }
@@ -347,8 +446,11 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             let r = project.requirements.get_mut(req_id).unwrap();
             r.tests.push(record.clone());
             r.history.push(super::history(
-                format!("test {} recorded against commit {} via req test run",
-                    record.outcome.as_str(), short(&record.commit)),
+                format!(
+                    "test {} recorded against commit {} via req test run",
+                    record.outcome.as_str(),
+                    short(&record.commit)
+                ),
                 None,
             ));
             r.updated = Utc::now();
@@ -359,9 +461,14 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             let head = current_head_sha_opt();
             for (req_id, _) in &records_to_apply {
                 let r = project.requirements.get_mut(req_id).unwrap();
-                if matches!(r.status, Status::Verified | Status::Obsolete) { continue; }
+                if matches!(r.status, Status::Verified | Status::Obsolete) {
+                    continue;
+                }
                 let fresh = match &head {
-                    Some(h) => r.tests.iter().any(|t| t.outcome == TestOutcome::Pass && &t.commit == h),
+                    Some(h) => r
+                        .tests
+                        .iter()
+                        .any(|t| t.outcome == TestOutcome::Pass && &t.commit == h),
                     None => false,
                 };
                 if fresh {
@@ -381,14 +488,17 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "ok": out.status.success(),
-            "dry_run": args.dry_run,
-            "command": args.cmd,
-            "matched_requirements": summary.len(),
-            "recorded": if args.dry_run { 0 } else { records_to_apply.len() },
-            "results": summary,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ok": out.status.success(),
+                "dry_run": args.dry_run,
+                "command": args.cmd,
+                "matched_requirements": summary.len(),
+                "recorded": if args.dry_run { 0 } else { records_to_apply.len() },
+                "results": summary,
+            }))?
+        );
     } else {
         let mode = if args.dry_run { " (dry-run)" } else { "" };
         println!("req test run{} — `{}`", mode, args.cmd);
@@ -400,7 +510,15 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             let f = entry["failed"].as_u64().unwrap();
             let i = entry["ignored"].as_u64().unwrap();
             let tag = if !exists { " (unknown REQ)" } else { "" };
-            println!("  {} {:<4} {} pass / {} fail / {} ignored{}", id, outcome.to_uppercase(), p, f, i, tag);
+            println!(
+                "  {} {:<4} {} pass / {} fail / {} ignored{}",
+                id,
+                outcome.to_uppercase(),
+                p,
+                f,
+                i,
+                tag
+            );
         }
         if !args.dry_run {
             println!();

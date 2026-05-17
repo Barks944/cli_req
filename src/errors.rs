@@ -31,21 +31,33 @@ pub fn emit(code: &str, message: impl Into<String>, hint: Option<&str>) {
 pub fn classify(err: &anyhow::Error) -> &'static str {
     let s = err.to_string();
     let lower = s.to_lowercase();
-    if lower.contains("integrity check failed") { E_INTEGRITY }
-    else if lower.contains("no such requirement") || lower.contains("does not exist") { E_NOT_FOUND }
-    else if lower.contains("validation error") || lower.contains("rejected:") { E_VALIDATION }
-    else if lower.contains("cycle") { E_CYCLE }
-    else if lower.contains("already exists") || lower.contains("duplicate") { E_DUPLICATE }
-    else if lower.contains("os error") || lower.contains("read") || lower.contains("write") { E_IO }
-    else { E_INVALID_INPUT }
+    if lower.contains("integrity check failed") {
+        E_INTEGRITY
+    } else if lower.contains("no such requirement") || lower.contains("does not exist") {
+        E_NOT_FOUND
+    } else if lower.contains("validation error") || lower.contains("rejected:") {
+        E_VALIDATION
+    } else if lower.contains("cycle") {
+        E_CYCLE
+    } else if lower.contains("already exists") || lower.contains("duplicate") {
+        E_DUPLICATE
+    } else if lower.contains("os error") || lower.contains("read") || lower.contains("write") {
+        E_IO
+    } else {
+        E_INVALID_INPUT
+    }
 }
 
 pub fn hint_for(code: &str) -> Option<&'static str> {
     match code {
         E_INTEGRITY => Some(E_INTEGRITY_HINT),
         E_NOT_FOUND => Some("Run `req list` to see existing IDs."),
-        E_VALIDATION => Some("Run `req help best-practice` (or `req help errors`) for the rule catalog."),
-        E_CYCLE => Some("Inspect the parent chain with `req show` and break the cycle before relinking."),
+        E_VALIDATION => {
+            Some("Run `req help best-practice` (or `req help errors`) for the rule catalog.")
+        }
+        E_CYCLE => {
+            Some("Inspect the parent chain with `req show` and break the cycle before relinking.")
+        }
         E_DUPLICATE => Some("The target already has this link or tag."),
         E_INVALID_INPUT => Some("Run `req <subcommand> --help` to check the expected arguments."),
         E_IO => Some("Check the file path and permissions."),

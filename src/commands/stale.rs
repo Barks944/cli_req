@@ -21,7 +21,12 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
             None => {
                 counts.3 += 1;
                 if !args.only_stale {
-                    rows.push((r.id.clone(), "no-records".to_string(), "—".to_string(), Vec::<String>::new()));
+                    rows.push((
+                        r.id.clone(),
+                        "no-records".to_string(),
+                        "—".to_string(),
+                        Vec::<String>::new(),
+                    ));
                 }
                 continue;
             }
@@ -29,43 +34,73 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
         };
         let s = test_cmd::staleness(&latest.commit, &r.id, &args.path);
         let label = match &s {
-            Staleness::Fresh => { counts.0 += 1; "fresh" }
-            Staleness::Drifted { .. } => { counts.1 += 1; "drifted" }
-            Staleness::Stale { .. } => { counts.2 += 1; "STALE" }
-            Staleness::Unknown => { counts.4 += 1; "unknown" }
+            Staleness::Fresh => {
+                counts.0 += 1;
+                "fresh"
+            }
+            Staleness::Drifted { .. } => {
+                counts.1 += 1;
+                "drifted"
+            }
+            Staleness::Stale { .. } => {
+                counts.2 += 1;
+                "STALE"
+            }
+            Staleness::Unknown => {
+                counts.4 += 1;
+                "unknown"
+            }
         };
-        if args.only_stale && !matches!(s, Staleness::Stale { .. }) { continue; }
+        if args.only_stale && !matches!(s, Staleness::Stale { .. }) {
+            continue;
+        }
         let changed: Vec<String> = match &s {
             Staleness::Stale { changed, .. } => changed.clone(),
             _ => Vec::new(),
         };
-        rows.push((r.id.clone(), label.to_string(), test_cmd::short(&latest.commit), changed));
+        rows.push((
+            r.id.clone(),
+            label.to_string(),
+            test_cmd::short(&latest.commit),
+            changed,
+        ));
     }
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "summary": {
-                "fresh": counts.0,
-                "drifted": counts.1,
-                "stale": counts.2,
-                "no_records": counts.3,
-                "unknown": counts.4,
-            },
-            "rows": rows.iter().map(|(id, state, commit, changed)| json!({
-                "id": id, "state": state, "record_commit": commit, "changed_files": changed,
-            })).collect::<Vec<_>>(),
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "summary": {
+                    "fresh": counts.0,
+                    "drifted": counts.1,
+                    "stale": counts.2,
+                    "no_records": counts.3,
+                    "unknown": counts.4,
+                },
+                "rows": rows.iter().map(|(id, state, commit, changed)| json!({
+                    "id": id, "state": state, "record_commit": commit, "changed_files": changed,
+                })).collect::<Vec<_>>(),
+            }))?
+        );
         return Ok(());
     }
 
     println!("Staleness report (root: {})", args.path.display());
     println!("  fresh      : {}", counts.0);
-    println!("  drifted    : {}  (HEAD moved but linked files unchanged)", counts.1);
-    println!("  STALE      : {}  (linked files changed since record)", counts.2);
+    println!(
+        "  drifted    : {}  (HEAD moved but linked files unchanged)",
+        counts.1
+    );
+    println!(
+        "  STALE      : {}  (linked files changed since record)",
+        counts.2
+    );
     println!("  no records : {}", counts.3);
     println!("  unknown    : {}  (no git context)", counts.4);
     if rows.is_empty() {
-        if args.only_stale { println!("\nNothing stale."); }
+        if args.only_stale {
+            println!("\nNothing stale.");
+        }
         return Ok(());
     }
     println!();
@@ -75,6 +110,8 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
             println!("                       changed: {}", c);
         }
     }
-    if counts.2 > 0 { std::process::exit(1); }
+    if counts.2 > 0 {
+        std::process::exit(1);
+    }
     Ok(())
 }

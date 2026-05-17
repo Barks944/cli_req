@@ -29,7 +29,12 @@ pub fn run(args: HooksArgs) -> Result<()> {
     let uninstall = match action.as_str() {
         "install" => false,
         "uninstall" => true,
-        other => return Err(anyhow!("unknown action '{}': expected install or uninstall", other)),
+        other => {
+            return Err(anyhow!(
+                "unknown action '{}': expected install or uninstall",
+                other
+            ))
+        }
     };
     let repo = args.repo.unwrap_or_else(|| PathBuf::from("."));
     let git_dir = repo.join(".git");
@@ -126,11 +131,7 @@ fn install_claude_code(repo: &Path) -> Result<()> {
     };
 
     // Ensure permissions.allow contains our patterns.
-    let want_allows = [
-        "Bash(req:*)",
-        "Bash(req --version)",
-        "Bash(req --help)",
-    ];
+    let want_allows = ["Bash(req:*)", "Bash(req --version)", "Bash(req --help)"];
     let allow = root
         .as_object_mut()
         .ok_or_else(|| anyhow!(".claude/settings.json is not a JSON object"))?
@@ -186,7 +187,10 @@ fn install_claude_code(repo: &Path) -> Result<()> {
     }
 
     fs::write(&path, serde_json::to_string_pretty(&root)?)?;
-    println!("Updated {} (allowlist + Stop hook for req validate)", path.display());
+    println!(
+        "Updated {} (allowlist + Stop hook for req validate)",
+        path.display()
+    );
     Ok(())
 }
 

@@ -18,14 +18,15 @@ pub fn run(args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
     }
     let kind: LinkKind = args.kind.into();
 
-    if matches!(kind, LinkKind::Parent) && !args.remove {
-        if creates_cycle(&project, &args.from, &args.to) {
-            return Err(anyhow!(
-                "linking {} -> parent {} would create a cycle",
-                args.from,
-                args.to
-            ));
-        }
+    if matches!(kind, LinkKind::Parent)
+        && !args.remove
+        && creates_cycle(&project, &args.from, &args.to)
+    {
+        return Err(anyhow!(
+            "linking {} -> parent {} would create a cycle",
+            args.from,
+            args.to
+        ));
     }
 
     let r = project
@@ -44,10 +45,16 @@ pub fn run(args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
             None,
         ));
     } else {
-        if r.links.iter().any(|l| l.kind == kind && l.target == args.to) {
+        if r.links
+            .iter()
+            .any(|l| l.kind == kind && l.target == args.to)
+        {
             return Err(anyhow!("link already exists"));
         }
-        r.links.push(Link { kind, target: args.to.clone() });
+        r.links.push(Link {
+            kind,
+            target: args.to.clone(),
+        });
         r.history.push(super::history(
             format!("added {} link to {}", kind.as_str(), args.to),
             None,
@@ -57,10 +64,13 @@ pub fn run(args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
     project.updated = Utc::now();
     storage::save(&path, &project)?;
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "from": args.from, "to": args.to,
-            "kind": kind.as_str(), "removed": args.remove
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "from": args.from, "to": args.to,
+                "kind": kind.as_str(), "removed": args.remove
+            }))?
+        );
     } else {
         println!("OK");
     }

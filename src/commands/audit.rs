@@ -83,17 +83,26 @@ pub fn run(args: AuditArgs, file: &Option<PathBuf>) -> Result<()> {
             if args.require_good_signature {
                 let ok = matches!(e.signature_status.as_str(), "good" | "good-unknown");
                 if !ok {
-                    why.push(format!("signature status '{}' is not 'good'", e.signature_status));
+                    why.push(format!(
+                        "signature status '{}' is not 'good'",
+                        e.signature_status
+                    ));
                 }
             }
             if !args.required_signers.is_empty() {
                 let signer_lc = e.signer.to_lowercase();
-                let matched = args.required_signers.iter()
+                let matched = args
+                    .required_signers
+                    .iter()
                     .any(|s| signer_lc.contains(&s.to_lowercase()));
                 if !matched {
                     why.push(format!(
                         "signer '{}' is not in --require-signer list",
-                        if e.signer.is_empty() { "<none>" } else { &e.signer }
+                        if e.signer.is_empty() {
+                            "<none>"
+                        } else {
+                            &e.signer
+                        }
                     ));
                 }
             }
@@ -110,12 +119,17 @@ pub fn run(args: AuditArgs, file: &Option<PathBuf>) -> Result<()> {
 
     if args.json {
         if args.gate {
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "ok": violations.is_empty(),
-                "entries": entries,
-                "violations": violations,
-            }))?);
-            if !violations.is_empty() { std::process::exit(1); }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ok": violations.is_empty(),
+                    "entries": entries,
+                    "violations": violations,
+                }))?
+            );
+            if !violations.is_empty() {
+                std::process::exit(1);
+            }
         } else {
             println!("{}", serde_json::to_string_pretty(&entries)?);
         }
@@ -136,7 +150,10 @@ pub fn run(args: AuditArgs, file: &Option<PathBuf>) -> Result<()> {
     println!("  unsigned : {}", unsigned);
     println!("  problem  : {}", bad);
     println!();
-    println!("{:<10} {:<20} {:<18} {:<14} {}", "commit", "date", "author", "signature", "subject");
+    println!(
+        "{:<10} {:<20} {:<18} {:<14} subject",
+        "commit", "date", "author", "signature"
+    );
     for e in &entries {
         let short = &e.commit[..e.commit.len().min(9)];
         let signer = if e.signer.is_empty() {
@@ -156,7 +173,10 @@ pub fn run(args: AuditArgs, file: &Option<PathBuf>) -> Result<()> {
     if args.gate {
         println!();
         if violations.is_empty() {
-            println!("req audit --gate: all {} commit(s) pass policy.", entries.len());
+            println!(
+                "req audit --gate: all {} commit(s) pass policy.",
+                entries.len()
+            );
         } else {
             println!("req audit --gate: {} violation(s):", violations.len());
             for v in &violations {

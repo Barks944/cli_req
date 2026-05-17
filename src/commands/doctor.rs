@@ -45,16 +45,26 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     // 2. .gitattributes pin
     let attrs = std::fs::read_to_string(".gitattributes").unwrap_or_default();
     let has_merge = attrs.lines().any(|l| l.trim() == "*.req merge=req-merge");
-    let has_pin = attrs.lines().any(|l| l.contains("project.req") && l.contains("-text") && l.contains("eol=lf"));
+    let has_pin = attrs
+        .lines()
+        .any(|l| l.contains("project.req") && l.contains("-text") && l.contains("eol=lf"));
     checks.push(Check {
         name: "gitattributes merge driver".into(),
         ok: has_merge,
-        detail: if has_merge { "registered".into() } else { "missing — run `req hooks install`".into() },
+        detail: if has_merge {
+            "registered".into()
+        } else {
+            "missing — run `req hooks install`".into()
+        },
     });
     checks.push(Check {
         name: "gitattributes line-ending pin".into(),
         ok: has_pin,
-        detail: if has_pin { "project.req pinned to LF -text".into() } else { "missing — run `req hooks install`".into() },
+        detail: if has_pin {
+            "project.req pinned to LF -text".into()
+        } else {
+            "missing — run `req hooks install`".into()
+        },
     });
 
     // 3. req-merge driver active in local git config
@@ -70,8 +80,12 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     });
 
     // 4. commit signing
-    let gpg = git_config("commit.gpgsign").map(|s| s.to_lowercase() == "true").unwrap_or(false);
-    let ssh_sign = git_config("gpg.format").map(|s| s == "ssh").unwrap_or(false);
+    let gpg = git_config("commit.gpgsign")
+        .map(|s| s.to_lowercase() == "true")
+        .unwrap_or(false);
+    let ssh_sign = git_config("gpg.format")
+        .map(|s| s == "ssh")
+        .unwrap_or(false);
     let signing_ok = gpg || ssh_sign;
     checks.push(Check {
         name: "commit signing".into(),
@@ -79,18 +93,22 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         detail: if signing_ok {
             "enabled — req audit will report a signer per commit".into()
         } else {
-            "disabled — `git config commit.gpgsign true` (or ssh signing) to populate `req audit`".into()
+            "disabled — `git config commit.gpgsign true` (or ssh signing) to populate `req audit`"
+                .into()
         },
     });
 
     let failed = checks.iter().filter(|c| !c.ok).count();
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "ok": failed == 0,
-            "failed": failed,
-            "checks": checks,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ok": failed == 0,
+                "failed": failed,
+                "checks": checks,
+            }))?
+        );
     } else {
         println!("req doctor — {} check(s), {} failing", checks.len(), failed);
         for c in &checks {
@@ -99,12 +117,19 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         }
     }
 
-    if failed > 0 { std::process::exit(1); }
+    if failed > 0 {
+        std::process::exit(1);
+    }
     Ok(())
 }
 
 fn git_config(key: &str) -> Option<String> {
-    let out = Command::new("git").args(["config", "--get", key]).output().ok()?;
-    if !out.status.success() { return None; }
+    let out = Command::new("git")
+        .args(["config", "--get", key])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }

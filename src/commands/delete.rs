@@ -32,22 +32,30 @@ pub fn run(args: DeleteArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         project.requirements.remove(&args.id);
         mode = "hard";
-        if !args.json { println!("Hard-deleted {}", args.id); }
+        if !args.json {
+            println!("Hard-deleted {}", args.id);
+        }
     } else {
         let r = project.requirements.get_mut(&args.id).unwrap();
         r.status = Status::Obsolete;
         r.updated = Utc::now();
-        r.history.push(super::history("marked obsolete", args.reason));
+        r.history
+            .push(super::history("marked obsolete", args.reason));
         mode = "soft";
-        if !args.json { println!("Marked {} obsolete (links preserved)", args.id); }
+        if !args.json {
+            println!("Marked {} obsolete (links preserved)", args.id);
+        }
     }
 
     project.updated = Utc::now();
     storage::save(&path, &project)?;
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "id": args.id, "deleted": mode
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": args.id, "deleted": mode
+            }))?
+        );
     }
     Ok(())
 }

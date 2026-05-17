@@ -25,7 +25,11 @@ impl Sandbox {
     }
     pub fn init(&self, name: &str) {
         let out = req(&["init", "-n", name, "-o", self.path().to_str().unwrap()]);
-        assert!(out.status.success(), "req init failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "req init failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
     pub fn run(&self, args: &[&str]) -> Output {
         let path = self.path();

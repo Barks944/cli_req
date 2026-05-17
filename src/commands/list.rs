@@ -57,15 +57,14 @@ pub fn filter<'a>(project: &'a Project, args: &ListArgs) -> Vec<&'a Requirement>
     let q = args.query.as_deref().map(str::to_lowercase);
     // REQ-0073: hide Obsolete by default. Explicit --status obsolete or
     // --include-obsolete brings them back.
-    let hide_obsolete = !args.include_obsolete
-        && !matches!(status, Some(Status::Obsolete));
+    let hide_obsolete = !args.include_obsolete && !matches!(status, Some(Status::Obsolete));
     project
         .requirements
         .values()
         .filter(|r| !(hide_obsolete && matches!(r.status, Status::Obsolete)))
-        .filter(|r| kind.map_or(true, |k| r.kind == k))
-        .filter(|r| priority.map_or(true, |p| r.priority == p))
-        .filter(|r| status.map_or(true, |s| r.status == s))
+        .filter(|r| kind.is_none_or(|k| r.kind == k))
+        .filter(|r| priority.is_none_or(|p| r.priority == p))
+        .filter(|r| status.is_none_or(|s| r.status == s))
         .filter(|r| args.tag.iter().all(|t| r.tags.iter().any(|rt| rt == t)))
         .filter(|r| match &q {
             None => true,

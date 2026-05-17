@@ -51,20 +51,30 @@ pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
             status: Status::Draft,
             tags: c.tags.clone(),
             links: Vec::new(),
-            created: now, updated: now,
-            history: vec![super::history("imported", Some(format!("source: {}", args.source)))],
+            created: now,
+            updated: now,
+            history: vec![super::history(
+                "imported",
+                Some(format!("source: {}", args.source)),
+            )],
             tests: Vec::new(),
         };
         let findings = validate::validate_requirement(&req);
-        let errs: Vec<String> = findings.iter().filter(|f| f.error)
-            .map(|f| format!("[{}] {}", f.field, f.message)).collect();
+        let errs: Vec<String> = findings
+            .iter()
+            .filter(|f| f.error)
+            .map(|f| format!("[{}] {}", f.field, f.message))
+            .collect();
         if !errs.is_empty() {
             rejected.push(json!({ "title": c.title, "errors": errs }));
             if args.strict {
                 if args.json {
-                    println!("{}", serde_json::to_string_pretty(&json!({
-                        "ok": false, "rejected": rejected, "accepted": accepted
-                    }))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "ok": false, "rejected": rejected, "accepted": accepted
+                        }))?
+                    );
                 }
                 return Err(anyhow!("--strict: rejecting batch on first failure"));
             }
@@ -72,7 +82,8 @@ pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         if !args.dry_run {
             let id = project.allocate_id();
-            let mut r = req; r.id = id.clone();
+            let mut r = req;
+            r.id = id.clone();
             project.requirements.insert(id.clone(), r);
             accepted.push(json!({ "id": id, "title": c.title }));
         } else {
@@ -86,15 +97,23 @@ pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&json!({
-            "ok": rejected.is_empty(),
-            "dry_run": args.dry_run,
-            "accepted": accepted,
-            "rejected": rejected,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ok": rejected.is_empty(),
+                "dry_run": args.dry_run,
+                "accepted": accepted,
+                "rejected": rejected,
+            }))?
+        );
     } else {
         let mode = if args.dry_run { " (dry-run)" } else { "" };
-        println!("req import{}: {} accepted, {} rejected", mode, accepted.len(), rejected.len());
+        println!(
+            "req import{}: {} accepted, {} rejected",
+            mode,
+            accepted.len(),
+            rejected.len()
+        );
         for a in &accepted {
             if let Some(id) = a["id"].as_str() {
                 println!("  + {} {}", id, a["title"].as_str().unwrap_or(""));
@@ -146,10 +165,14 @@ fn parse_markdown(src: &str) -> Vec<Candidate> {
         let trimmed = line.trim();
         if trimmed.starts_with("## ") || trimmed.starts_with("### ") {
             if let Some(c) = cur.take() {
-                if !c.title.is_empty() { out.push(c); }
+                if !c.title.is_empty() {
+                    out.push(c);
+                }
             }
-            let mut c = Candidate::default();
-            c.title = trimmed.trim_start_matches('#').trim().to_string();
+            let c = Candidate {
+                title: trimmed.trim_start_matches('#').trim().to_string(),
+                ..Candidate::default()
+            };
             cur = Some(c);
             section = "statement";
             continue;
@@ -158,8 +181,10 @@ fn parse_markdown(src: &str) -> Vec<Candidate> {
             let lower = trimmed.to_lowercase();
             if lower.starts_with("rationale:") || lower == "rationale" {
                 section = "rationale";
-                let rest = trimmed.splitn(2, ':').nth(1).unwrap_or("").trim();
-                if !rest.is_empty() { c.rationale = rest.to_string(); }
+                let rest = trimmed.split_once(':').map(|x| x.1).unwrap_or("").trim();
+                if !rest.is_empty() {
+                    c.rationale = rest.to_string();
+                }
                 continue;
             }
             if lower.starts_with("acceptance:") || lower == "acceptance" {
@@ -167,30 +192,46 @@ fn parse_markdown(src: &str) -> Vec<Candidate> {
                 continue;
             }
             if lower.starts_with("tags:") {
-                let rest = trimmed.splitn(2, ':').nth(1).unwrap_or("");
-                c.tags = rest.split(',').map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty()).collect();
+                let rest = trimmed.split_once(':').map(|x| x.1).unwrap_or("");
+                c.tags = rest
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 continue;
             }
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             match section {
                 "statement" => {
-                    if c.statement.is_empty() { c.statement = trimmed.to_string(); }
+                    if c.statement.is_empty() {
+                        c.statement = trimmed.to_string();
+                    }
                 }
                 "rationale" => {
-                    if !c.rationale.is_empty() { c.rationale.push(' '); }
+                    if !c.rationale.is_empty() {
+                        c.rationale.push(' ');
+                    }
                     c.rationale.push_str(trimmed);
                 }
                 "acceptance" => {
-                    let bullet = trimmed.trim_start_matches('-').trim_start_matches('*').trim();
-                    if !bullet.is_empty() { c.acceptance.push(bullet.to_string()); }
+                    let bullet = trimmed
+                        .trim_start_matches('-')
+                        .trim_start_matches('*')
+                        .trim();
+                    if !bullet.is_empty() {
+                        c.acceptance.push(bullet.to_string());
+                    }
                 }
                 _ => {}
             }
         }
     }
     if let Some(c) = cur {
-        if !c.title.is_empty() { out.push(c); }
+        if !c.title.is_empty() {
+            out.push(c);
+        }
     }
     out
 }
@@ -208,20 +249,42 @@ fn parse_json(src: &str) -> Result<Vec<Candidate>> {
             return Ok(reqs.values().filter_map(value_to_candidate).collect());
         }
     }
-    Err(anyhow!("JSON source must be an array of candidates or a project.req-shaped object"))
+    Err(anyhow!(
+        "JSON source must be an array of candidates or a project.req-shaped object"
+    ))
 }
 
 fn value_to_candidate(v: &serde_json::Value) -> Option<Candidate> {
     let title = v.get("title")?.as_str()?.to_string();
     let statement = v.get("statement")?.as_str()?.to_string();
-    let rationale = v.get("rationale").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let acceptance: Vec<String> = v.get("acceptance").and_then(|x| x.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+    let rationale = v
+        .get("rationale")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let acceptance: Vec<String> = v
+        .get("acceptance")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
-    let tags: Vec<String> = v.get("tags").and_then(|x| x.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+    let tags: Vec<String> = v
+        .get("tags")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
-    let kind = match v.get("kind").and_then(|x| x.as_str()).unwrap_or("functional") {
+    let kind = match v
+        .get("kind")
+        .and_then(|x| x.as_str())
+        .unwrap_or("functional")
+    {
         "functional" => Kind::Functional,
         "non-functional" | "nonfunctional" | "NonFunctional" => Kind::NonFunctional,
         "constraint" | "Constraint" => Kind::Constraint,
@@ -229,12 +292,24 @@ fn value_to_candidate(v: &serde_json::Value) -> Option<Candidate> {
         "business" | "Business" => Kind::Business,
         _ => Kind::Functional,
     };
-    let priority = match v.get("priority").and_then(|x| x.as_str()).unwrap_or("should") {
+    let priority = match v
+        .get("priority")
+        .and_then(|x| x.as_str())
+        .unwrap_or("should")
+    {
         "must" | "Must" => Priority::Must,
         "should" | "Should" => Priority::Should,
         "could" | "Could" => Priority::Could,
         "wont" | "Wont" => Priority::Wont,
         _ => Priority::Should,
     };
-    Some(Candidate { title, statement, rationale, acceptance, kind, priority, tags })
+    Some(Candidate {
+        title,
+        statement,
+        rationale,
+        acceptance,
+        kind,
+        priority,
+        tags,
+    })
 }

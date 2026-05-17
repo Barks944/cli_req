@@ -23,7 +23,10 @@ pub fn run(args: InitArgs) -> Result<()> {
         "Initialized empty .req project '{}' at {} ({} layout)",
         project.name,
         args.output.display(),
-        match args.layout { LayoutArg::Single => "single-file", LayoutArg::Directory => "directory" },
+        match args.layout {
+            LayoutArg::Single => "single-file",
+            LayoutArg::Directory => "directory",
+        },
     );
     Ok(())
 }

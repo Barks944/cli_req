@@ -78,7 +78,10 @@ pub enum TestOutcome {
 
 impl TestOutcome {
     pub fn as_str(&self) -> &'static str {
-        match self { TestOutcome::Pass => "pass", TestOutcome::Fail => "fail" }
+        match self {
+            TestOutcome::Pass => "pass",
+            TestOutcome::Fail => "fail",
+        }
     }
 }
 
@@ -94,7 +97,9 @@ pub enum EvidenceKind {
 }
 
 impl EvidenceKind {
-    pub fn automated() -> Self { EvidenceKind::Automated }
+    pub fn automated() -> Self {
+        EvidenceKind::Automated
+    }
     pub fn as_str(&self) -> &'static str {
         match self {
             EvidenceKind::Automated => "automated",
@@ -130,7 +135,9 @@ pub enum ActorKind {
 }
 
 impl ActorKind {
-    pub fn unknown() -> Self { ActorKind::Unknown }
+    pub fn unknown() -> Self {
+        ActorKind::Unknown
+    }
     pub fn as_str(&self) -> &'static str {
         match self {
             ActorKind::Human => "human",

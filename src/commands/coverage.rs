@@ -13,8 +13,19 @@ use crate::storage::load_resolved;
 
 static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
 
-const DEFAULT_EXTS: &[&str] = &["rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h"];
-const SKIP_DIRS: &[&str] = &[".git", "target", "node_modules", "dist", "build", ".venv", ".idea", ".vscode"];
+const DEFAULT_EXTS: &[&str] = &[
+    "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h",
+];
+const SKIP_DIRS: &[&str] = &[
+    ".git",
+    "target",
+    "node_modules",
+    "dist",
+    "build",
+    ".venv",
+    ".idea",
+    ".vscode",
+];
 
 #[derive(serde::Serialize)]
 struct Report {
@@ -50,7 +61,9 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     walk(&args.path, &exts, &mut |path, line_no, line| {
         for m in REQ_RE.find_iter(line) {
             let id = m.as_str().to_string();
-            hits.entry(id).or_default().push(format!("{}:{}", path.display(), line_no));
+            hits.entry(id)
+                .or_default()
+                .push(format!("{}:{}", path.display(), line_no));
         }
     });
 
@@ -94,16 +107,28 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&report)?);
         if args.strict {
             let allow: std::collections::HashSet<&String> = args.allow_orphans.iter().collect();
-            let unexpected = report.orphans.iter().filter(|id| !allow.contains(*id)).count();
+            let unexpected = report
+                .orphans
+                .iter()
+                .filter(|id| !allow.contains(*id))
+                .count();
             let findings = unexpected + report.ghosts.len() + report.obsolete_referenced.len();
-            if findings > 0 { std::process::exit(1); }
+            if findings > 0 {
+                std::process::exit(1);
+            }
         }
         return Ok(());
     }
 
     println!("Coverage report (root: {})", args.path.display());
-    println!("  referenced       : {}  (impl + maybe test markers)", report.referenced.len());
-    println!("  test-only        : {}  (test marker but no impl marker)", report.test_only.len());
+    println!(
+        "  referenced       : {}  (impl + maybe test markers)",
+        report.referenced.len()
+    );
+    println!(
+        "  test-only        : {}  (test marker but no impl marker)",
+        report.test_only.len()
+    );
     println!("  orphans          : {}", report.orphans.len());
     println!("  ghosts           : {}", report.ghosts.len());
     println!("  obsolete-in-code : {}", report.obsolete_referenced.len());
@@ -143,13 +168,18 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     // REQ-0065: strict mode turns findings into a non-zero exit.
     if args.strict {
         let allow: std::collections::HashSet<&String> = args.allow_orphans.iter().collect();
-        let unexpected_orphans: Vec<&String> = report.orphans.iter()
-            .filter(|id| !allow.contains(*id)).collect();
-        let findings = unexpected_orphans.len()
-            + report.ghosts.len()
-            + report.obsolete_referenced.len();
+        let unexpected_orphans: Vec<&String> = report
+            .orphans
+            .iter()
+            .filter(|id| !allow.contains(*id))
+            .collect();
+        let findings =
+            unexpected_orphans.len() + report.ghosts.len() + report.obsolete_referenced.len();
         if findings > 0 {
-            eprintln!("\ncoverage --strict: {} unallowed finding(s); exiting non-zero.", findings);
+            eprintln!(
+                "\ncoverage --strict: {} unallowed finding(s); exiting non-zero.",
+                findings
+            );
             std::process::exit(1);
         }
     }
@@ -176,7 +206,11 @@ fn run_unlinked_files(root: &Path, exts: &[String], json: bool) -> Result<()> {
         }
     });
     unlinked.sort();
-    let report = UnlinkedReport { scanned, linked, unlinked };
+    let report = UnlinkedReport {
+        scanned,
+        linked,
+        unlinked,
+    };
 
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -246,7 +280,10 @@ fn run_by_file(root: &Path, exts: &[String], json: bool) -> Result<()> {
 
     let entries: Vec<ByFileEntry> = per_file
         .into_iter()
-        .map(|(file, ids)| ByFileEntry { file, req_ids: ids.into_iter().collect() })
+        .map(|(file, ids)| ByFileEntry {
+            file,
+            req_ids: ids.into_iter().collect(),
+        })
         .collect();
 
     if json {
@@ -255,7 +292,10 @@ fn run_by_file(root: &Path, exts: &[String], json: bool) -> Result<()> {
     }
 
     if entries.is_empty() {
-        println!("No files under {} contain REQ-NNNN markers.", root.display());
+        println!(
+            "No files under {} contain REQ-NNNN markers.",
+            root.display()
+        );
         return Ok(());
     }
     println!("Per-file coverage (root: {}):\n", root.display());
@@ -288,13 +328,22 @@ fn run_remap(root: &Path, exts: &[String], pairs: &[String], apply: bool) -> Res
     walk(root, exts, &mut |path, line_no, line| {
         for (old, new) in &map {
             if line.contains(old) {
-                plan.push((path.display().to_string(), line_no, old.clone(), new.clone()));
+                plan.push((
+                    path.display().to_string(),
+                    line_no,
+                    old.clone(),
+                    new.clone(),
+                ));
             }
         }
     });
 
     if plan.is_empty() {
-        println!("No occurrences of {} in {}.", pairs.join(", "), root.display());
+        println!(
+            "No occurrences of {} in {}.",
+            pairs.join(", "),
+            root.display()
+        );
         return Ok(());
     }
 
@@ -342,7 +391,15 @@ pub fn is_test_path(file_ref: &str) -> bool {
     }
     // strip `:lineno` suffix before suffix-matching
     let path_only = lower.split(':').next().unwrap_or(&lower);
-    let suffixes = ["_test.rs", "_tests.rs", ".test.ts", ".test.tsx", ".test.js", "_test.py", "_test.go"];
+    let suffixes = [
+        "_test.rs",
+        "_tests.rs",
+        ".test.ts",
+        ".test.tsx",
+        ".test.js",
+        "_test.py",
+        "_test.go",
+    ];
     suffixes.iter().any(|s| path_only.ends_with(s))
 }
 

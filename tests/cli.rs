@@ -15,31 +15,49 @@ fn req_0037_version_short_flags_print_same_string() {
     let upper = stdout(&v_upper);
     let long = stdout(&v_long);
     let sub = stdout(&v_sub);
-    assert_eq!(lower.trim(), upper.trim(), "-v and -V must print the same line");
+    assert_eq!(
+        lower.trim(),
+        upper.trim(),
+        "-v and -V must print the same line"
+    );
     assert_eq!(lower.trim(), long.trim(), "-v and --version must agree");
     assert_eq!(lower.trim(), sub.trim(), "-v and `req version` must agree");
-    assert!(lower.starts_with("req "), "version line should start with the binary name");
+    assert!(
+        lower.starts_with("req "),
+        "version line should start with the binary name"
+    );
 }
 
 #[test]
 fn req_0001_help_lists_every_subcommand() {
     let out = common::req(&["--help"]);
     let body = stdout(&out);
-    for sub in &["init","add","list","show","update","delete","link","validate","export","tui","serve","mcp","help","repair","status","next","check"] {
+    for sub in &[
+        "init", "add", "list", "show", "update", "delete", "link", "validate", "export", "tui",
+        "serve", "mcp", "help", "repair", "status", "next", "check",
+    ] {
         assert!(body.contains(sub), "--help missing subcommand `{}`", sub);
     }
 }
 
 #[test]
 fn req_0014_export_markdown_round_trip() {
-    let s = Sandbox::new(); s.init("export-test");
+    let s = Sandbox::new();
+    s.init("export-test");
     s.run(&[
         "add",
-        "--title", "Greet on launch",
-        "--statement", "The system shall greet the user when the application starts.",
-        "--rationale", "Welcome flow.",
-        "--kind", "functional", "--priority", "should",
-        "--accept", "Launch shows the greeting modal within 200ms",
+        "--title",
+        "Greet on launch",
+        "--statement",
+        "The system shall greet the user when the application starts.",
+        "--rationale",
+        "Welcome flow.",
+        "--kind",
+        "functional",
+        "--priority",
+        "should",
+        "--accept",
+        "Launch shows the greeting modal within 200ms",
     ]);
     let out = s.run(&["export", "-f", "markdown"]);
     let md = stdout(&out);
@@ -51,14 +69,21 @@ fn req_0014_export_markdown_round_trip() {
 
 #[test]
 fn req_0013_parent_cycle_rejected() {
-    let s = Sandbox::new(); s.init("cycle-test");
+    let s = Sandbox::new();
+    s.init("cycle-test");
     for i in 1..=2 {
         s.run(&[
             "add",
-            "--title", &format!("Node number {}", i),
-            "--statement", "The system shall implement this generic node behaviour.",
-            "--rationale", "Hierarchy stub.",
-            "--kind", "constraint", "--priority", "could",
+            "--title",
+            &format!("Node number {}", i),
+            "--statement",
+            "The system shall implement this generic node behaviour.",
+            "--rationale",
+            "Hierarchy stub.",
+            "--kind",
+            "constraint",
+            "--priority",
+            "could",
         ]);
     }
     let a = s.run(&["link", "REQ-0001", "REQ-0002", "-k", "parent"]);
@@ -69,14 +94,21 @@ fn req_0013_parent_cycle_rejected() {
 
 #[test]
 fn req_0012_soft_delete_preserves_inbound_links() {
-    let s = Sandbox::new(); s.init("delete-test");
+    let s = Sandbox::new();
+    s.init("delete-test");
     for i in 1..=2 {
         s.run(&[
             "add",
-            "--title", &format!("Item number {}", i),
-            "--statement", "The system shall behave as expected for this item.",
-            "--rationale", "Stub.",
-            "--kind", "constraint", "--priority", "could",
+            "--title",
+            &format!("Item number {}", i),
+            "--statement",
+            "The system shall behave as expected for this item.",
+            "--rationale",
+            "Stub.",
+            "--kind",
+            "constraint",
+            "--priority",
+            "could",
         ]);
     }
     s.run(&["link", "REQ-0001", "REQ-0002", "-k", "parent"]);
@@ -93,23 +125,36 @@ fn req_0012_soft_delete_preserves_inbound_links() {
 
 #[test]
 fn req_0038_add_json_emits_stdout_json() {
-    let s = Sandbox::new(); s.init("json-test");
+    let s = Sandbox::new();
+    s.init("json-test");
     let out = s.run(&[
-        "add", "--json",
-        "--title", "JSON add smoke",
-        "--statement", "The system shall return JSON on stdout when --json is set.",
-        "--rationale", "Verify REQ-0038.",
-        "--kind", "constraint", "--priority", "could",
+        "add",
+        "--json",
+        "--title",
+        "JSON add smoke",
+        "--statement",
+        "The system shall return JSON on stdout when --json is set.",
+        "--rationale",
+        "Verify REQ-0038.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
     ]);
     let body = stdout(&out);
-    assert!(body.trim_start().starts_with('{'), "stdout should be JSON: {}", body);
+    assert!(
+        body.trim_start().starts_with('{'),
+        "stdout should be JSON: {}",
+        body
+    );
     let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
     assert_eq!(v["id"].as_str().unwrap(), "REQ-0001");
 }
 
 #[test]
 fn req_0039_json_error_envelope_on_failure() {
-    let s = Sandbox::new(); s.init("err-test");
+    let s = Sandbox::new();
+    s.init("err-test");
     // Build the bogus ID through formatting so the source file contains
     // no literal REQ-NNNN marker (avoids a coverage-scan ghost finding).
     let bogus = format!("REQ-{:04}", 9999);

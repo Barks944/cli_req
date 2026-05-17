@@ -3,9 +3,7 @@ use anyhow::Result;
 use dialoguer::{theme::ColorfulTheme, Select};
 use std::path::PathBuf;
 
-use crate::cli::{
-    AddArgs, DeleteArgs, ExportArgs, ExportFormat, ListArgs, ShowArgs, UpdateArgs,
-};
+use crate::cli::{AddArgs, DeleteArgs, ExportArgs, ExportFormat, ListArgs, ShowArgs, UpdateArgs};
 use crate::commands;
 use crate::storage::load_resolved;
 
@@ -46,12 +44,23 @@ pub fn run(file: &Option<PathBuf>) -> Result<()> {
             }
             3 => {
                 if let Some(id) = pick_id(&theme, &project)? {
-                    commands::delete::run(DeleteArgs { id, hard: false, reason: None, json: false }, file)?;
+                    commands::delete::run(
+                        DeleteArgs {
+                            id,
+                            hard: false,
+                            reason: None,
+                            json: false,
+                        },
+                        file,
+                    )?;
                 }
             }
             4 => commands::validate_cmd::run(crate::cli::ValidateArgs { json: false }, file)?,
             5 => commands::export::run(
-                ExportArgs { format: ExportFormat::Markdown, output: "-".into() },
+                ExportArgs {
+                    format: ExportFormat::Markdown,
+                    output: "-".into(),
+                },
                 file,
             )?,
             _ => return Ok(()),
@@ -79,7 +88,13 @@ fn browse(file: &Option<PathBuf>, project: &crate::model::Project) -> Result<()>
         .default(0)
         .interact_opt()?;
     if let Some(i) = pick {
-        commands::show::run(ShowArgs { id: ids[i].clone(), json: false }, file)?;
+        commands::show::run(
+            ShowArgs {
+                id: ids[i].clone(),
+                json: false,
+            },
+            file,
+        )?;
     }
     Ok(())
 }
@@ -94,7 +109,10 @@ fn pick_id(theme: &ColorfulTheme, project: &crate::model::Project) -> Result<Opt
         .iter()
         .map(|id| format!("{} — {}", id, project.requirements[id].title))
         .collect();
-    let pick = Select::with_theme(theme).items(&labels).default(0).interact_opt()?;
+    let pick = Select::with_theme(theme)
+        .items(&labels)
+        .default(0)
+        .interact_opt()?;
     Ok(pick.map(|i| ids[i].clone()))
 }
 
