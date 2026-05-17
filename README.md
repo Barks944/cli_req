@@ -208,34 +208,95 @@ That command writes a managed block, between sentinel markers, into `AGENTS.md`.
 
 ```
 Project lifecycle
-  req init -n <name>                    Create project.req
-  req tui                               Interactive browser / editor
-  req validate                          Run all rules; 0 errors to ship
-  req export -f markdown -o reqs.md     Publish (markdown / json / csv)
-  req serve [--read-only]               Local web UI
+  req init -n <name> [--layout directory]   Create project.req (file or dir layout)
+  req tui                                   Interactive menu (mirrors CLI surface)
+  req validate                              Run all rules; 0 errors to ship
+  req status                                Per-status counts + delivery_progress_pct
+  req version                               Print binary version (--json for tooling)
+  req export -f markdown -o reqs.md         Publish (markdown / json / csv / html)
+  req serve [--read-only]                   Local web UI (HTML + /api/* JSON)
+  req mcp                                   JSON-RPC stdio server for agents
+  req mcp --init-config                     Write .mcp.json for MCP-capable clients
+  req schema [add|batch|import]             JSON Schema for structured CLI inputs
 
 Day-to-day
-  req add ...                           Add a requirement
-  req list [--status ...] [--tag ...]   Filter
-  req show REQ-0007                     Full detail + history
+  req add ...                               Add a requirement (also: --from-json)
+  req list [--status ...] [--tag ...]       Filter (Obsolete hidden by default)
+  req show REQ-0007                         Full detail + history + test records
   req update REQ-0007 --status approved --reason "..."
-  req link <from> <to> -k <kind>        parent | depends-on | verifies | …
-  req delete REQ-0007 --reason "..."    Soft by default; --hard if no inbound links
+    [--add-acceptance "..." | --remove-acceptance N]
+  req link <from> <to> -k <kind>            parent | depends-on | verifies | …
+  req delete REQ-0007 --reason "..."        Soft by default; --hard if no inbound links
+  req next [--status ... --tag ...]         Suggest one requirement to work on
+  req batch path/to/changes.json            Transactional multi-mutation
+  req import -f markdown spec.md            Bulk ingest through the validator
 
-Integration
-  req hooks install                     Pre-commit + merge driver
-  req renumber --base origin/main       Post-merge ID collisions
-  req coverage --path src               Orphans / ghosts / by-file / remap
-  req audit                             Git signature trail
+Evidence & verification
+  req test record REQ-0007 --result pass --notes "..."
+  req test run [--from-file <log>] [--promote]
+                                            Drive cargo test, attach records,
+                                            optionally flip Implemented -> Verified
+  req verify REQ-0007 --by composition --cites REQ-0003 --notes "..." [--promote]
+  req verify REQ-0007 --by inspection --notes "reviewed src/..."        [--promote]
+  req stale [--only-stale]                  Records vs HEAD; three-state staleness
+
+Integration & review
+  req hooks install [--claude-code]         Pre-commit + merge driver
+                                            (+ .claude/settings.json allowlist)
+  req doctor                                Per-clone setup audit (gates 5 checks)
+  req renumber --base origin/main           Post-merge ID collisions
+  req coverage [--path src]                 Orphans / ghosts / test-only / obsolete-in-code
+  req coverage --by-file                    Per-file -> REQ IDs
+  req coverage --unlinked-files             Code files with zero markers
+  req coverage --remap REQ-OLD=REQ-NEW --apply
+  req coverage --strict --allow REQ-NNNN... CI gate; non-zero on findings
+  req diff origin/main..HEAD                Per-requirement changes between revs
+  req check origin/main                     Incremental validate + scoped coverage
+  req audit [--gate --require-good-signature --require-signer NAME]
+                                            Git signature trail / CI gate
+  req migrate                               Schema migration (currently a no-op stub)
 
 Recovery
-  req repair --confirm-direct-edit      After intentional hand edits
+  req repair --confirm-direct-edit          After intentional hand edits
 
 Docs
-  req help                              Section index
-  req help <section>                    overview | concepts | best-practice
-                                        | workflow | integration | audit | agents
-  req help all                          Everything
+  req help                                  Section index
+  req help <section>                        overview | concepts | best-practice |
+                                            workflow | integration | version-control |
+                                            agents | mcp | audit | testing |
+                                            verification | format-policy | errors |
+                                            env | file-format | tui | web | export
+  req help <section> --install              Inject the section into AGENTS.md
+  req help <section> --json                 Structured form for tooling
+  req help all                              Everything
+```
+
+## CI / build integration
+
+Drop these three commands into your CI pipeline. The repo's own
+[.github/workflows/ci.yml](.github/workflows/ci.yml) is the reference setup.
+
+```yaml
+# Gating: any of these failing should fail the build.
+- run: req validate
+- run: |
+    req coverage --path . --strict \
+      --allow REQ-NNNN --allow REQ-MMMM     # whitelist verification-only reqs
+
+# Advisory: print but don't fail.
+- run: req doctor || true
+- run: req stale --path . || true
+```
+
+`req validate` checks every requirement against the rule set (0 errors required to ship).
+`req coverage --strict` turns orphan / ghost / obsolete-in-code findings into a non-zero exit.
+`req doctor` audits per-clone setup — useful as a warning when contributors skip `req hooks install`.
+`req stale` is informational; staleness trips on every commit that touches a tested file, so blocking on it would block every PR.
+
+For repos that require signed commits on the spec file, replace the `req audit` line with:
+
+```yaml
+- run: req audit --gate --require-good-signature --require-signer "Alice <alice@example.com>"
 ```
 
 ---

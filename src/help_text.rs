@@ -190,31 +190,81 @@ Endpoints:
     Section {
         name: "tui",
         summary: "The interactive terminal UI.",
-        body: "`req tui` opens an interactive menu: browse, view, add, update,
-delete, validate, export, quit. It's built on dialoguer so it works on
-any terminal — no full-screen TUI required.",
+        body: "`req tui` opens an interactive menu that mirrors the agent-relevant
+CLI commands so a human can drive the tool without memorising flags.
+The current menu covers: browse, status, next, add, update, link,
+delete, validate, coverage, stale, doctor, diff, audit, export,
+version, quit. REQ-0083 obliges the menu to stay one-to-one with the
+CLI's agent-relevant subset; a parity test fails the build if a new
+command lands without a menu entry.
+
+Built on dialoguer — works on any terminal, no full-screen TUI.",
     },
     Section {
         name: "integration",
-        summary: "Wiring `req` into a real project.",
+        summary: "Wiring `req` into a real project, including CI.",
         body: "Put `project.req` at the repo root. Keep `AGENTS.md` next to it so
-agents pick up the workflow on first read. Then:
+agents pick up the workflow on first read.
 
-  req hooks install            # writes .git/hooks/pre-commit + .gitattributes
+PER-CLONE SETUP
 
-The pre-commit hook runs `req validate` whenever a *.req file is staged.
-The .gitattributes entry registers `req-merge` as the merge driver for
-*.req. Activate the driver in your local clone with:
+  req hooks install                  # pre-commit + .gitattributes
+  req hooks install --claude-code    # also writes .claude/settings.json
+                                     # (allowlist + Stop hook)
+
+`req hooks install` writes `.git/hooks/pre-commit` that runs
+`req validate` on every staged `.req` file, and adds these
+`.gitattributes` lines:
+
+  *.req merge=req-merge        # merge driver for ID collisions
+  project.req -text eol=lf     # line-ending pin (Windows autocrlf
+  *.req       -text eol=lf       cannot break the integrity hash)
+
+Activate the merge driver once per clone:
 
   git config merge.req-merge.name 'req merge driver'
   git config merge.req-merge.driver 'req renumber --base %O || true'
 
-Cross-link requirements to code by writing `// REQ-0007` (or a similar
-comment in your language) anywhere in the source tree and running:
+Confirm the setup any time:
 
-  req coverage                 # report orphans / ghosts / obsolete-in-code
+  req doctor                          # exits non-zero if anything missing
 
-Coverage walks the tree, skipping target/, node_modules/, .git/ etc.",
+CI / BUILD INTEGRATION
+
+  Three commands belong in any CI pipeline; this project wires
+  exactly these in .github/workflows/ci.yml:
+
+  # GATING — fail the build on any of these
+  req validate                                     # zero errors required
+  req coverage --strict \\
+    --allow REQ-XXXX --allow REQ-YYYY              # orphan/ghost gate;
+                                                   # whitelist verification-only
+                                                   # or policy-only requirements
+
+  # ADVISORY — print but don't fail
+  req doctor                                       # per-clone health
+  req stale --path .                               # records vs current HEAD
+
+  Optionally enforce signed commits on the spec file in CI:
+
+  req audit --gate --require-good-signature        # exits non-zero if any
+                                                   # commit touching project.req
+                                                   # lacks a verifiable signature
+
+CROSS-LINKING CODE TO REQUIREMENTS
+
+  Drop `// REQ-NNNN` comments in your source. Then:
+
+  req coverage                # orphans / ghosts / test-only / obsolete-in-code
+  req coverage --by-file      # per-file -> REQ IDs
+  req coverage --unlinked-files   # code files lacking any marker
+  req coverage --remap REQ-OLD=REQ-NEW --apply    # rewrite markers in source
+
+CODE REVIEW
+
+  req diff origin/main..HEAD  # per-requirement changes since the base ref
+  req check origin/main       # incremental validate + coverage scoped to
+                              # files changed since the ref",
     },
     Section {
         name: "version-control",

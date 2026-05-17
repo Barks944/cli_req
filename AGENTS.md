@@ -227,39 +227,70 @@ git config commit.gpgsign true            # or use SSH-signed commits
   command surface. Adding a rule? Document it. Adding a command? Add a
   section (or extend one).
 
-## 8. Not in scope yet
+## 8. Status as of v0.1.0
 
-- `serve` and `mcp` are stubs that exit 2. When you implement them:
-  - `serve` must support `--read-only` and must not race writes against
-    other processes that hold the file.
-  - `mcp` must expose the same operations as the CLI as MCP tools and
-    must **not** expose `repair` (humans only — that's the safety hatch).
-
-- There is no auth/multi-user model. `REQ_ACTOR` / `USER` / `USERNAME`
-  attribute history entries; treat that attribution as advisory.
+- **120 tests passing** across 12 integration test files; `cargo test
+  --release -- --test-threads=1` is the canonical invocation. CI runs
+  each test binary serially to keep the concurrency suite within the
+  30s file-lock timeout.
+- **`cargo-llvm-cov` line coverage ~58%**; validate.rs / storage.rs are
+  > 85%, mcp.rs and web.rs ~50%, tui.rs is intentionally 0% (dialoguer
+  interactive code is hard to fixture).
+- **All three surfaces are at parity** (REQ-0083): CLI, MCP, TUI offer
+  the same agent-relevant operations. Two automated tests fail the
+  build if a new CLI command lands without a matching MCP tool *and*
+  TUI menu entry, modulo a documented humans-only exclusion list.
+- **CI gates on:** `cargo fmt --check`, `cargo clippy -D warnings`,
+  `cargo build -D warnings`, `cargo test`, `req validate`,
+  `req coverage --strict --allow REQ-0051 REQ-0052 REQ-0061 REQ-0082`.
+- **CI advisory:** `req doctor`, `req stale --path .`.
+- **No auth/multi-user model.** `REQ_ACTOR` / `USER` / `USERNAME`
+  attribute history; `REQ_ACTOR_KIND` (human/agent) is the provenance
+  signal. Treat attribution as advisory until signed-commit policy is
+  added (see §6 — `req audit --gate`).
 
 ## 9. Quick reference
 
 ```sh
 # project lifecycle
 req init -n <name>                       # create project.req
-req tui                                  # interactive everything
+req tui                                  # interactive menu (16 actions)
 req validate                             # rules across the project
+req status                               # delivery_progress_pct
 req export -f markdown -o reqs.md        # publish
 
 # day-to-day
-req add ...                              # see §4.3
-req list --status draft --tag foo
-req show REQ-0007
+req add ...                              # see §4.3 (also: --from-json)
+req list --status draft --tag foo        # Obsolete hidden by default
+req show REQ-0007                        # detail + history + test records
 req update REQ-0007 --status approved --reason "..."
 req link REQ-0008 REQ-0007 -k parent
-req delete REQ-0007 --reason "..."       # soft; --hard requires no inbound links
+req delete REQ-0007 --reason "..."       # soft; --hard if no inbound links
+req next                                 # dependency-aware next pick
+req batch path/to/changes.json           # transactional multi-mutation
+req import -f markdown spec.md           # bulk ingest through the validator
+
+# evidence
+req test record REQ-0007 --result pass --notes "..."
+req test run --promote                   # cargo test + record + auto-Verify
+req verify REQ-0007 --by composition --cites REQ-0003 --notes "..." --promote
+req verify REQ-0007 --by inspection --notes "..." --promote
+req stale --only-stale                   # records whose linked files changed
 
 # integration
-req hooks install                        # pre-commit + merge driver
+req hooks install [--claude-code]        # pre-commit + merge driver
+req doctor                               # per-clone setup audit
 req renumber --base origin/main          # post-merge ID collisions
-req coverage --path src                  # orphans / ghosts / obsolete-in-code
+req coverage [--by-file | --unlinked-files | --remap OLD=NEW]
+req coverage --strict --allow REQ-NNNN   # CI gate
+req diff origin/main..HEAD               # per-requirement transitions
+req check origin/main                    # incremental validate + coverage
 req audit                                # git signature trail
+req audit --gate --require-good-signature
+req mcp                                  # JSON-RPC stdio server
+req mcp --init-config                    # write .mcp.json bootstrap
+req schema [add|batch|import]            # JSON Schemas for structured input
+req migrate                              # schema migration (no-op on req-v1)
 
 # recovery
 req repair --confirm-direct-edit         # after intentional hand edits
@@ -267,12 +298,26 @@ req repair --confirm-direct-edit         # after intentional hand edits
 # documentation
 req help                                 # section index
 req help <section>                       # drill in
+req help <section> --install             # write into AGENTS.md (this file)
+req help <section> --json                # structured form for tooling
 req help all                             # everything
 ```
 
-If `cargo build --release` is clean, `req validate` reports 0 errors,
-and `req coverage` shows no new ghosts, you have a green baseline. Make
-your change. Re-run all three. Done.
+## 10. Green baseline ritual
+
+```sh
+cargo fmt --check
+cargo clippy --release --locked -D warnings
+cargo build --release
+cargo test --release -- --test-threads=1
+req validate
+req coverage --path . --strict --allow REQ-0051 --allow REQ-0052 \
+                                --allow REQ-0061 --allow REQ-0082
+```
+
+If all six commands exit 0, you have a green baseline. Make your
+change, run them again, you're done. CI runs exactly these (plus
+`req doctor` and `req stale` as advisory).
 
 <!-- req:help:agents:begin -->
 
