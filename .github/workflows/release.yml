@@ -4,9 +4,28 @@ on:
   push:
     tags:
       - "v*"
+  # Manual trigger so the cross-platform build can be exercised without
+  # creating a Release object. Defaults to publishing only when invoked
+  # by a tag push; the dispatch form is dry-run unless you set the input.
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Create a GitHub Release and attach archives (true|false)"
+        required: false
+        default: "false"
+      ref_name:
+        description: "Tag-like name to embed in archive filenames (e.g. v0.1.0-rc1)"
+        required: false
+        default: "dryrun"
 
 permissions:
   contents: write
+
+# Single source of truth for the archive base name across both trigger
+# paths: tag push uses github.ref_name (e.g. v0.1.0); workflow_dispatch
+# uses the provided input or "dryrun".
+env:
+  ARCHIVE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.ref_name || github.ref_name }}
 
 jobs:
   build:
@@ -41,7 +60,7 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/req dist/
           cp README.md LICENSE dist/
-          tar -czf req-${{ github.ref_name }}-${{ matrix.target }}.tar.gz -C dist .
+          tar -czf req-${ARCHIVE_TAG}-${{ matrix.target }}.tar.gz -C dist .
       - name: package (windows)
         if: matrix.archive == 'zip'
         shell: pwsh
@@ -49,12 +68,29 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item target/${{ matrix.target }}/release/req.exe dist/
           Copy-Item README.md, LICENSE dist/
-          Compress-Archive -Path dist/* -DestinationPath "req-${{ github.ref_name }}-${{ matrix.target }}.zip"
-      - uses: softprops/action-gh-release@v2
+          Compress-Archive -Path dist/* -DestinationPath "req-$env:ARCHIVE_TAG-${{ matrix.target }}.zip"
+      # Always upload as a workflow artefact so dry-runs (and tag pushes
+      # that later fail to publish) still leave the binaries downloadable
+      # from the Actions UI for verification.
+      - name: upload workflow artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: req-${{ matrix.target }}
+          path: |
+            req-${{ env.ARCHIVE_TAG }}-${{ matrix.target }}.tar.gz
+            req-${{ env.ARCHIVE_TAG }}-${{ matrix.target }}.zip
+          if-no-files-found: ignore
+      # Only attach to a GitHub Release on a real tag push, OR when the
+      # manual dispatch explicitly opts in via publish_release=true.
+      - name: attach to GitHub Release
+        if: |
+          github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_release == 'true')
+        uses: softprops/action-gh-release@v2
         with:
           files: |
-            req-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
-            req-${{ github.ref_name }}-${{ matrix.target }}.zip
+            req-${{ env.ARCHIVE_TAG }}-${{ matrix.target }}.tar.gz
+            req-${{ env.ARCHIVE_TAG }}-${{ matrix.target }}.zip
           draft: false
           prerelease: false
           fail_on_unmatched_files: false
