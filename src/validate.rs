@@ -49,6 +49,8 @@ pub const RULES: &[(&str, &str)] = &[
     ("REQ-V-0016", "link target does not exist"),
     ("REQ-V-0017", "self-link not allowed"),
     ("REQ-V-0018", "status requires acceptance for functional requirement"),
+    ("REQ-V-0019", "verifies-link source has no test record (verification claim without evidence)"),
+    ("REQ-V-0020", "duplicate-intent: another non-obsolete requirement is semantically very similar"),
 ];
 
 static WEASEL_WORDS: &[&str] = &[
@@ -165,10 +167,61 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
     out
 }
 
+/// REQ-0076: similarity threshold for duplicate-intent detection. Jaccard
+/// on lowercased token sets of (title + statement). 0.65 trips on near
+/// rewordings without flagging coincidentally-overlapping vocabularies.
+pub const DUP_INTENT_THRESHOLD: f64 = 0.65;
+
+fn token_set(s: &str) -> std::collections::HashSet<String> {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+    static STOP: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
+        ["the","a","an","and","or","of","to","for","on","in","is","be","by","with","as","that","this",
+         "shall","must","should","will","system","cli"].iter().copied().collect()
+    });
+    static WORD_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[a-z0-9]+").unwrap());
+    let lower = s.to_lowercase();
+    WORD_RE.find_iter(&lower)
+        .map(|m| m.as_str().to_string())
+        .filter(|w| w.len() > 2 && !STOP.contains(w.as_str()))
+        .collect()
+}
+
+fn jaccard(a: &std::collections::HashSet<String>, b: &std::collections::HashSet<String>) -> f64 {
+    if a.is_empty() && b.is_empty() { return 0.0; }
+    let inter = a.intersection(b).count() as f64;
+    let union = a.union(b).count() as f64;
+    inter / union
+}
+
 pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     let mut out = Vec::new();
+    // Precompute token sets for non-obsolete requirements once.
+    let active: Vec<(&String, std::collections::HashSet<String>)> = p.requirements.iter()
+        .filter(|(_, r)| !matches!(r.status, crate::model::Status::Obsolete))
+        .map(|(id, r)| (id, token_set(&format!("{} {}", r.title, r.statement))))
+        .collect();
     for (id, r) in &p.requirements {
         let mut findings = validate_requirement(r);
+        // REQ-0076: duplicate-intent detection across non-obsolete reqs.
+        if !matches!(r.status, crate::model::Status::Obsolete) {
+            let my_tokens: Option<&std::collections::HashSet<String>> = active.iter()
+                .find_map(|(aid, ts)| if *aid == id { Some(ts) } else { None });
+            if let Some(my) = my_tokens {
+                for (other_id, other_tokens) in &active {
+                    if *other_id == id { continue; }
+                    // Only flag once per pair: the one with the smaller ID gets the warning.
+                    if id.as_str() > other_id.as_str() { continue; }
+                    let sim = jaccard(my, other_tokens);
+                    if sim >= DUP_INTENT_THRESHOLD {
+                        findings.push(Finding::warn(
+                            "REQ-V-0020", "statement",
+                            format!("duplicate-intent: {} overlaps {} at {:.0}% similarity", id, other_id, sim * 100.0),
+                        ));
+                    }
+                }
+            }
+        }
         for link in &r.links {
             if !p.requirements.contains_key(&link.target) {
                 findings.push(Finding::err(
@@ -177,6 +230,14 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
                 ));
             } else if link.target == r.id {
                 findings.push(Finding::err("REQ-V-0017", "links", "self-link is not allowed"));
+            }
+            // REQ-0077: a `verifies` link is a verification claim — if the
+            // source has no test record at all, the claim has no evidence.
+            if matches!(link.kind, crate::model::LinkKind::Verifies) && r.tests.is_empty() {
+                findings.push(Finding::warn(
+                    "REQ-V-0019", "links",
+                    format!("verifies → {} but {} has no test records", link.target, r.id),
+                ));
             }
         }
         if matches!(r.status, Status::Approved | Status::Implemented | Status::Verified)

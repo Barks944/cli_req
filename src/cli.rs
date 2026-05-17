@@ -104,6 +104,8 @@ pub enum Command {
     Import(ImportArgs),
     /// Migrate project.req from an older _format to the current one (backs up first).
     Migrate(MigrateArgs),
+    /// Print the JSON Schema for structured CLI inputs (req add --from-json, req batch).
+    Schema(SchemaArgs),
     /// Export the project to another format.
     Export(ExportArgs),
     /// Launch the interactive terminal browser/editor.
@@ -191,6 +193,19 @@ pub struct AuditArgs {
     /// Limit to N most recent commits.
     #[arg(short = 'n', long, default_value_t = 50)]
     pub limit: usize,
+    /// Gate mode: exit non-zero if any commit in the range violates the
+    /// configured signature policy. Combine with --require-signer and/or
+    /// --require-good-signature.
+    #[arg(long)]
+    pub gate: bool,
+    /// Require a "good" or "good-unknown" signature on every commit
+    /// touching project.req in the range.
+    #[arg(long)]
+    pub require_good_signature: bool,
+    /// Require the signer to be one of these identities (repeatable).
+    /// Matched as a case-insensitive substring of the git %GS field.
+    #[arg(long = "require-signer")]
+    pub required_signers: Vec<String>,
     /// JSON output.
     #[arg(long)]
     pub json: bool,
@@ -208,12 +223,23 @@ pub struct InitArgs {
     /// Project name.
     #[arg(short, long)]
     pub name: String,
-    /// Output path for the .req file.
+    /// Output path for the .req file (or directory if --layout=directory).
     #[arg(short, long, default_value = "project.req")]
     pub output: PathBuf,
     /// Overwrite if the file exists.
     #[arg(long)]
     pub force: bool,
+    /// Storage layout: `single` (default) keeps everything in one .req file;
+    /// `directory` writes per-requirement files under output/requirements/
+    /// plus an index file. Both preserve the integrity guarantee.
+    #[arg(long, value_enum, default_value = "single")]
+    pub layout: LayoutArg,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum LayoutArg {
+    Single,
+    Directory,
 }
 
 #[derive(Args, Debug)]
@@ -391,6 +417,23 @@ pub struct NextArgs {
     /// Emit JSON instead of a one-line summary.
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SchemaArgs {
+    /// Which schema to emit.
+    #[arg(value_enum, default_value = "add")]
+    pub which: SchemaWhich,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum SchemaWhich {
+    /// Schema for `req add --from-json`.
+    Add,
+    /// Schema for `req batch`.
+    Batch,
+    /// Schema for `req import --format json` (array form).
+    Import,
 }
 
 #[derive(Args, Debug)]

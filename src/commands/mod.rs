@@ -17,6 +17,7 @@ pub mod migrate;
 pub mod next;
 pub mod renumber;
 pub mod repair;
+pub mod schema;
 pub mod version;
 pub mod show;
 pub mod stale;
