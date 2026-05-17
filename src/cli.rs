@@ -45,6 +45,7 @@ impl Command {
             Command::Stale(a) => a.json,
             Command::Batch(a) => a.json,
             Command::Import(a) => a.json,
+            Command::Migrate(a) => a.json,
             Command::List(a) => a.json,
             Command::Show(a) => a.json,
             Command::Version(a) => a.json,
@@ -101,6 +102,8 @@ pub enum Command {
     Batch(BatchArgs),
     /// Import requirements from markdown or JSON; routed through the validator.
     Import(ImportArgs),
+    /// Migrate project.req from an older _format to the current one (backs up first).
+    Migrate(MigrateArgs),
     /// Export the project to another format.
     Export(ExportArgs),
     /// Launch the interactive terminal browser/editor.
@@ -386,6 +389,13 @@ pub struct NextArgs {
     #[arg(long)]
     pub tag: Vec<String>,
     /// Emit JSON instead of a one-line summary.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct MigrateArgs {
+    /// JSON output describing the migration result.
     #[arg(long)]
     pub json: bool,
 }

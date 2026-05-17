@@ -47,6 +47,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Stale(args) => commands::stale::run(args, &cli.file),
         Command::Batch(args) => commands::batch::run(args, &cli.file),
         Command::Import(args) => commands::import::run(args, &cli.file),
+        Command::Migrate(args) => commands::migrate::run(args, &cli.file),
         Command::Version(args) => commands::version::run(args),
         Command::Next(args) => commands::next::run(args, &cli.file),
         Command::Check(args) => commands::check::run(args, &cli.file),

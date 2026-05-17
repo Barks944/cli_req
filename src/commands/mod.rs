@@ -13,6 +13,7 @@ pub mod import;
 pub mod init;
 pub mod link;
 pub mod list;
+pub mod migrate;
 pub mod next;
 pub mod renumber;
 pub mod repair;
