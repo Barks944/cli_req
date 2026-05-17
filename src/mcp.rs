@@ -482,7 +482,6 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
         .unwrap_or_default();
 
-    let id = project.allocate_id();
     let now = Utc::now();
     let mut links = Vec::new();
     if let Some(parent) = s(args, "parent") {
@@ -491,8 +490,9 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         }
         links.push(Link { kind: LinkKind::Parent, target: parent });
     }
-    let req = Requirement {
-        id: id.clone(),
+    // Validate BEFORE allocating an ID, so a rejected add does not burn one.
+    let mut req = Requirement {
+        id: String::new(),
         title, statement, rationale, acceptance,
         kind, priority,
         status: Status::Draft,
@@ -506,6 +506,8 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         let msgs: Vec<String> = errs.iter().map(|f| format!("[{}] {}", f.field, f.message)).collect();
         return Err(anyhow!("rejected: {}", msgs.join("; ")));
     }
+    let id = project.allocate_id();
+    req.id = id.clone();
     project.requirements.insert(id.clone(), req);
     project.updated = now;
     storage::save(file, &project)?;

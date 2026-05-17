@@ -129,10 +129,11 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
 
-    let id = project.allocate_id();
     let now = Utc::now();
-    let req = Requirement {
-        id: id.clone(),
+    // Build with placeholder id; validate BEFORE allocating so failed adds
+    // do not consume IDs (REQ-0010: stable sequential allocation).
+    let mut req = Requirement {
+        id: String::new(),
         title,
         statement,
         rationale,
@@ -169,6 +170,8 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
 
+    let id = project.allocate_id();
+    req.id = id.clone();
     project.requirements.insert(id.clone(), req);
     project.updated = now;
     storage::save(&path, &project)?;
