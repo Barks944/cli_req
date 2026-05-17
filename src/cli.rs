@@ -43,6 +43,8 @@ impl Command {
             Command::Test(TestCmd::Run(a)) => a.json,
             Command::Verify(a) => a.json,
             Command::Stale(a) => a.json,
+            Command::Batch(a) => a.json,
+            Command::Import(a) => a.json,
             Command::List(a) => a.json,
             Command::Show(a) => a.json,
             Command::Version(a) => a.json,
@@ -95,6 +97,10 @@ pub enum Command {
     /// Report staleness of every requirement's latest test record relative
     /// to the files it links to (content drift, not just commit drift).
     Stale(StaleArgs),
+    /// Apply many mutations atomically from a JSON document.
+    Batch(BatchArgs),
+    /// Import requirements from markdown or JSON; routed through the validator.
+    Import(ImportArgs),
     /// Export the project to another format.
     Export(ExportArgs),
     /// Launch the interactive terminal browser/editor.
@@ -382,6 +388,39 @@ pub struct NextArgs {
     /// Emit JSON instead of a one-line summary.
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BatchArgs {
+    /// Path to the batch JSON document, or `-` for stdin.
+    pub source: String,
+    /// JSON output reporting the applied changes.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ImportArgs {
+    /// Format of the source: markdown or json.
+    #[arg(short, long, value_enum)]
+    pub format: ImportFormat,
+    /// Source path (`-` for stdin).
+    pub source: String,
+    /// Show what would be imported without writing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Reject the whole import if any item fails validation.
+    #[arg(long)]
+    pub strict: bool,
+    /// JSON output.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum ImportFormat {
+    Markdown,
+    Json,
 }
 
 #[derive(Args, Debug)]

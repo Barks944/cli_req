@@ -1,5 +1,6 @@
 pub mod add;
 pub mod audit;
+pub mod batch;
 pub mod check;
 pub mod coverage;
 pub mod delete;
@@ -8,6 +9,7 @@ pub mod doctor;
 pub mod export;
 pub mod help_cmd;
 pub mod hooks;
+pub mod import;
 pub mod init;
 pub mod link;
 pub mod list;
