@@ -17,14 +17,19 @@ const SECTIONS: &[Section] = &[
     Section {
         name: "overview",
         summary: "What `req` is and why it exists.",
-        body: "`req` is a managed requirements tool. Requirements live in a binary
-.req file. The file is gzipped bincode with a custom header, so an LLM
-agent cannot read the file directly or edit it freely — every mutation
-goes through this CLI, which enforces best-practice rules.
+        body: "`req` is a managed requirements tool. Requirements live in a
+git-tracked `project.req` file: pretty-printed JSON so diffs are
+reviewable, but every mutation goes through this CLI, which enforces
+best-practice rules. A SHA-256 `_integrity` field over the canonical
+payload catches hand edits — the CLI refuses to load a tampered file
+and tells the user to run `req repair --confirm-direct-edit`.
 
 Humans get a `tui` browser, a local web server (`serve`), and exports
 to Markdown/JSON/CSV/HTML. Agents get a `mcp` mode that speaks JSON-RPC
-over stdio, exposing the same managed operations as MCP tools.",
+over stdio, exposing the same managed operations as MCP tools.
+
+See `req help file-format` for the on-disk layout and `req help agents`
+for the agent trigger table.",
     },
     Section {
         name: "concepts",

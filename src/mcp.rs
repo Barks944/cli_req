@@ -56,6 +56,12 @@ pub fn run(args: McpArgs, file: &Option<PathBuf>) -> Result<()> {
 // ---------- stdio loop ----------
 
 fn serve(file: &Option<PathBuf>) -> Result<()> {
+    if std::env::var_os("REQ_ACTOR_KIND").is_none() {
+        // Callers reach `serve` only via stdio JSON-RPC, so attribute history
+        // to an agent unless the operator overrode it explicitly.
+        // SAFETY: set before any thread is spawned by the stdio loop.
+        unsafe { std::env::set_var("REQ_ACTOR_KIND", "agent") };
+    }
     let path = resolve_path(file);
     let stdin = io::stdin();
     let mut stdin = stdin.lock();

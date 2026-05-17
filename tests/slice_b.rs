@@ -20,6 +20,7 @@ fn fresh_git_repo() -> Sandbox {
     let _ = git(s.dir.path(), &["init", "-q", "-b", "main"]);
     let _ = git(s.dir.path(), &["config", "user.email", "t@example.com"]);
     let _ = git(s.dir.path(), &["config", "user.name", "Tester"]);
+    let _ = git(s.dir.path(), &["config", "commit.gpgsign", "false"]);
     s
 }
 

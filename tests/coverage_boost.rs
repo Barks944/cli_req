@@ -304,6 +304,10 @@ fn req_0027_audit_prints_signature_status_for_commits() {
         .output();
     let _ = Command::new("git")
         .current_dir(dir)
+        .args(["config", "commit.gpgsign", "false"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(dir)
         .args(["add", "project.req"])
         .output();
     let _ = Command::new("git")
@@ -765,6 +769,10 @@ fn req_0049_test_record_attaches_outcome_and_head_sha() {
         .output();
     let _ = Command::new("git")
         .current_dir(dir)
+        .args(["config", "commit.gpgsign", "false"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(dir)
         .args(["add", "project.req"])
         .output();
     let _ = Command::new("git")
@@ -826,6 +834,10 @@ fn req_0050_show_marks_latest_record_against_head() {
     let _ = Command::new("git")
         .current_dir(dir)
         .args(["config", "user.name", "T"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["config", "commit.gpgsign", "false"])
         .output();
     let _ = Command::new("git")
         .current_dir(dir)
@@ -1002,6 +1014,10 @@ fn req_0063_stale_reports_records_against_head() {
     let _ = Command::new("git")
         .current_dir(dir)
         .args(["config", "user.name", "T"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["config", "commit.gpgsign", "false"])
         .output();
     let _ = Command::new("git")
         .current_dir(dir)

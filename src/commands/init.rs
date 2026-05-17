@@ -28,5 +28,12 @@ pub fn run(args: InitArgs) -> Result<()> {
             LayoutArg::Directory => "directory",
         },
     );
+    println!();
+    println!("Next steps:");
+    println!("  req help agents --install      # write the agent trigger table into AGENTS.md");
+    println!("  req hooks install              # pre-commit + merge driver (add --claude-code");
+    println!("                                 #   to also write .claude/settings.json)");
+    println!("  req mcp --init-config          # bootstrap .mcp.json for MCP-capable clients");
+    println!("  req add --help                 # add your first requirement");
     Ok(())
 }
