@@ -101,8 +101,20 @@ pub struct CoverageArgs {
     pub extensions: Vec<String>,
     /// Flip the report: list source files that contain NO REQ-NNNN markers
     /// (i.e. code with no traceability link to any requirement).
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["by_file", "remap"])]
     pub unlinked_files: bool,
+    /// Per-file report: for every file with at least one marker, list the
+    /// REQ IDs it references. Closes the bidirectional view.
+    #[arg(long, conflicts_with_all = ["unlinked_files", "remap"])]
+    pub by_file: bool,
+    /// Rewrite REQ-NNNN markers in source files. Pass repeatedly:
+    ///   --remap REQ-0099=REQ-0003 --remap REQ-0042=REQ-0007
+    /// Dry-run by default; pass --apply to write.
+    #[arg(long, value_name = "OLD=NEW")]
+    pub remap: Vec<String>,
+    /// Actually rewrite files when --remap is used (otherwise dry-run).
+    #[arg(long)]
+    pub apply: bool,
     /// JSON output.
     #[arg(long)]
     pub json: bool,
@@ -212,6 +224,12 @@ pub struct UpdateArgs {
     /// Replace acceptance criteria wholesale (repeatable).
     #[arg(short = 'a', long = "accept")]
     pub acceptance: Option<Vec<String>>,
+    /// Append an acceptance criterion (repeatable). Combines with --accept.
+    #[arg(long = "add-acceptance")]
+    pub add_acceptance: Vec<String>,
+    /// Remove an acceptance criterion by 1-based index (repeatable).
+    #[arg(long = "remove-acceptance")]
+    pub remove_acceptance: Vec<usize>,
     #[arg(short = 'k', long, value_enum)]
     pub kind: Option<KindArg>,
     #[arg(short, long, value_enum)]

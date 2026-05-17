@@ -119,6 +119,8 @@ fn default_update(id: String) -> UpdateArgs {
         statement: None,
         rationale: None,
         acceptance: None,
+        add_acceptance: vec![],
+        remove_acceptance: vec![],
         kind: None,
         priority: None,
         status: None,

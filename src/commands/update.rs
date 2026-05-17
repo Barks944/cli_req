@@ -38,6 +38,25 @@ pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         changes.push(format!("acceptance replaced ({} items)", ac.len()));
         r.acceptance = ac;
     }
+    for ac in &args.add_acceptance {
+        r.acceptance.push(ac.clone());
+        changes.push(format!("+acceptance #{}: {:?}", r.acceptance.len(), ac));
+    }
+    let mut to_remove = args.remove_acceptance.clone();
+    to_remove.sort_unstable();
+    to_remove.dedup();
+    to_remove.reverse();
+    for idx_1 in to_remove {
+        if idx_1 == 0 || idx_1 > r.acceptance.len() {
+            return Err(anyhow!(
+                "--remove-acceptance index {} is out of range (1..={})",
+                idx_1,
+                r.acceptance.len()
+            ));
+        }
+        let removed = r.acceptance.remove(idx_1 - 1);
+        changes.push(format!("-acceptance #{}: {:?}", idx_1, removed));
+    }
     if let Some(k) = args.kind {
         let k = k.into();
         if r.kind != k {

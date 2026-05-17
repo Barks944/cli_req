@@ -22,7 +22,8 @@ dialoguer = "0.11"
 comfy-table = "7"
 regex = "1"
 once_cell = "1"
-# axum/tokio/askama will return when the `serve` and `mcp` subcommands land.
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 
 
 [profile.release]

@@ -34,6 +34,12 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     if args.unlinked_files {
         return run_unlinked_files(&args.path, &exts, args.json);
     }
+    if args.by_file {
+        return run_by_file(&args.path, &exts, args.json);
+    }
+    if !args.remap.is_empty() {
+        return run_remap(&args.path, &exts, &args.remap, args.apply);
+    }
 
     let (_, project) = load_resolved(file)?;
     let mut hits: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -180,6 +186,110 @@ fn walk_files(root: &Path, exts: &[String], visit: &mut impl FnMut(&Path, bool))
             visit(&path, has);
         }
     }
+}
+
+#[derive(serde::Serialize)]
+struct ByFileEntry {
+    file: String,
+    req_ids: Vec<String>,
+}
+
+fn run_by_file(root: &Path, exts: &[String], json: bool) -> Result<()> {
+    let mut per_file: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    walk(root, exts, &mut |path, _line_no, line| {
+        for m in REQ_RE.find_iter(line) {
+            per_file
+                .entry(path.display().to_string())
+                .or_default()
+                .insert(m.as_str().to_string());
+        }
+    });
+
+    let entries: Vec<ByFileEntry> = per_file
+        .into_iter()
+        .map(|(file, ids)| ByFileEntry { file, req_ids: ids.into_iter().collect() })
+        .collect();
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+        return Ok(());
+    }
+
+    if entries.is_empty() {
+        println!("No files under {} contain REQ-NNNN markers.", root.display());
+        return Ok(());
+    }
+    println!("Per-file coverage (root: {}):\n", root.display());
+    for e in &entries {
+        println!("  {}", e.file);
+        for id in &e.req_ids {
+            println!("    {}", id);
+        }
+    }
+    Ok(())
+}
+
+fn run_remap(root: &Path, exts: &[String], pairs: &[String], apply: bool) -> Result<()> {
+    let mut map: BTreeMap<String, String> = BTreeMap::new();
+    for raw in pairs {
+        let (old, new) = raw
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--remap expects OLD=NEW, got '{}'", raw))?;
+        if !REQ_RE.is_match(old) || !REQ_RE.is_match(new) {
+            return Err(anyhow::anyhow!(
+                "--remap values must look like REQ-NNNN: '{}={}' rejected",
+                old,
+                new
+            ));
+        }
+        map.insert(old.to_string(), new.to_string());
+    }
+
+    let mut plan: Vec<(String, usize, String, String)> = Vec::new();
+    walk(root, exts, &mut |path, line_no, line| {
+        for (old, new) in &map {
+            if line.contains(old) {
+                plan.push((path.display().to_string(), line_no, old.clone(), new.clone()));
+            }
+        }
+    });
+
+    if plan.is_empty() {
+        println!("No occurrences of {} in {}.", pairs.join(", "), root.display());
+        return Ok(());
+    }
+
+    println!(
+        "{} occurrence(s) of {} in {}:",
+        plan.len(),
+        pairs.join(", "),
+        root.display()
+    );
+    for (file, line, old, new) in &plan {
+        println!("  {}:{}  {} -> {}", file, line, old, new);
+    }
+
+    if !apply {
+        println!("\nDry-run. Re-run with --apply to rewrite the files.");
+        return Ok(());
+    }
+
+    let mut files: BTreeSet<String> = BTreeSet::new();
+    for (file, _, _, _) in &plan {
+        files.insert(file.clone());
+    }
+    for file in &files {
+        let text = fs::read_to_string(file)?;
+        let mut new_text = text.clone();
+        for (old, new) in &map {
+            new_text = new_text.replace(old.as_str(), new.as_str());
+        }
+        if new_text != text {
+            fs::write(file, new_text)?;
+        }
+    }
+    println!("\nRewrote {} file(s).", files.len());
+    Ok(())
 }
 
 fn walk(root: &Path, exts: &[String], visit: &mut impl FnMut(&Path, usize, &str)) {
