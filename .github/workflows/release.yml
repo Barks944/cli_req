@@ -49,9 +49,13 @@ jobs:
             archive: zip
     steps:
       - uses: actions/checkout@v5
+      # rustup bootstrap; rust-toolchain.toml then pins the active channel.
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      # Install the cross-compile target against the *pinned* toolchain
+      # (rust-toolchain.toml). Passing `targets:` to dtolnay/rust-toolchain
+      # would attach to `stable`, which the pin would then ignore.
+      - name: install matrix target on pinned toolchain
+        run: rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --target ${{ matrix.target }}
       - name: package (unix)
