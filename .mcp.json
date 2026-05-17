@@ -1,0 +1,12 @@
+{
+  "_readme": "MCP bootstrap for this project's `req` server. Agents reading this should treat req as the managed surface for editing project.req. See `req help mcp` and `req help agents` for triggers.",
+  "mcpServers": {
+    "req": {
+      "args": [
+        "mcp"
+      ],
+      "command": "req",
+      "description": "Managed requirements for this project. Tools: req_list, req_show, req_add, req_update, req_delete, req_link, req_validate, req_coverage, req_export, req_help. Call req_help with {section: 'agents'} on first contact for the trigger table."
+    }
+  }
+}

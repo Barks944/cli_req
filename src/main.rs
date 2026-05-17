@@ -28,7 +28,7 @@ fn main() -> Result<()> {
         Command::Export(args) => commands::export::run(args, &cli.file),
         Command::Tui => tui::run(&cli.file),
         Command::Serve(args) => web::run(args, &cli.file),
-        Command::Mcp => mcp::run(&cli.file),
+        Command::Mcp(args) => mcp::run(args, &cli.file),
         Command::Help(args) => commands::help_cmd::run(args),
         Command::Repair(args) => commands::repair::run(args, &cli.file),
         Command::Hooks(args) => commands::hooks::run(args),

@@ -150,10 +150,17 @@ INSTALL THIS GUIDANCE INTO AGENTS.md
                                          # Use --path PATH for non-default
                                          # locations.
 
-MCP (not yet implemented)
+MCP (Model Context Protocol)
 
-  `req mcp` is reserved for a future JSON-RPC interface. For now, shell
-  out to `req <subcommand>` for every operation.",
+  An MCP server is built in. Two ways to use it:
+
+  * Run it: `req mcp` — speaks JSON-RPC 2.0 over stdio. Pair with an MCP
+    client (Claude Code, etc.).
+  * Bootstrap: `req mcp --init-config` — writes a .mcp.json at the repo
+    root so MCP-capable clients can launch the server automatically.
+
+  Once connected, call tool `req_help` with {section: 'agents'} for the
+  trigger table. See `req help mcp` for the full transport detail.",
     },
     Section {
         name: "web",
@@ -244,6 +251,62 @@ Signature codes mirror git's %G?:
 The _integrity hash inside the file is for *integrity* (the CLI wrote
 it last) not *authenticity* (a trusted human approved it). Lean on
 signed commits for the latter.",
+    },
+    Section {
+        name: "mcp",
+        summary: "Run `req` as an MCP server for LLM agents.",
+        body: "`req mcp` speaks the Model Context Protocol over stdio: each line
+is a JSON-RPC 2.0 message (newline-delimited, no Content-Length header).
+Pair it with any MCP-capable client.
+
+BOOTSTRAP — once per project
+
+  req mcp --init-config           # writes .mcp.json at the repo root
+  req mcp --init-config --path .somewhere/req.json --force
+
+The generated .mcp.json registers a server named `req` with a
+description aimed at agents on first contact. Edit it freely OUTSIDE
+the values you want to keep.
+
+TOOLS EXPOSED
+
+  req_list       List requirements with filters. Call FIRST.
+  req_show       Full detail for one ID (statement, rationale, ACs, history).
+  req_add        Create. Validator rejects bad input — rewrite, don't bypass.
+  req_update     Modify; `reason` mandatory. Prefer add_acceptance over
+                 acceptance (append vs replace).
+  req_delete     Soft by default (status→Obsolete). hard=true refuses if
+                 inbound links exist.
+  req_link       parent / depends_on / refines / conflicts / verifies.
+                 Parent links cycle-checked.
+  req_validate   Run rules across the whole project.
+  req_coverage   default / unlinked_files=true / by_file=true modes.
+  req_export     markdown / json (csv & html via CLI only for now).
+  req_help       Fetch any documentation section by name.
+
+NOT EXPOSED
+
+  `repair` is human-only. The integrity-recovery escape hatch is
+  deliberately not on the agent surface so an agent cannot accept an
+  integrity violation and continue.
+
+SCHEMAS
+
+  Every tool has a JSON Schema in its description that names required
+  vs optional fields, enumerated values for kind/priority/status, and
+  short per-field descriptions. Honour the schema; the server validates.
+
+DEBUGGING
+
+  Pipe JSON-RPC into the binary directly:
+
+    printf '%s\\n%s\\n' \\
+      '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}' \\
+      '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}' \\
+      | req mcp
+
+  Each response is a single JSON line on stdout. Notifications (no `id`)
+  produce no response.",
     },
     Section {
         name: "export",

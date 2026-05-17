@@ -53,7 +53,7 @@ pub enum Command {
     /// Run a local web server for humans to browse/edit.
     Serve(ServeArgs),
     /// Speak MCP (JSON-RPC over stdio) so an LLM agent can manage requirements.
-    Mcp,
+    Mcp(McpArgs),
     /// Show structured help. Use `req help <section>` to drill in.
     Help(HelpArgs),
     /// Recompute the integrity hash after an intentional direct edit.
@@ -279,6 +279,20 @@ pub struct ExportArgs {
     /// Output path. `-` for stdout.
     #[arg(short, long, default_value = "-")]
     pub output: String,
+}
+
+#[derive(Args, Debug)]
+pub struct McpArgs {
+    /// Write a .mcp.json bootstrap file (does NOT start the server).
+    /// Pass --path to put it somewhere other than the repo root.
+    #[arg(long)]
+    pub init_config: bool,
+    /// Target path for --init-config.
+    #[arg(long, default_value = ".mcp.json")]
+    pub config_path: PathBuf,
+    /// Overwrite an existing config file.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Args, Debug)]
