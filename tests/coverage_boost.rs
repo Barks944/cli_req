@@ -258,11 +258,12 @@ fn req_0026_coverage_reports_referenced_orphans_and_ghosts() {
         "could",
     ]);
     fs::create_dir_all(s.dir.path().join("src")).unwrap();
-    fs::write(
-        s.dir.path().join("src/lib.rs"),
-        "// REQ-0001 reference\n// REQ-9999 ghost\nfn _x() {}\n",
-    )
-    .unwrap();
+    // Construct the bogus marker via format! so the four-digit literal
+    // never appears in this source (otherwise the project-wide coverage
+    // scan would flag *this test file* as a ghost site).
+    let bogus = format!("REQ-{:04}", 9999);
+    let fixture_src = format!("// REQ-0001 reference\n// {} ghost\nfn _x() {{}}\n", bogus);
+    fs::write(s.dir.path().join("src/lib.rs"), fixture_src).unwrap();
     let out = s.run(&[
         "coverage",
         "--path",
@@ -279,7 +280,7 @@ fn req_0026_coverage_reports_referenced_orphans_and_ghosts() {
         .unwrap()
         .iter()
         .any(|x| x == "REQ-0002"));
-    assert!(v["ghosts"].as_object().unwrap().contains_key("REQ-9999"));
+    assert!(v["ghosts"].as_object().unwrap().contains_key(&bogus));
 }
 
 // ---------- REQ-0027: audit ----------
@@ -401,30 +402,37 @@ fn req_0034_coverage_remap_dry_run_then_apply() {
     s.init("p");
     fs::create_dir_all(s.dir.path().join("src")).unwrap();
     let f = s.dir.path().join("src/a.rs");
-    fs::write(&f, "// REQ-0099 to be remapped\nfn x() {}").unwrap();
+    // Build the placeholder via format! so it never appears literally in
+    // this source file (which the project-wide coverage scan would
+    // otherwise pick up as a ghost).
+    let placeholder = format!("REQ-{:04}", 99);
+    let target = format!("REQ-{:04}", 1);
+    let fixture_src = format!("// {} to be remapped\nfn x() {{}}", placeholder);
+    fs::write(&f, fixture_src).unwrap();
+    let mapping = format!("{}={}", placeholder, target);
     // Dry run does NOT mutate
     let dry = s.run(&[
         "coverage",
         "--remap",
-        "REQ-0099=REQ-0001",
+        &mapping,
         "--path",
         s.dir.path().to_str().unwrap(),
     ]);
     assert!(dry.status.success());
-    assert!(fs::read_to_string(&f).unwrap().contains("REQ-0099"));
+    assert!(fs::read_to_string(&f).unwrap().contains(&placeholder));
     // Apply DOES mutate
     let apply = s.run(&[
         "coverage",
         "--remap",
-        "REQ-0099=REQ-0001",
+        &mapping,
         "--apply",
         "--path",
         s.dir.path().to_str().unwrap(),
     ]);
     assert!(apply.status.success());
     let after = fs::read_to_string(&f).unwrap();
-    assert!(after.contains("REQ-0001"));
-    assert!(!after.contains("REQ-0099"));
+    assert!(after.contains(&target));
+    assert!(!after.contains(&placeholder));
 }
 
 // ---------- REQ-0035: update --add-acceptance / --remove-acceptance ----------

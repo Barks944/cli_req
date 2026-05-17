@@ -79,22 +79,44 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         },
     });
 
-    // 4. commit signing
-    let gpg = git_config("commit.gpgsign")
+    // 4. commit signing — check both the config flag AND the actual
+    // signature on the latest commit. A green tick from "the flag is set"
+    // would lie when keys aren't configured or signing fails silently.
+    let gpg_flag = git_config("commit.gpgsign")
         .map(|s| s.to_lowercase() == "true")
         .unwrap_or(false);
     let ssh_sign = git_config("gpg.format")
         .map(|s| s == "ssh")
         .unwrap_or(false);
-    let signing_ok = gpg || ssh_sign;
+    let flag_on = gpg_flag || ssh_sign;
+    // %G? returns the signature status of HEAD: G=good, B=bad,
+    // U=good-unknown-trust, X=expired, Y=expired-key, R=revoked,
+    // E=cannot-check, N=no-signature.
+    let head_sig = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%G?"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+    let signed_in_practice = matches!(head_sig.as_str(), "G" | "U");
+    let signing_ok = flag_on && signed_in_practice;
     checks.push(Check {
         name: "commit signing".into(),
         ok: signing_ok,
-        detail: if signing_ok {
-            "enabled — req audit will report a signer per commit".into()
-        } else {
-            "disabled — `git config commit.gpgsign true` (or ssh signing) to populate `req audit`"
-                .into()
+        detail: match (flag_on, signed_in_practice, head_sig.as_str()) {
+            (true, true, _) => "configured and HEAD is signed — req audit will report a signer".into(),
+            (true, false, "N") | (true, false, "") =>
+                "config flag is on but HEAD is unsigned — likely missing user.signingkey or a key not on the keychain".into(),
+            (true, false, other) =>
+                format!("config flag is on but HEAD signature is '{}' (not good) — fix key or expiration", other),
+            (false, _, _) =>
+                "disabled — `git config commit.gpgsign true` (or set gpg.format=ssh) and configure a key".into(),
         },
     });
 

@@ -59,9 +59,38 @@ jobs:
           echo "$OUT"
           echo "$OUT" | grep -qE "^OK — [0-9]+ requirement\\(s\\), no findings\\.$"
 
-      - name: req coverage (full tree, advisory)
+      - name: req coverage --strict (gates orphans and ghosts)
         shell: bash
-        run: ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} coverage --path .
+        # REQ-0051 / REQ-0052 are verification-only requirements with no
+        # code site. REQ-0061 / REQ-0082 are policy meta-requirements
+        # exercised only by test files (test-only). All four are documented
+        # exclusions; the strict gate enforces that no NEW orphans / ghosts
+        # appear.
+        run: |
+          ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} \
+            coverage --path . --strict \
+              --allow REQ-0051 --allow REQ-0052 \
+              --allow REQ-0061 --allow REQ-0082
+
+      - name: req doctor (per-clone setup audit)
+        shell: bash
+        # Doctor exits non-zero on any failing check (pre-commit hook,
+        # gitattributes pin, merge driver, commit signing). On hosted CI
+        # the signing check will fail (no key configured) — that's the
+        # honest signal we want surfaced, not silenced. Treat as advisory
+        # via `|| true` to avoid blocking the build on signing setup.
+        run: |
+          ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} \
+            doctor || true
+
+      - name: req stale (informational)
+        shell: bash
+        # Staleness is by definition transient — every change to a tested
+        # file invalidates that file's records until the next promote run.
+        # Print the report for visibility but don't gate on it.
+        run: |
+          ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} \
+            stale --path . || true
 
   lint:
     name: lint
