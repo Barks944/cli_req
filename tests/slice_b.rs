@@ -1,6 +1,6 @@
 // Tests for Slice B: REQ-0064 (doctor), REQ-0069 (diff), REQ-0070 (test-vs-impl).
 mod common;
-use common::{stderr, stdout, Sandbox};
+use common::Sandbox;
 use std::fs;
 use std::process::Command;
 

@@ -676,14 +676,12 @@ fn req_0048_mcp_tool_descriptions_contain_trigger_hints() {
         let stdin = child.stdin.as_mut().unwrap();
         writeln!(
             stdin,
-            "{}",
-            r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#
+            "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}}"
         )
         .unwrap();
         writeln!(
             stdin,
-            "{}",
-            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#
+            "{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}}"
         )
         .unwrap();
     }
@@ -1081,11 +1079,7 @@ fn req_0032_unlinked_files_mode_lists_files_without_markers() {
     // match `un` + `marked.rs`); strip path components first.
     let leafs: Vec<&str> = unlinked
         .iter()
-        .map(|p| {
-            p.rsplit_once(|c| c == '/' || c == '\\')
-                .map(|(_, t)| t)
-                .unwrap_or(p)
-        })
+        .map(|p| p.rsplit_once(['/', '\\']).map(|(_, t)| t).unwrap_or(p))
         .collect();
     assert!(
         leafs.contains(&"unmarked.rs"),

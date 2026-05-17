@@ -2,7 +2,7 @@
 // (duplicate-intent detection), REQ-0077 (verifies-without-evidence),
 // REQ-0078 (schema), REQ-0079 (audit gate), REQ-0080 (CHANGELOG).
 mod common;
-use common::{stderr, stdout, Sandbox};
+use common::Sandbox;
 use std::fs;
 use std::process::Command;
 

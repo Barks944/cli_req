@@ -33,8 +33,8 @@ fn req_0062_two_concurrent_adds_both_land_with_distinct_ids() {
     let s = Sandbox::new();
     s.init("conc");
     let path = s.path();
-    let mut a = spawn_add(&path, "Concurrent requirement A here", "Process A");
-    let mut b = spawn_add(&path, "Concurrent requirement B here", "Process B");
+    let a = spawn_add(&path, "Concurrent requirement A here", "Process A");
+    let b = spawn_add(&path, "Concurrent requirement B here", "Process B");
     let oa = a.wait_with_output().expect("A finished");
     let ob = b.wait_with_output().expect("B finished");
     assert!(

@@ -3,7 +3,7 @@
 // req batch rollback corners, req import malformed sources, MCP protocol
 // shape, and req coverage --strict --allow.
 mod common;
-use common::{stderr, stdout, Sandbox};
+use common::{stderr, Sandbox};
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
