@@ -47,6 +47,21 @@ cd cli_req
 cargo install --path .
 ```
 
+### Version compatibility
+
+After installing, check the version against any existing project file:
+
+```sh
+req --version
+```
+
+If you're joining a project that already has a `project.req`, your installed
+`req` must be at least the version that last wrote the file. Older binaries
+refuse to read newer formats and tell you to upgrade rather than silently
+mis-reading; the symptom is an `unsupported _format` error pointing you at
+this section. Pre-commit hooks and Claude Code Stop hooks invoke `req
+validate`, so a stale binary will fail every commit until upgraded.
+
 ---
 
 ## Quick start
