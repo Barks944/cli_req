@@ -8,10 +8,11 @@ use crate::storage::load_resolved;
 
 pub fn run(args: ShowArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_, project) = load_resolved(file)?;
+    let id = super::resolve_id(&project, &args.id)?;
     let r = project
         .requirements
-        .get(&args.id)
-        .ok_or_else(|| anyhow!("no such requirement: {}", args.id))?;
+        .get(&id)
+        .ok_or_else(|| anyhow!("no such requirement: {}", id))?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(r)?);

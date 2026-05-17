@@ -12,6 +12,11 @@ struct Check {
     name: String,
     ok: bool,
     detail: String,
+    /// Advisory checks are reported but do not flip the overall exit
+    /// status. Use for nice-to-haves like signing that aren't
+    /// load-bearing for req's correctness on a typical clone.
+    #[serde(default)]
+    advisory: bool,
 }
 
 pub fn run(args: DoctorArgs) -> Result<()> {
@@ -33,12 +38,14 @@ pub fn run(args: DoctorArgs) -> Result<()> {
             } else {
                 "missing — run `req hooks install`".into()
             },
+            advisory: false,
         });
     } else {
         checks.push(Check {
             name: "pre-commit hook".into(),
             ok: false,
             detail: "missing — run `req hooks install`".into(),
+            advisory: false,
         });
     }
 
@@ -56,6 +63,7 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         } else {
             "missing — run `req hooks install`".into()
         },
+        advisory: false,
     });
     checks.push(Check {
         name: "gitattributes line-ending pin".into(),
@@ -65,6 +73,7 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         } else {
             "missing — run `req hooks install`".into()
         },
+        advisory: false,
     });
 
     // 3. req-merge driver active in local git config
@@ -77,6 +86,7 @@ pub fn run(args: DoctorArgs) -> Result<()> {
             Some(s) if !s.is_empty() => format!("driver: {}", s),
             _ => "inactive — run `git config merge.req-merge.driver 'req renumber --base %O || true'`".into(),
         },
+        advisory: false,
     });
 
     // 4. commit signing — check both the config flag AND the actual
@@ -118,28 +128,43 @@ pub fn run(args: DoctorArgs) -> Result<()> {
             (false, _, _) =>
                 "disabled — `git config commit.gpgsign true` (or set gpg.format=ssh) and configure a key".into(),
         },
+        // Signing is nice-to-have on a typical project, not a gate.
+        // Many repos run `req` happily without signed commits; the
+        // overall doctor exit code should not flip red just for that.
+        advisory: true,
     });
 
-    let failed = checks.iter().filter(|c| !c.ok).count();
+    let failed_gating = checks.iter().filter(|c| !c.ok && !c.advisory).count();
+    let advisory_failures = checks.iter().filter(|c| !c.ok && c.advisory).count();
 
     if args.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "ok": failed == 0,
-                "failed": failed,
+                "ok": failed_gating == 0,
+                "failed": failed_gating,
+                "advisory_failed": advisory_failures,
                 "checks": checks,
             }))?
         );
     } else {
-        println!("req doctor — {} check(s), {} failing", checks.len(), failed);
+        println!(
+            "req doctor — {} check(s), {} failing, {} advisory",
+            checks.len(),
+            failed_gating,
+            advisory_failures
+        );
         for c in &checks {
-            let mark = if c.ok { "OK " } else { "FAIL" };
+            let mark = match (c.ok, c.advisory) {
+                (true, _) => "OK  ",
+                (false, true) => "WARN",
+                (false, false) => "FAIL",
+            };
             println!("  [{}] {}  {}", mark, c.name, c.detail);
         }
     }
 
-    if failed > 0 {
+    if failed_gating > 0 {
         std::process::exit(1);
     }
     Ok(())

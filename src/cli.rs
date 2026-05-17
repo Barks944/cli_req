@@ -78,7 +78,10 @@ pub enum Command {
     Show(ShowArgs),
     /// Update fields of an existing requirement.
     Update(UpdateArgs),
-    /// Delete a requirement (or mark obsolete).
+    /// Soft-retire a requirement to Obsolete (links preserved). Pass --hard
+    /// to actually remove it. Aliased as `retire`, which matches the default
+    /// semantics; the historical name is `delete`.
+    #[command(alias = "retire")]
     Delete(DeleteArgs),
     /// Create parent/child or trace links between requirements.
     Link(LinkArgs),
@@ -266,13 +269,16 @@ pub enum LayoutArg {
 #[derive(Args, Debug)]
 pub struct AddArgs {
     /// One-line title (imperative, e.g. "User authenticates with email").
-    #[arg(short, long)]
+    /// Required in non-interactive mode; omit only with --interactive or --from-json.
+    #[arg(short, long, required_unless_present_any = ["interactive", "from_json"])]
     pub title: Option<String>,
     /// Full normative statement. Should contain a modal verb (shall/must/should).
-    #[arg(short, long)]
+    /// Required in non-interactive mode; omit only with --interactive or --from-json.
+    #[arg(short, long, required_unless_present_any = ["interactive", "from_json"])]
     pub statement: Option<String>,
     /// Rationale — why this requirement exists.
-    #[arg(short, long)]
+    /// Required in non-interactive mode; omit only with --interactive or --from-json.
+    #[arg(short, long, required_unless_present_any = ["interactive", "from_json"])]
     pub rationale: Option<String>,
     /// Acceptance criteria. Repeat the flag for multiple.
     #[arg(short = 'a', long = "accept")]

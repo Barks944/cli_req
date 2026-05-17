@@ -987,6 +987,87 @@ fn diff_with_req_id_returns_friendly_hint() {
     );
 }
 
+// ---------- Group C: 0.1.2 CLI polish ----------
+
+#[test]
+fn id_lookup_is_case_and_pad_insensitive() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "ID normalization fixture title",
+        "--statement",
+        "The system shall match req-1 to REQ-0001.",
+        "--rationale",
+        "ID normalisation regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    for form in ["REQ-0001", "req-0001", "REQ-1", "req-1", "1"] {
+        let out = s.run(&["show", form]);
+        assert!(
+            out.status.success(),
+            "form {} should resolve: {}",
+            form,
+            stderr(&out)
+        );
+    }
+}
+
+#[test]
+fn id_miss_suggests_nearest() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Nearest-miss fixture requirement",
+        "--statement",
+        "The system shall surface nearest-ID hints on miss.",
+        "--rationale",
+        "Did-you-mean regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let out = s.run(&["show", "REQ-0002"]);
+    assert!(!out.status.success());
+    assert!(
+        stderr(&out).contains("did you mean REQ-0001"),
+        "expected did-you-mean hint: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn retire_aliases_delete() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Retire-alias fixture requirement",
+        "--statement",
+        "The system shall accept `req retire` as a name for delete.",
+        "--rationale",
+        "Retire alias regression.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let out = s.run(&["retire", "REQ-0001", "--reason", "alias test"]);
+    assert!(
+        out.status.success(),
+        "`retire` alias should resolve to delete: {}",
+        stderr(&out)
+    );
+}
+
 // ---------- REQ-0042: help --json with structured agents crib ----------
 
 #[test]

@@ -9,7 +9,7 @@ use crate::model::Status;
 use crate::storage::{self, load_for_mutation};
 use crate::validate;
 
-pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
+pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     // Snapshot which field categories were touched so we can suppress
     // warnings whose inputs the user did not actually edit. Without
     // this every status nudge replays the same compound / weasel
@@ -21,6 +21,8 @@ pub fn run(args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         || !args.remove_acceptance.is_empty();
 
     let (path, mut project, _lock) = load_for_mutation(file)?;
+    let canonical_id = super::resolve_id(&project, &args.id)?;
+    args.id = canonical_id;
     let r = project
         .requirements
         .get_mut(&args.id)

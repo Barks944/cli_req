@@ -7,14 +7,13 @@ use crate::cli::LinkArgs;
 use crate::model::{Link, LinkKind};
 use crate::storage::{self, load_for_mutation};
 
-pub fn run(args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
+pub fn run(mut args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
+    args.from = super::resolve_id(&project, &args.from)?;
+    args.to = super::resolve_id(&project, &args.to)?;
 
     if args.from == args.to {
         return Err(anyhow!("cannot link a requirement to itself"));
-    }
-    if !project.requirements.contains_key(&args.to) {
-        return Err(anyhow!("target {} does not exist", args.to));
     }
     let kind: LinkKind = args.kind.into();
 

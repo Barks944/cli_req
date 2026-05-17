@@ -25,11 +25,9 @@ pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
     }
 }
 
-pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
+pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
-    if !project.requirements.contains_key(&args.id) {
-        return Err(anyhow!("no such requirement: {}", args.id));
-    }
+    args.id = super::resolve_id(&project, &args.id)?;
     let kind = match args.by {
         VerifyKindArg::Composition => EvidenceKind::Composition,
         VerifyKindArg::Inspection => EvidenceKind::Inspection,
@@ -118,11 +116,9 @@ pub fn verify(args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn record(args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
+fn record(mut args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
-    if !project.requirements.contains_key(&args.id) {
-        return Err(anyhow!("no such requirement: {}", args.id));
-    }
+    args.id = super::resolve_id(&project, &args.id)?;
     let commit = current_head_sha()
         .context("not in a git working tree — cannot record a test run without a commit SHA")?;
     let outcome = match args.result {

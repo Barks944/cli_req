@@ -75,13 +75,20 @@ pub fn run(args: HooksArgs) -> Result<()> {
     println!("Installed {}", hook.display());
 
     let attrs = repo.join(".gitattributes");
-    ensure_gitattributes_line(&attrs, "*.req merge=req-merge")?;
     // REQ-0071: pin project.req to LF and disable text-mode normalization
     // so formatters and Windows autocrlf cannot silently invalidate the
     // integrity hash on checkout/commit. `-text` keeps git from doing
-    // ANY conversion; `eol=lf` is the explicit storage form.
-    ensure_gitattributes_line(&attrs, "project.req -text eol=lf")?;
-    ensure_gitattributes_line(&attrs, "*.req -text eol=lf")?;
+    // ANY conversion; `eol=lf` is the explicit storage form. All three
+    // lines are added in a single write so the user sees one "Updated"
+    // message, not three.
+    ensure_gitattributes_lines(
+        &attrs,
+        &[
+            "*.req merge=req-merge",
+            "project.req -text eol=lf",
+            "*.req -text eol=lf",
+        ],
+    )?;
 
     if args.claude_code {
         install_claude_code(&repo)?;
@@ -97,19 +104,33 @@ pub fn run(args: HooksArgs) -> Result<()> {
     Ok(())
 }
 
-fn ensure_gitattributes_line(path: &Path, line: &str) -> Result<()> {
+fn ensure_gitattributes_lines(path: &Path, lines: &[&str]) -> Result<()> {
     let existing = fs::read_to_string(path).unwrap_or_default();
-    if existing.lines().any(|l| l.trim() == line) {
+    let mut new = existing.clone();
+    let mut added: Vec<String> = Vec::new();
+    for line in lines {
+        if new.lines().any(|l| l.trim() == *line) {
+            continue;
+        }
+        if !new.is_empty() && !new.ends_with('\n') {
+            new.push('\n');
+        }
+        new.push_str(line);
+        new.push('\n');
+        added.push((*line).to_string());
+    }
+    if added.is_empty() {
         return Ok(());
     }
-    let mut new = existing;
-    if !new.is_empty() && !new.ends_with('\n') {
-        new.push('\n');
+    fs::write(path, &new).with_context(|| format!("write {}", path.display()))?;
+    println!(
+        "Updated {} ({} line(s) added):",
+        path.display(),
+        added.len()
+    );
+    for l in &added {
+        println!("  {}", l);
     }
-    new.push_str(line);
-    new.push('\n');
-    fs::write(path, new).with_context(|| format!("write {}", path.display()))?;
-    println!("Updated {} (added: {})", path.display(), line);
     Ok(())
 }
 

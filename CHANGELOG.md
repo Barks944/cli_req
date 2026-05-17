@@ -8,6 +8,61 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-05-17
+
+### Fixed (P0 — closed bypasses around 0.1.1 guards)
+- **`req batch` lifecycle guard**: `{kind: update, status: verified}`
+  no longer slides Draft straight to Verified. Pass
+  `"force": true` per-mutation to override. Same gate as direct
+  `req update --force`.
+- **`req batch` cycle detection**: link mutations now cycle-check
+  every asymmetric kind (parent, depends-on, refines, verifies).
+  Batch can no longer install cycles that `req link` rejects.
+
+### Fixed (P1 — second-line defences and trapped states)
+- **`req validate` reports graph cycles** as REQ-V-0021. Each cycle
+  is reported once, attributed to its smallest-ID member. Catches
+  cycles introduced by old binaries, merges, or hand-edits.
+- **`req repair --force`** re-signs even when validation errors
+  remain. Closes the deadlock where a hand-edit that broke both the
+  hash AND validation left every command stuck. With --force the
+  errors surface via `req validate` instead of the integrity check.
+- **`req diff <REQ-ID>`** returns a friendly hint pointing at
+  `req show` instead of leaking git's
+  `fatal: invalid object name`.
+
+### Improved (validator quality)
+- **REQ-V-0010 compound-statement rebuilt**. "A and B and C" now
+  triggers with a single modal verb (was the headline false-
+  negative). "X, Y, and Z" Oxford-comma lists suppressed when there
+  are 2+ commas and a single " and " (was the headline false-
+  positive).
+- **REQ-V-0022 hedge stacking**: 2+ of {perhaps, probably, maybe,
+  possibly, might, roughly, potentially} now warns.
+- **`req update` quiet-by-default**: only re-emits field-scoped
+  warnings whose inputs the user actually edited. Status / priority
+  / tag nudges no longer replay the same compound warnings each
+  time.
+
+### Improved (CLI polish)
+- **Case- and pad-insensitive ID lookup**: `req-1`, `REQ-1`,
+  `req-0001`, even bare `1` now resolve to `REQ-0001`. Misses on
+  near-IDs suggest "did you mean REQ-0042?".
+- **`req add -t/-s/-r` marked required** in `--help` (via
+  `required_unless_present_any` on `--interactive`/`--from-json`).
+- **`req retire` alias** for `req delete` matches the soft-retire
+  semantics (Obsolete with links preserved). `req delete` still
+  works for muscle memory.
+- **`req doctor` signing is advisory**, not gating. Doctor's overall
+  exit code only flips red on load-bearing setup gaps. Signing
+  surfaces as `[WARN]`.
+- **`req hooks install` writes `.gitattributes` once**, listing all
+  added lines under a single update message instead of three.
+- **`req batch` malformed JSON** wraps the serde error with a hint
+  at `req schema batch`.
+- **`req add` flushes stderr** before the stdout "Added" line so
+  validation WARN lines can't appear after the success message.
+
 ## [0.1.1] — 2026-05-17
 
 ### Fixed

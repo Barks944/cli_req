@@ -7,12 +7,9 @@ use crate::cli::DeleteArgs;
 use crate::model::Status;
 use crate::storage::{self, load_for_mutation};
 
-pub fn run(args: DeleteArgs, file: &Option<PathBuf>) -> Result<()> {
+pub fn run(mut args: DeleteArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
-
-    if !project.requirements.contains_key(&args.id) {
-        return Err(anyhow!("no such requirement: {}", args.id));
-    }
+    args.id = super::resolve_id(&project, &args.id)?;
 
     let referenced_by: Vec<String> = project
         .requirements

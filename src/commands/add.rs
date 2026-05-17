@@ -185,6 +185,12 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
                 f.message
             );
         }
+        // Force the validation block out *before* the stdout "Added"
+        // line so users don't see the success first and miss the
+        // warnings underneath when the two streams interleave on a
+        // terminal.
+        use std::io::Write;
+        let _ = std::io::stderr().flush();
     }
     if !errors.is_empty() {
         if interactive {
