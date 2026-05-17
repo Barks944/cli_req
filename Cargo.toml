@@ -3,6 +3,7 @@ name = "req"
 version = "0.1.0"
 edition = "2021"
 description = "Managed requirements CLI for LLM agents and humans"
+license = "MIT"
 # Implements REQ-0021 (Rust + single static binary).
 
 [[bin]]
