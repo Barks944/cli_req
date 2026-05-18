@@ -61,7 +61,8 @@ impl Command {
             Command::Next(a) => a.json,
             Command::Review(a) => a.json,
             Command::Split(a) => a.json,
-            Command::Lint(a) => a.json, // REQ-0101
+            Command::Lint(a) => a.json,
+            Command::Brief(a) => a.json, // REQ-0101
             Command::Check(a) => a.json,
             Command::Doctor(a) => a.json,
             Command::Diff(a) => a.json,
@@ -149,6 +150,41 @@ pub enum Command {
     /// REQ-0101: project-wide quality audit beyond the validator: marker
     /// coverage, rationale length, acceptance count, test-record presence.
     Lint(LintArgs),
+    /// REQ-0104: session-start brief. Where are we right now?
+    Brief(BriefArgs),
+    /// REQ-0105: one-shot project bootstrap (init + hooks + AGENTS.md).
+    Setup(SetupArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SetupArgs {
+    /// Project name (used for `req init` when no project file exists).
+    /// Defaults to the current directory name.
+    #[arg(short, long)]
+    pub name: Option<String>,
+    /// Install the strict pre-commit hook (hunk-level marker check)
+    /// instead of the default file-level one.
+    #[arg(long)]
+    pub strict: bool,
+    /// Skip the pre-commit / post-commit hook install step.
+    #[arg(long)]
+    pub no_hooks: bool,
+    /// Skip writing the AGENTS.md managed block.
+    #[arg(long)]
+    pub no_agents: bool,
+    /// Overwrite an existing non-managed pre-commit hook.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BriefArgs {
+    /// Expand the brief: by-status counts, gate mode, recent spec activity.
+    #[arg(long)]
+    pub full: bool,
+    /// Machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -191,6 +227,14 @@ pub struct ReviewArgs {
     /// not after pushing. Implies `--base HEAD`.
     #[arg(long)]
     pub staged: bool,
+    /// REQ-0086: --summary mode used by the post-commit hook.
+    /// Print a one-line summary instead of the full report. Used by the
+    /// pre-commit hook to confirm a passing gate with a calm reminder
+    /// rather than silence. Format: `req: N source file(s) staged ·
+    /// cites REQ-A, REQ-B · reminder: ...`. Returns no output (silent
+    /// pass) when no source files are staged.
+    #[arg(long)]
+    pub summary: bool,
     /// Require a `// REQ-NNNN:` marker within N lines of each changed
     /// hunk, not merely somewhere in the file. Default (0) means
     /// file-level matching — any marker anywhere in a changed file

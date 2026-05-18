@@ -1,6 +1,7 @@
 pub mod add;
 pub mod audit;
 pub mod batch;
+pub mod brief;
 pub mod check;
 pub mod coverage;
 pub mod delete;
@@ -20,6 +21,7 @@ pub mod renumber;
 pub mod repair;
 pub mod review;
 pub mod schema;
+pub mod setup;
 pub mod show;
 pub mod split;
 pub mod stale;

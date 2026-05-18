@@ -114,69 +114,108 @@ This is the core safety property: structured edits only. Agents must
 go through `req`; the file is plain JSON for diffability, not for
 direct editing.",
     },
+    // REQ-0104: agents section rewritten with a warmer voice and a
+    // "run `req brief` first" recommendation, matching the framing
+    // shift toward spec-memory rather than enforcement.
     Section {
         name: "agents",
-        summary: "How LLM agents should drive this tool — read this first.",
-        body: "This project uses the `req` CLI for managed requirements. As an
-agent working on this project you MUST drive every requirements change
-through `req` — never read or edit project.req directly.
+        summary: "What req does for you as an agent, and how to use it.",
+        body: "Hey. If you're an LLM agent picking up this project — this is for you.
 
-WHEN TO REACH FOR `req`
+WHY THIS EXISTS (the short version)
 
-  trigger                                              first command
-  ---------------------------------------------------  --------------------------
-  user describes new behaviour the system should have  req add ...
-  starting work on a feature                           req list / req show <id>
-  about to commit                                      req validate
-  changed behaviour covered by a requirement           req update <id> --reason
-  refactor; unsure what's load-bearing                 req coverage --path src
-  finding code with no requirement link                req coverage --unlinked-files
-  requirement is no longer relevant                    req delete <id> --reason
-  file won't load (integrity error)                    req repair --confirm-direct-edit
-  merge brought in colliding IDs                       req renumber --base origin/main
+  Vibecoding sessions are conversational. The user describes what they
+  want, you build it, the conversation ends. Without something carrying
+  the spec between sessions, the next conversation starts blind: you
+  re-discover the project from source files, you re-derive the intent,
+  and small things drift.
 
-QUICK COMMAND CRIB
+  `req` is the spec-memory that survives between conversations. The
+  project's requirements live in a git-tracked JSON file managed by
+  this CLI. The tool tells you what's there, what's queued, and what's
+  loose. Hooks remind you at commit time. It's there so you can pick
+  up where the last session left off, instead of guessing.
 
-  req list                              # what exists
-  req show REQ-0007                     # full detail with history
-  req add --title ... --statement ...   # see `req add --help`
+START HERE
+
+  req brief                    one-line summary of where the project is
+                               right now. Run this first in any session.
+  req list                     full list of requirements with status
+  req show REQ-0007            details + history for one requirement
+  req next                     suggests what to work on, dependency-aware
+
+WHEN THE USER ASKS FOR SOMETHING NEW
+
+  req add --title \"...\" \\        record the requirement BEFORE you write
+          --statement \"...\" \\    the code. The statement should have a
+          --rationale \"...\" \\    modal verb (shall / must / should / will)
+          --kind functional \\    and describe one obligation. The validator
+          --priority must \\      tells you if it doesn't.
+          --accept \"...\"
+
+  Then drop a `// REQ-NNNN:` comment in the file that implements it.
+  When you commit, the pre-commit hook checks that source files cite
+  the REQs they implement. The post-commit hook prints a one-line
+  summary so you see what landed.
+
+WHILE YOU WORK
+
+  req coverage --path src      where are the markers? what's orphaned?
+  req validate                 are the requirements well-formed?
+  req lint                     softer audit (rationale length, etc.)
+
+WHEN YOU FINISH SOMETHING
+
   req update <id> --status implemented --reason \"...\"
-  req link <from> <to> -k parent
-  req validate                          # must be clean before ship
-  req coverage --path src               # spec ↔ code
-  req help <section>                    # docs (overview, concepts,
-                                        # best-practice, workflow,
-                                        # integration, audit)
+  req verify <id> --by inspection --notes \"...\" --promote
 
-RULES
+  These advance the requirement up the lifecycle. The post-commit
+  hook nudges you about this — if you cited a REQ but didn't advance
+  its status, the hook prints a suggestion.
 
-  * Statements need a normative modal verb (shall / must / should / will)
-    and one obligation per requirement. The validator rejects bad input
-    and warns on smells — let it. Don't argue with the validator; rewrite.
-  * Pass --reason on every update / delete so history attributes the why.
-  * Drop // REQ-NNNN markers in source where you implement a requirement;
-    `req coverage` connects spec to code via those markers.
-  * Never `cat` / `read_file` project.req. The integrity hash will block
-    the next operation if you edit it by hand.
+HOW THE FILE IS PROTECTED
 
-INSTALL THIS GUIDANCE INTO AGENTS.md
+  Never read or edit `project.req` directly. It has an integrity hash
+  that catches hand edits — your next `req` call will refuse to load
+  if you bypassed the CLI. If that happens, `req repair --confirm-
+  direct-edit` is the audited escape.
 
-  req help agents --install              # idempotent; updates a managed
-                                         # block between sentinel markers.
-                                         # Use --path PATH for non-default
-                                         # locations.
+  This isn't about gatekeeping you — it's so the diff in any PR
+  reflects something the CLI was willing to record. That's the
+  guarantee humans rely on when reviewing.
+
+RULES THAT MATTER (the short list)
+
+  * One obligation per requirement (the validator catches compounds).
+  * A normative modal verb in every statement.
+  * Pass `--reason` on every update so history attributes the why.
+  * `// REQ-NNNN:` markers in source link spec to code.
+  * Status only goes forward one step at a time; backwards needs
+    `--force --reason`. Same for skips.
+
+NEW SESSION? RUN THIS FIRST.
+
+  req brief
+
+  That tells you where the project is. From there, `req next` to
+  pick something up or just start fixing what the user described.
+
+INSTALL THIS GUIDANCE
+
+  req help agents --install      writes a managed block into AGENTS.md
+                                 (between sentinel markers — idempotent,
+                                 re-run any time to refresh).
 
 MCP (Model Context Protocol)
 
-  An MCP server is built in. Two ways to use it:
+  An MCP server is built in. Run `req mcp` and connect from an
+  MCP-capable client (Claude Code, etc.). Or `req mcp --init-config`
+  to write `.mcp.json` for auto-launch. The full surface (25 tools)
+  is documented at `req help mcp`.
 
-  * Run it: `req mcp` — speaks JSON-RPC 2.0 over stdio. Pair with an MCP
-    client (Claude Code, etc.).
-  * Bootstrap: `req mcp --init-config` — writes a .mcp.json at the repo
-    root so MCP-capable clients can launch the server automatically.
+ONE-LINE BOOTSTRAP FOR A NEW PROJECT
 
-  Once connected, call tool `req_help` with {section: 'agents'} for the
-  trigger table. See `req help mcp` for the full transport detail.",
+  req setup     # init + hooks + AGENTS.md, all in one.",
     },
     Section {
         name: "web",

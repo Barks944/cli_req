@@ -16,6 +16,8 @@ use crate::storage::load_resolved;
 /// The full TUI menu. Each entry maps to a top-level CLI command so the
 /// surfaces stay one-to-one. See REQ-0083 for the parity contract.
 pub const MENU: &[&str] = &[
+    // REQ-0104: session brief is the natural first action.
+    "Brief (where are we now?)",
     "Browse / view (list + show)",
     "Status",
     "Next requirement to work on",
@@ -72,6 +74,14 @@ fn dispatch(
     theme: &ColorfulTheme,
 ) -> Result<()> {
     match MENU[idx] {
+        // REQ-0104: brief from the TUI.
+        "Brief (where are we now?)" => commands::brief::run(
+            crate::cli::BriefArgs {
+                full: false,
+                json: false,
+            },
+            file,
+        ),
         "Browse / view (list + show)" => browse(file, project),
         "Status" => commands::status::run(
             StatusArgs {
@@ -124,6 +134,7 @@ fn dispatch(
                 staged: false,
                 marker_near_hunks: 0,
                 gate: false,
+                summary: false,
                 json: false,
             },
             file,

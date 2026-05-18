@@ -64,7 +64,7 @@ fn text_of(response: &serde_json::Value) -> String {
 /// shell.
 const HUMANS_ONLY_TUI: &[&str] = &[
     "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "migrate", "schema", "batch",
-    "import", "test", "verify", "check", "help",
+    "import", "test", "verify", "check", "help", "setup",
 ];
 
 #[test]
@@ -144,7 +144,9 @@ fn req_0083_tui_menu_covers_every_agent_relevant_cli_command() {
 /// CLI subcommands that DELIBERATELY do not have an MCP tool. Adding a
 /// command here is an opt-out; the test below ensures every other CLI
 /// command appears as a req_* MCP tool. See REQ-0083.
-const HUMANS_ONLY_CLI: &[&str] = &["init", "tui", "serve", "mcp", "hooks", "renumber", "repair"];
+const HUMANS_ONLY_CLI: &[&str] = &[
+    "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "setup",
+];
 
 #[test]
 fn req_0083_mcp_tool_surface_covers_every_agent_relevant_cli_command() {

@@ -11,6 +11,19 @@ const HOOK_MARKER: &str = "# managed-by: req-hooks";
 const HOOK_MODE_STRICT: &str = "# mode: strict";
 const HOOK_MODE_DEFAULT: &str = "# mode: default";
 
+// REQ-0103: post-commit hook is a calm impact summary, never a gate.
+// Prints one line citing the REQs the commit touched plus a suggestion
+// for the next status change. Silent when no source files changed.
+const POSTCOMMIT_BODY: &str = r#"#!/bin/sh
+# managed-by: req-hooks
+# Calm impact summary after every commit. Never blocks anything.
+# Remove with `req hooks --uninstall` or by deleting this file.
+if ! command -v req >/dev/null 2>&1; then
+  exit 0
+fi
+req review --base HEAD~1 --summary 2>/dev/null || true
+"#;
+
 // REQ-0099: pre-commit hook gates on markerless staged source.
 // REQ-0100: --strict variant uses hunk-level matching via
 //           `req review --staged --gate --marker-near-hunks 50` so
@@ -68,6 +81,9 @@ if [ -z "$REQ_SKIP_GATE" ]; then
     echo "  REQ_SKIP_GATE=1 git commit ..." >&2
     exit 1
   fi
+  # Gate passed: print a calm one-line summary + reminder. Silent
+  # when no source files are staged (pure-docs commits).
+  req review --staged --summary 2>/dev/null || true
 fi
 "#,
         marker = HOOK_MARKER,
@@ -101,13 +117,17 @@ pub fn run(args: HooksArgs) -> Result<()> {
     let hook = hooks_dir.join("pre-commit");
 
     if uninstall {
-        if hook.exists() {
-            let body = fs::read_to_string(&hook).unwrap_or_default();
-            if body.contains(HOOK_MARKER) {
-                fs::remove_file(&hook).context("remove pre-commit hook")?;
-                println!("Removed {}", hook.display());
-            } else {
-                println!("Skipped {} (not managed by req)", hook.display());
+        // REQ-0103: uninstall both pre- and post-commit hooks if they
+        // are managed by req.
+        for h in [&hook, &hooks_dir.join("post-commit")] {
+            if h.exists() {
+                let body = fs::read_to_string(h).unwrap_or_default();
+                if body.contains(HOOK_MARKER) {
+                    fs::remove_file(h).context("remove hook")?;
+                    println!("Removed {}", h.display());
+                } else {
+                    println!("Skipped {} (not managed by req)", h.display());
+                }
             }
         }
         return Ok(());
@@ -134,6 +154,33 @@ pub fn run(args: HooksArgs) -> Result<()> {
             "default mode — file-level marker check"
         }
     );
+
+    // REQ-0103: write the post-commit hook alongside. Same idempotent
+    // semantics as pre-commit: overwrite if managed by req, refuse
+    // without --force otherwise.
+    let post_hook = hooks_dir.join("post-commit");
+    let install_post = if post_hook.exists() {
+        let existing = fs::read_to_string(&post_hook).unwrap_or_default();
+        if !existing.contains(HOOK_MARKER) && !args.force {
+            eprintln!(
+                "Skipped {} (already exists and was not installed by req — pass --force to overwrite)",
+                post_hook.display()
+            );
+            false
+        } else {
+            true
+        }
+    } else {
+        true
+    };
+    if install_post {
+        fs::write(&post_hook, POSTCOMMIT_BODY).context("write post-commit hook")?;
+        set_executable(&post_hook).ok();
+        println!(
+            "Installed {} (impact summary, never gates)",
+            post_hook.display()
+        );
+    }
 
     let attrs = repo.join(".gitattributes");
     // REQ-0071: pin project.req to LF and disable text-mode normalization

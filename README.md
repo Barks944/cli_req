@@ -1,11 +1,39 @@
 <!-- REQ-0036: project README is the canonical landing page. -->
 # req
 
-**A managed requirements CLI for LLM agents and humans.**
+**Spec-memory for vibecoded projects.**
 
 `req` keeps software-project requirements in a single git-tracked JSON file (`project.req`) and mediates every change through a CLI that enforces requirements best practice. The file diffs cleanly, history is append-only, and an integrity hash catches hand edits before they corrupt your spec.
 
-Built for the workflow where agents and humans share the same source of truth.
+It exists because **conversational coding loses track of requirements.** The agent and the user have a session, they build something, the conversation ends. Without something that survives the conversation, the next session starts blind. `req` is what survives: a tool both humans and agents reach for, with hooks that nudge at commit time and a session-start brief that says "where are we right now?"
+
+---
+
+## TL;DR for agents
+
+If you're an LLM agent reading this in someone else's project, the short story:
+
+```sh
+req brief             # what's the spec? what's queued? what's loose?
+req next              # what should I work on?
+req add ...           # record a new requirement (before you implement)
+req validate          # is everything well-formed?
+```
+
+The pre-commit hook will catch you if you write code without citing a `// REQ-NNNN:` marker. The post-commit hook prints what just landed and suggests the next status change. The full agent guide is `req help agents` — written for you, not at you.
+
+---
+
+## TL;DR for humans
+
+```sh
+cargo install req-cli
+cd your-project
+req setup             # one-shot: init + git hooks + AGENTS.md
+req add -t "..." -s "The system shall ..." -r "..." -k functional -p must
+```
+
+That's it. The hooks make sure agents (and other humans) keep the spec and the code in sync. `req brief` is your dashboard; `req lint` is your quality audit; `req review --gate` is your CI check.
 
 ---
 
@@ -17,13 +45,14 @@ Make software requirements a first-class, machine-checked artifact that lives ne
 
 ## Why `req`?
 
-Requirements rot when they live in wikis, drift when they live in code comments, and become unreviewable when they live in a database. `req` puts them in your repo as JSON, but stops anyone — human or agent — from editing them in ways that break the rules you'd want a senior engineer to enforce:
+Requirements rot when they live in wikis, drift when they live in code comments, and become unreviewable when they live in a database. They evaporate entirely when they only existed in a chat that's now archived. `req` puts them in your repo as JSON, but stops anyone — human or agent — from editing them in ways that break the rules you'd want a senior engineer to enforce:
 
 - **One obligation per requirement**, with a normative modal verb (`shall` / `must` / `should` / `will`).
 - **Append-only history** with a required `--reason` on every change.
 - **Integrity hash** so silent corruption shows up immediately, not three weeks later.
 - **Code traceability** via `// REQ-NNNN` markers and `req coverage`.
-- **Git-native**: pre-commit hook, merge driver for ID collisions, signature-based audit trail.
+- **Git-native**: pre-commit / post-commit hooks, merge driver for ID collisions, signature-based audit trail.
+- **Agent-shaped**: a session-start `req brief`, an MCP server (`req mcp`), and an AGENTS.md template that explains the workflow in the agent's voice.
 
 The validator IS the product. The CLI is the only legitimate way to mutate the file.
 
@@ -67,8 +96,11 @@ validate`, so a stale binary will fail every commit until upgraded.
 ## Quick start
 
 ```sh
-# create a fresh project
-req init -n "My Project"
+# one-shot bootstrap: init + git hooks (pre + post commit) + AGENTS.md
+req setup
+
+# session-start brief — where is the project right now?
+req brief
 
 # add a requirement (non-interactive form, agent-friendly)
 req add \
@@ -87,11 +119,11 @@ req show REQ-0001
 # change something — always with a reason
 req update REQ-0001 --status approved --reason "Reviewed in 2026-05-17 sync"
 
-# validate before you commit
+# validate before you commit (the pre-commit hook does this for you)
 req validate
 ```
 
-For everything else: `req help` lists the section index, `req help <section>` drills in.
+For everything else: `req help` lists the section index, `req help <section>` drills in. The agent guide is `req help agents`.
 
 ---
 

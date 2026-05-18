@@ -237,6 +237,62 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         .map(|(id, file)| format!("{} (in {})", id, file))
         .collect();
 
+    // REQ-0086: --summary mode prints a single calm line for the
+    // pre-commit hook's pass path. Stays silent when no source files
+    // are staged (pure-docs commits shouldn't print noise).
+    if args.summary {
+        // Count source-extension files in the changed set so we report
+        // "N source file(s) staged" not "N files of any kind".
+        let source_count = changed_files
+            .iter()
+            .filter(|f| {
+                std::path::Path::new(f)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| source_exts.iter().any(|x| x == &e.to_lowercase()))
+                    .unwrap_or(false)
+            })
+            .count();
+        if source_count == 0 {
+            return Ok(());
+        }
+        let cites: Vec<&String> = coverage_referenced.iter().collect();
+        let cites_str = if cites.is_empty() {
+            "no markers".to_string()
+        } else if cites.len() <= 5 {
+            cites
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            format!(
+                "{} +{} more",
+                cites
+                    .iter()
+                    .take(3)
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                cites.len() - 3
+            )
+        };
+        println!(
+            "req: {} source file(s) staged · cites {} ",
+            source_count, cites_str
+        );
+        // Reminder: a passing gate doesn't mean the cited REQs are
+        // verified. Nudge the agent to check status without
+        // hard-coding which command to run (each cited REQ might be
+        // at a different status).
+        println!(
+            "     reminder: `req show <id>` to check cited status — \
+             promote with `req update <id> --status implemented --reason \"...\"` \
+             or `req verify <id> --by inspection --notes \"...\" --promote` when done."
+        );
+        return Ok(());
+    }
+
     // --- stale records ------------------------------------------------
     // Reuse the staleness scanner but only summarise counts here; the
     // full table is what `req stale` is for.

@@ -74,5 +74,9 @@ fn run(cli: Cli) -> Result<()> {
         Command::Split(args) => commands::split::run(args, &cli.file),
         // REQ-0101: project-wide quality audit beyond the validator.
         Command::Lint(args) => commands::lint::run(args, &cli.file),
+        // REQ-0104: session-start brief.
+        Command::Brief(args) => commands::brief::run(args, &cli.file),
+        // REQ-0105: one-shot project bootstrap.
+        Command::Setup(args) => commands::setup::run(args),
     }
 }

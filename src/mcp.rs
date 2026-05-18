@@ -319,6 +319,12 @@ const TOOLS: &[ToolDef] = &[
         description: "Split a compound requirement into N atomic ones. Pass `id` and `into` (an array of new statements). The original is soft-retired to Obsolete (unless `keep_original` is true). New parts inherit the original's kind, priority, and tags; titles get a `— part i of N` suffix. Use to remediate REQ-V-0010 compound findings without manual fan-out.",
         schema: split_schema,
     },
+    // REQ-0104: req_brief MCP tool — session-start summary for agents.
+    ToolDef {
+        name: "req_brief",
+        description: "Session-start summary: project name, delivery %, what's next to work on, what's loose (Implemented but not Verified, Drafts). Run this FIRST in any new session — it's the spec-state read that tells you where to pick up. Default is short; pass `full: true` for the dashboard view.",
+        schema: brief_schema,
+    },
     // REQ-0101: req_lint MCP tool.
     ToolDef {
         name: "req_lint",
@@ -355,6 +361,17 @@ fn split_schema() -> Value {
             "into": { "type": "array", "minItems": 2, "items": { "type": "string" }, "description": "Two or more atomic statements to create as siblings." },
             "reason": { "type": "string", "description": "Recorded on the original's history when soft-retired." },
             "keep_original": { "type": "boolean", "description": "Don't soft-retire the original; create new parts beside it." }
+        }
+    })
+}
+
+// REQ-0104: schema for the req_brief MCP tool.
+fn brief_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "full": { "type": "boolean", "description": "Expand to a dashboard view with by-status counts, gate mode, recent activity. Default false (short)." },
+            "json": { "type": "boolean", "description": "Return JSON instead of text. Defaults to true on MCP." }
         }
     })
 }
@@ -647,6 +664,7 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_review" => tool_review(args, file),
         "req_split" => tool_split(args, file),
         "req_lint" => tool_lint(args, file), // REQ-0101
+        "req_brief" => tool_brief(args, file), // REQ-0104
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
 }
@@ -2232,6 +2250,28 @@ fn tool_review(args: &Value, file: &Path) -> Result<String> {
     if !out.status.success() {
         return Err(anyhow!("{}", first_envelope_line(&out.stdout, &out.stderr)));
     }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+// REQ-0104: req_brief MCP tool implementation.
+fn tool_brief(args: &Value, file: &Path) -> Result<String> {
+    let full = args.get("full").and_then(Value::as_bool).unwrap_or(false);
+    let json = args.get("json").and_then(Value::as_bool).unwrap_or(true);
+    let mut argv: Vec<std::ffi::OsString> = vec![
+        "--file".into(),
+        file.as_os_str().into(),
+        "brief".into(),
+    ];
+    if full {
+        argv.push("--full".into());
+    }
+    if json {
+        argv.push("--json".into());
+    }
+    let out = std::process::Command::new(std::env::current_exe()?)
+        .args(&argv)
+        .output()
+        .context("invoke self for brief")?;
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
