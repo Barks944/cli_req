@@ -106,13 +106,16 @@ pub fn run(args: SetupArgs) -> Result<()> {
     println!();
     println!("You're set up. Next steps:");
     println!();
-    // REQ-0105: the example must be copy-paste-runnable. Functional
-    // requirements need at least one --accept entry, so the example
-    // includes one. Constraint/non-functional could omit -a but we
-    // pick functional as the most common starting kind.
-    println!("  req add -t \"...\" -s \"The system shall ...\" \\");
-    println!("          -r \"...\" -k functional -p must \\");
-    println!("          -a \"Concrete observable behaviour to check\"");
+    // REQ-0105: the example must be copy-paste-RUNNABLE.
+    // - Functional reqs need acceptance (so the example has `-a`).
+    // - Title must be >=5 chars, statement >=5 words, rationale
+    //   non-empty: the placeholders below all clear those gates so
+    //   a literal copy-paste passes validation and produces REQ-0001.
+    println!("  req add -t \"My first requirement\" \\");
+    println!("          -s \"The system shall expose a hello endpoint.\" \\");
+    println!("          -r \"Establishes the baseline contract.\" \\");
+    println!("          -k functional -p must \\");
+    println!("          -a \"GET /hello returns 200 with non-empty body\"");
     println!("                                        # write your first requirement");
     println!("  req brief                             # session-start summary");
     println!("  req help agents                       # the agent workflow guide");

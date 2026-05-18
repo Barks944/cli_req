@@ -987,6 +987,202 @@ fn diff_with_req_id_returns_friendly_hint() {
     );
 }
 
+// ---------- 0.3.1: status-aware summary + strict-sticky reinstall ----------
+
+#[test]
+fn summary_suggestion_is_status_aware() {
+    // REQ-0106: --summary must propose the LEGAL next transition for
+    // each cited REQ. The 0.3.0 hook suggested --promote regardless,
+    // which the lifecycle then rejected for fresh Drafts. We walk a
+    // single REQ across statuses, commit code citing it at each step,
+    // and check the post-commit suggestion matches the status.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Status-aware summary fixture",
+        "--statement",
+        "The system shall surface a status-appropriate next step.",
+        "--rationale",
+        "Closes the 0.3.0 dead-end-suggestion gap.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+        "--accept",
+        "Per-status suggestion is the legal next move",
+    ]);
+    // Initialise a git repo and an initial commit so HEAD~1 exists.
+    let dir = s.dir.path();
+    for argv in [
+        &["init", "-q", "-b", "main"][..],
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "config",
+            "user.email",
+            "t@t.t",
+        ][..],
+        &["-c", "commit.gpgsign=false", "config", "user.name", "t"][..],
+        &["-c", "commit.gpgsign=false", "add", "-A"][..],
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "baseline",
+        ][..],
+    ] {
+        let _ = Command::new("git").current_dir(dir).args(argv).output();
+    }
+    // Make a tiny source file citing the REQ.
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        src_dir.join("hello.rs"),
+        "// REQ-0001: status-aware fixture\nfn h(){}\n",
+    )
+    .unwrap();
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["-c", "commit.gpgsign=false", "add", "-A"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["-c", "commit.gpgsign=false", "commit", "-q", "-m", "cite"])
+        .output();
+
+    // For each starting status, run --summary and check the suggestion.
+    let cases = [
+        (
+            "draft",
+            "advance with `req update REQ-0001 --status proposed",
+        ),
+        (
+            "proposed",
+            "advance with `req update REQ-0001 --status approved",
+        ),
+        (
+            "approved",
+            "mark implemented with `req update REQ-0001 --status implemented",
+        ),
+        (
+            "implemented",
+            "verify with `req verify REQ-0001 --by inspection",
+        ),
+        ("verified", "(already verified — no action)"),
+    ];
+    for (status, want_snippet) in cases {
+        // Walk to the target status. For statuses that are irregular
+        // from the current state, --force lets us hop directly so each
+        // case starts from a known place.
+        let out = s.run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            status,
+            "--reason",
+            "test walk",
+            "--force",
+        ]);
+        assert!(
+            out.status.success(),
+            "walk to {} failed: {}",
+            status,
+            stderr(&out)
+        );
+        let summary = Command::new(env!("CARGO_BIN_EXE_req"))
+            .current_dir(dir)
+            .args([
+                "--file",
+                s.path().to_str().unwrap(),
+                "review",
+                "--base",
+                "HEAD~1",
+                "--summary",
+            ])
+            .output()
+            .expect("review --summary");
+        let body = format!(
+            "{}{}",
+            String::from_utf8_lossy(&summary.stdout),
+            String::from_utf8_lossy(&summary.stderr)
+        );
+        assert!(
+            body.contains(want_snippet),
+            "expected suggestion `{}` for status {}, got:\n{}",
+            want_snippet,
+            status,
+            body
+        );
+    }
+}
+
+#[test]
+fn hooks_install_is_strict_sticky() {
+    // REQ-0100 follow-up: `req hooks install` (no flag) on a project
+    // that already has strict mode should preserve strict mode, not
+    // silently downgrade.
+    let s = Sandbox::new();
+    s.init("p");
+    let dir = s.dir.path();
+    Command::new("git")
+        .current_dir(dir)
+        .args(["init", "-q", "-b", "main"])
+        .output()
+        .expect("git init");
+    // First install: explicitly strict.
+    let first = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(dir)
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "hooks",
+            "install",
+            "--strict",
+        ])
+        .output()
+        .expect("hooks install --strict");
+    assert!(first.status.success());
+    let body_after_first = fs::read_to_string(dir.join(".git/hooks/pre-commit")).unwrap();
+    assert!(
+        body_after_first.contains("# mode: strict"),
+        "first install should write strict body"
+    );
+
+    // Second install: NO --strict. Should still be strict (sticky).
+    let second = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(dir)
+        .args(["--file", s.path().to_str().unwrap(), "hooks", "install"])
+        .output()
+        .expect("hooks install (no flag)");
+    assert!(second.status.success(), "re-install should succeed");
+    let body_after_second = fs::read_to_string(dir.join(".git/hooks/pre-commit")).unwrap();
+    assert!(
+        body_after_second.contains("# mode: strict"),
+        "re-install without --strict should preserve strict mode; body was:\n{}",
+        body_after_second
+    );
+
+    // Sanity: a hook removed and re-installed without --strict goes
+    // back to default. (No previous mode → default.)
+    fs::remove_file(dir.join(".git/hooks/pre-commit")).unwrap();
+    let third = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(dir)
+        .args(["--file", s.path().to_str().unwrap(), "hooks", "install"])
+        .output()
+        .expect("hooks install after removal");
+    assert!(third.status.success());
+    let body_after_third = fs::read_to_string(dir.join(".git/hooks/pre-commit")).unwrap();
+    assert!(
+        body_after_third.contains("# mode: default"),
+        "fresh install without --strict should default to default mode; body was:\n{}",
+        body_after_third
+    );
+}
+
 // ---------- 0.2.2 pre-commit gate ----------
 
 #[test]
