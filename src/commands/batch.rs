@@ -87,6 +87,22 @@ enum Mutation {
         #[serde(default)]
         reason: Option<String>,
     },
+    // REQ-0066: verify mutation mirrors `req verify`. Useful for the
+    // adoption case (a backfill of 30+ reqs that all need an evidence
+    // record + promotion); doing it through 30 shell invocations is
+    // wasteful. Batch keeps atomic rollback so any one failure
+    // unwinds the whole sequence.
+    Verify {
+        id: String,
+        by: String, // "composition" | "inspection"
+        notes: String,
+        #[serde(default)]
+        cites: Vec<String>,
+        #[serde(default)]
+        promote: bool,
+        #[serde(default)]
+        force: bool,
+    },
 }
 
 fn default_link_kind() -> String {
@@ -424,6 +440,102 @@ fn apply_one(
             Ok(
                 json!({ "op": "link", "from": from, "to": to, "kind": kind.as_str(), "removed": remove }),
             )
+        }
+        // REQ-0066: verify mutation. Mirrors `req verify` semantics:
+        // record a TestRecord, optionally promote (with the same
+        // status-floor guard `req verify --promote` enforces).
+        Mutation::Verify {
+            id,
+            by,
+            notes,
+            cites,
+            promote,
+            force,
+        } => {
+            use crate::model::{EvidenceKind, Status, TestOutcome, TestRecord};
+            let kind = match by.as_str() {
+                "composition" => EvidenceKind::Composition,
+                "inspection" => EvidenceKind::Inspection,
+                other => {
+                    return Err(anyhow!(
+                        "verify mutation: unknown `by`: {} (use composition or inspection)",
+                        other
+                    ))
+                }
+            };
+            // Capture HEAD SHA so the record pins to a commit, same
+            // as `req verify` does.
+            let commit = std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| "(no git)".into());
+            let cites_prefix = if cites.is_empty() {
+                String::new()
+            } else {
+                format!("cites: {} — ", cites.join(", "))
+            };
+            let record = TestRecord {
+                at: now,
+                actor: super::current_actor(),
+                commit: commit.clone(),
+                outcome: TestOutcome::Pass,
+                notes: format!("{}{}", cites_prefix, notes),
+                kind,
+            };
+            let r = project
+                .requirements
+                .get_mut(id)
+                .ok_or_else(|| anyhow!("no such requirement: {}", id))?;
+            r.tests.push(record);
+            r.history.push(super::history(
+                format!(
+                    "{} evidence recorded via batch against commit {}",
+                    kind.as_str(),
+                    crate::commands::test_cmd::short(&commit)
+                ),
+                Some(notes.clone()),
+            ));
+            r.updated = now;
+            let mut promoted = false;
+            if *promote {
+                let eligible = matches!(r.status, Status::Implemented);
+                if eligible || *force {
+                    if !matches!(r.status, Status::Verified | Status::Obsolete) {
+                        r.status = Status::Verified;
+                        r.history.push(super::history(
+                            format!(
+                                "status promoted to verified ({} evidence via batch)",
+                                kind.as_str()
+                            ),
+                            None,
+                        ));
+                        promoted = true;
+                    }
+                } else if !matches!(r.status, Status::Verified | Status::Obsolete) {
+                    return Err(anyhow!(
+                        "verify mutation: {} is at status '{}'; --promote only auto-promotes from \
+                         'implemented'. Pass \"force\": true on this mutation, or transition to \
+                         implemented first.",
+                        id,
+                        r.status.as_str()
+                    ));
+                }
+            }
+            Ok(json!({
+                "op": "verify",
+                "id": id,
+                "kind": kind.as_str(),
+                "commit": commit,
+                "promoted": promoted,
+            }))
         }
     }
 }

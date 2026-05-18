@@ -13,8 +13,11 @@ use crate::storage::load_resolved;
 
 static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
 
+// REQ-0033: default extension list for source scanning. Schema-as-code
+// (SQL migrations, init scripts) is a first-class implementation surface
+// for most backends, so `sql` is here too.
 const DEFAULT_EXTS: &[&str] = &[
-    "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h",
+    "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h", "sql",
 ];
 const SKIP_DIRS: &[&str] = &[
     ".git",

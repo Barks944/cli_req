@@ -175,13 +175,16 @@ WHEN YOU FINISH SOMETHING
 
 HOW THE FILE IS PROTECTED
 
-  Never read or edit `project.req` directly. It has an integrity hash
-  that catches hand edits — your next `req` call will refuse to load
-  if you bypassed the CLI. If that happens, `req repair --confirm-
-  direct-edit` is the audited escape.
+  `project.req` is just JSON — there's nothing at the filesystem
+  level stopping you from opening it in an editor. The contract is
+  *post-hoc*: every change passes through an integrity hash, and
+  any edit that didn't go via the CLI will fail your next `req`
+  call until `req repair --confirm-direct-edit` re-signs it.
+  Agents that bypass the CLI don't break anything silently — they
+  just trigger a visible repair audit on the next operation.
 
-  This isn't about gatekeeping you — it's so the diff in any PR
-  reflects something the CLI was willing to record. That's the
+  This isn't about gatekeeping you. It's so the diff in any PR
+  reflects something the CLI was willing to record — the
   guarantee humans rely on when reviewing.
 
 RULES THAT MATTER (the short list)
@@ -320,6 +323,20 @@ CI / BUILD INTEGRATION
   req audit --gate --require-good-signature        # exits non-zero if any
                                                    # commit touching project.req
                                                    # lacks a verifiable signature
+
+PR-COMMENT NARRATIVE (REQ-0108)
+
+  Reviewers want the spec impact inline in the PR UI, not a CLI
+  command they have to remember to run. Copy this project's
+  `.github/workflows/spec-review.yml` into your own repo to get
+  a single bot comment per PR carrying the `req review` markdown.
+
+  The comment is updated in place on re-pushes (not stacked). Large
+  reports are truncated at 60k chars with a link to the workflow
+  artefact for the full file.
+
+  Doesn't gate. The `ci` workflow's `req review --gate` step is
+  what fails the build; this one is just the human-readable layer.
 
 CROSS-LINKING CODE TO REQUIREMENTS
 
@@ -603,6 +620,10 @@ WHAT LINT REPORTS
                         record at all. Three legitimate evidence
                         channels: `req test record`, `req verify --by
                         inspection`, `req test run --promote`.
+                        Requirements tagged `inspection-only` are
+                        excluded — use that tag for things that are
+                        the spec but aren't unit-testable (CORS rules,
+                        no-cache headers, audit policies, etc.).
   verification_kinds    Distribution across automated / composition /
                         inspection. Informational. A composition or
                         inspection desert may mean over-reliance on

@@ -74,11 +74,13 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     // Source extension set defaults to a broad list covering every
     // common language the gate has been asked about. Override via
     // --ext if your codebase needs a narrower or wider scope.
+    // REQ-0086: schema-as-code (`sql`) is first-class implementation;
+    // included so SQL migrations participate in the gate by default.
     let default_source_exts: &[&str] = &[
         "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "kt", "kts", "scala", "swift", "cs",
         "rb", "php", "lua", "hs", "ml", "ex", "exs", "erl", "clj", "cljs", "dart", "zig", "nim",
         "v", "cr", "fs", "fsx", "groovy", "pl", "pm", "sh", "bash", "ps1", "psm1", "c", "cc",
-        "cpp", "cxx", "h", "hh", "hpp", "hxx", "m", "mm", "rsx",
+        "cpp", "cxx", "h", "hh", "hpp", "hxx", "m", "mm", "rsx", "sql",
     ];
     let source_exts: Vec<String> = if args.ext.is_empty() {
         default_source_exts.iter().map(|s| s.to_string()).collect()
@@ -267,13 +269,23 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
             );
             return Ok(());
         }
+        // REQ-0106: collapse long lists. A 46-REQ adoption commit
+        // shouldn't print a 46-line wall — show count + first 3 +
+        // pointer to `req brief`. Threshold of 5 keeps regular
+        // multi-REQ commits (1-5 cites) fully detailed.
+        const SUMMARY_DETAIL_THRESHOLD: usize = 5;
         println!(
             "req: {} source file(s) touched · cited {} REQ(s):",
             source_count,
             cites.len()
         );
-        for id in &cites {
-            let r = match current.requirements.get(id) {
+        let detailed: Vec<&String> = if cites.len() > SUMMARY_DETAIL_THRESHOLD {
+            cites.iter().take(3).collect()
+        } else {
+            cites.iter().collect()
+        };
+        for id in &detailed {
+            let r = match current.requirements.get(*id) {
                 Some(r) => r,
                 None => continue, // ghost — already surfaced separately
             };
@@ -299,6 +311,12 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                 Status::Obsolete => "(retired — no action)".to_string(),
             };
             println!("  {} ({}) — {}", id, r.status.as_str(), suggestion);
+        }
+        if cites.len() > SUMMARY_DETAIL_THRESHOLD {
+            println!(
+                "  … and {} more — `req brief` for the full picture.",
+                cites.len() - 3
+            );
         }
         return Ok(());
     }

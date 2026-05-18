@@ -49,9 +49,14 @@ section in `src/help_text.rs`.
 The discipline is small. Treating it as muscle memory is what makes the
 sessions stack up into real progress instead of drifting apart.
 
-1. **Don't read or write `project.req` directly.** It has an integrity
-   hash that catches hand edits. Use `req add` / `req update` / `req
-   delete` / etc. — there's a CLI verb for every mutation you'd want.
+1. **Route mutations through the CLI, not the file.** `project.req`
+   is JSON — nothing at the OS level stops you from editing it, but
+   every read is checked against an integrity hash. Agents that
+   bypass the CLI don't break anything silently; the next `req`
+   call refuses to load and points at `req repair
+   --confirm-direct-edit`. The contract is honest: tamper and you'll
+   know. Use `req add` / `req update` / `req delete` / etc. — there's
+   a CLI verb for every mutation you'd want.
 
 2. **The validator is the product.** Statements need a normative modal
    verb (`shall` / `must` / `should` / `will`) and one obligation each.

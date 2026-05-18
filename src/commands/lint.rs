@@ -129,11 +129,18 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         .collect();
     single_acceptance_functional.sort();
 
+    // REQ-0107: requirements tagged `inspection-only` are not expected
+    // to carry test records (CORS rules, no-cache headers, audit
+    // policies, etc. — things that ARE the spec but aren't unit-
+    // testable). Skip them from the no-test-record finding so the
+    // signal stays meaningful for things that genuinely need tests.
     let mut no_test_record: Vec<String> = project
         .requirements
         .iter()
         .filter(|(_, r)| {
-            !matches!(r.status, Status::Obsolete | Status::Draft) && r.tests.is_empty()
+            !matches!(r.status, Status::Obsolete | Status::Draft)
+                && r.tests.is_empty()
+                && !r.tags.iter().any(|t| t == "inspection-only")
         })
         .map(|(id, _)| id.clone())
         .collect();
@@ -179,9 +186,10 @@ fn scan_markers(root: &Path) -> BTreeSet<String> {
         "dist",
         "build",
     ];
+    // REQ-0101: include `sql` so schema/migration files are scanned.
     let exts = [
         "rs", "py", "js", "ts", "tsx", "go", "java", "kt", "scala", "swift", "cs", "rb", "php",
-        "lua", "c", "cpp", "h", "hh", "hpp", "hxx", "m", "mm",
+        "lua", "c", "cpp", "h", "hh", "hpp", "hxx", "m", "mm", "sql",
     ];
     fn walk(
         dir: &Path,

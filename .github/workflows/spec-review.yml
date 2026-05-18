@@ -1,0 +1,102 @@
+# REQ-0108: post `req review` markdown as a PR comment on every push.
+# This file is the canonical template — copy it into your own project's
+# .github/workflows/ to get spec-impact summaries inline in the PR UI.
+#
+# Behaviour:
+#   - Fires on every pull_request push (opened, synchronize, reopened).
+#   - Runs `req review --base origin/<target-branch>` against the merge ref.
+#   - Posts the markdown report as a single bot comment, finding the
+#     existing comment by sentinel marker and editing it in place rather
+#     than stacking a new comment per push.
+#   - Truncates at 60k chars; full report is uploaded as a workflow
+#     artefact for download.
+#
+# Doesn't gate (the `ci` workflow's `req review --gate` step does that).
+# This is purely the narrative layer for human reviewers.
+
+name: spec-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write   # to post / edit the comment
+
+jobs:
+  spec-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Need history back to the PR base for the diff.
+          fetch-depth: 0
+
+      - name: Install req-cli
+        run: cargo install req-cli --locked
+
+      - name: Generate spec review
+        id: review
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .review-out
+          # Markdown report; non-zero exit only if validate errors,
+          # which we intentionally ignore here (the gate step handles
+          # that). This is the narrative layer.
+          req review --base "origin/${{ github.base_ref }}" \
+            > .review-out/spec-review.md || true
+
+          # Truncate to 60k chars; upload full report as artefact.
+          MAX=60000
+          BYTES=$(wc -c < .review-out/spec-review.md)
+          if [ "$BYTES" -gt "$MAX" ]; then
+            head -c "$MAX" .review-out/spec-review.md > .review-out/spec-review.short.md
+            echo "" >> .review-out/spec-review.short.md
+            echo "_… truncated at ${MAX} chars. Full report available as workflow artefact._" \
+              >> .review-out/spec-review.short.md
+            cp .review-out/spec-review.short.md .review-out/_for-comment.md
+          else
+            cp .review-out/spec-review.md .review-out/_for-comment.md
+          fi
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: spec-review
+          path: .review-out/spec-review.md
+
+      - name: Post or update PR comment
+        uses: actions/github-script@v7
+        env:
+          # Sentinel marker so we can find this comment on later pushes.
+          MARKER: "<!-- req-spec-review:bot -->"
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = process.env.MARKER;
+            const body = marker + "\n\n" +
+              fs.readFileSync('.review-out/_for-comment.md', 'utf8');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            // Find an existing bot comment with our marker.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body && c.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body,
+              });
+              core.info(`Updated comment ${existing.id}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number, body,
+              });
+              core.info('Created new comment');
+            }

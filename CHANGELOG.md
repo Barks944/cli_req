@@ -8,6 +8,70 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-05-18
+
+The retrofit-friendly release. Driven by an honest one-session
+review from a real adopter; closes the no-design-required half of
+that punch list.
+
+### Added — schema/migration scanning
+- **`sql` in the default extension list** for `req coverage`,
+  `req review`, and `req lint`. Schema-as-code (init scripts,
+  migrations) is a first-class implementation surface, so SQL files
+  participate in the gate by default. Was previously invisible
+  unless callers passed `--ext sql` per invocation.
+
+### Added — inspection-only convention for lint (REQ-0107)
+- **`req lint` skips the no-test-record finding** for requirements
+  tagged `inspection-only`. Use this tag for things that ARE the
+  spec but aren't unit-testable: CORS rules, no-cache headers,
+  audit-logging policies. Documented in `req help lint`.
+
+### Added — `req batch verify` (REQ-0066 extension)
+- **New `kind: verify` mutation** in `req batch` mirrors
+  `req verify`: `id`, `by`, `notes`, optional `cites`, `promote`,
+  `force`. Lets a retroactive adoption of N requirements record
+  evidence + promote in one atomic operation instead of N shell
+  invocations. Atomic rollback preserved.
+
+### Added — PR-comment workflow template (REQ-0108)
+- **`.github/workflows/spec-review.yml`** is now a canonical
+  template. Copy into your repo for an automatic single bot
+  comment per PR carrying the `req review` markdown. Updated in
+  place on re-pushes (not stacked); truncated at 60k chars with
+  workflow-artefact fallback. Doesn't gate — that's `ci`'s job.
+  Documented in `req help integration`.
+
+### Fixed — friendlier reframing
+- AGENTS.md cardinal rule 1 and `req help agents` "how the file
+  is protected" section both rewritten. The integrity model is
+  honest about being a post-hoc contract ("agents that bypass
+  the CLI don't break anything silently — the next operation
+  refuses to load and prompts a manual repair audit") rather
+  than overclaiming "agents cannot edit project.req."
+
+### Fixed — quieter post-commit on bulk commits
+- The post-commit summary collapses when more than 5 REQs are
+  cited in a single commit. Shows count + first 3 + pointer to
+  `req brief` for the full picture. Was a 46-line wall during
+  the agent-reported retrofit adoption commit; now a calm
+  4-liner.
+
+### Fixed — test reliability with global git signing
+- `req_0079_audit_gate_exits_nonzero_without_signing` now passes
+  `-c commit.gpgsign=false` to its fixture commit. Was silently
+  signing under a developer's global config and defeating the
+  test's own assertion.
+
+### Deferred to 0.4.0
+- `req adopt` (retroactive backfill helper)
+- Per-project config via `_config` field or sidecar
+- `_purpose` field + richer `req brief` content
+- Content-hashing test records
+
+These need design discussion before code. The 0.3.2 batch is
+purely additive — no schema bumps, no breaking changes.
+
 ## [0.3.1] — 2026-05-18
 
 Closes the four real frictions from the 0.3.0 agent sweep. No new
