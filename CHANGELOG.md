@@ -8,6 +8,76 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-18
+
+Reframes the tool around **spec-memory that survives between
+conversations**, not enforcement that catches mistakes. Same
+guarantees, surfaced through reminders an agent actually wants to
+read. New command surface and new docs voice.
+
+### Added — adoption surface
+- **`req brief` (REQ-0104)** — session-start summary. Project name,
+  delivery percentage, what's queued (single highest-priority pick),
+  what's loose (Implemented but not Verified, Drafts). Default short
+  (5-10 lines, fits an agent context); `--full` for the dashboard;
+  `--json` for tooling. The first thing an agent should run in a new
+  conversation.
+- **Post-commit hook (REQ-0103)** — calm one-line impact summary
+  after every commit that touched source files. Never gates. Names
+  the cited REQs and points at the natural next status change.
+  Installed alongside pre-commit; both removed by `req hooks
+  --uninstall`. `req hooks install --force` upgrades an existing
+  managed pre-commit hook.
+- **`req setup` (REQ-0105)** — one-shot bootstrap: init + git hooks
+  (pre + post) + AGENTS.md managed block. Idempotent. `--strict`
+  for hunk-level pre-commit; `--no-hooks` / `--no-agents` to opt
+  out. `--name` overrides the inferred project name.
+- **Pre-commit gate's pass path now prints a summary** instead of
+  staying silent: `req: N source file(s) staged · cites REQ-A,
+  REQ-B · reminder: ...`. Silent on pure-docs commits.
+
+### Cross-surface parity
+- New MCP tool **`req_brief`** with an explicit "run this FIRST"
+  framing in the tool description. `req_setup` is humans-only by
+  design (interactive bootstrap).
+- New TUI menu entry **"Brief (where are we now?)"** as the first
+  item.
+
+### Voice / framing — same content, friendlier register
+- `req help agents` rewritten. Leads with "why this exists" and
+  names the vibecoding problem directly: conversations end, the
+  spec must survive. The trigger table becomes "WHEN THE USER ASKS
+  FOR SOMETHING NEW" / "WHILE YOU WORK" / "WHEN YOU FINISH
+  SOMETHING".
+- AGENTS.md cardinal-rules block rewritten as "The handful of
+  things that matter" — same discipline, less lawyer.
+- README adds two TL;DR sections (agents + humans) before the
+  Mission. Quick start now headlines `req setup`.
+
+### Polish (rolled in from the 0.2.5 agent sweep)
+- **REQ-V-0019** now names `req test record` / `req verify` as the
+  fix path, not just the symptom.
+- **REQ-V-0022** quotes the actual hedge words that fired
+  (`perhaps`, `maybe`, `probably`) instead of just counting them.
+- **REQ-V-0008** trimmed — points at `req help best-practice` for
+  the modal-verb gloss.
+- **`req lint`** quality section de-dupes against the validator
+  (REQ-V-0013) so a single requirement is never named twice with
+  different thresholds.
+- **`req help lint`** section added (was missing in 0.2.5).
+- **`short_rationale` JSON shape** is now `{id, words}` objects,
+  consistent with the rest of the lint quality block.
+- **Markerless check** excludes Draft status (consistent with the
+  no-test-record check). "Active" = Proposed-or-later everywhere.
+- **`req validate` findings sort by REQ-ID** ascending. Stable
+  output across runs.
+- **`req diff HEAD~1` on a fresh repo** returns a friendly hint
+  instead of leaking git's raw `fatal: invalid object name`.
+
+### Project state
+- 100 / 100 requirements Verified, 100% delivery.
+- `req validate` clean.
+
 ## [0.2.5] — 2026-05-18
 
 Quality pass. No breaking changes; the project now validates clean
