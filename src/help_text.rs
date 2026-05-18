@@ -213,13 +213,39 @@ agents pick up the workflow on first read.
 
 PER-CLONE SETUP
 
-  req hooks install                  # pre-commit + .gitattributes
+  req hooks install                  # pre-commit (default mode)
+                                     # + .gitattributes
+  req hooks install --strict         # strict mode: hunk-level marker
+                                     # check (REQ-0100)
   req hooks install --claude-code    # also writes .claude/settings.json
                                      # (allowlist + Stop hook)
 
-`req hooks install` writes `.git/hooks/pre-commit` that runs
-`req validate` on every staged `.req` file, and adds these
-`.gitattributes` lines:
+`req hooks install` writes `.git/hooks/pre-commit` that runs:
+
+  1. `req validate` on every staged `.req` file (integrity + rules).
+  2. `req review --staged --gate` on every commit with staged files
+     (catches new code without a REQ marker).
+
+The pre-commit gate has two modes:
+
+  DEFAULT (file-level)
+    A staged source file passes if ANY of its lines carry a valid
+    `// REQ-NNNN:` marker. Good baseline; catches new files with no
+    spec but lets in-file edits through. Use this when your project
+    treats one marker per file as sufficient.
+
+  STRICT (hunk-level, `--strict`)
+    A staged source file passes only if a valid marker appears
+    within 50 lines of every changed hunk. Use this when you want
+    every meaningful edit to cite the requirement it implements.
+
+Both modes honour `REQ_SKIP_GATE=1 git commit ...` for genuine
+WIP / merge / rebase commits — the env var leaves a trace in
+shell history rather than being silent. Re-running
+`req hooks install` (with or without `--strict`) swaps modes
+deterministically.
+
+`req hooks install` also adds these `.gitattributes` lines:
 
   *.req merge=req-merge        # merge driver for ID collisions
   project.req -text eol=lf     # line-ending pin (Windows autocrlf

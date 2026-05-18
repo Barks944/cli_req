@@ -234,6 +234,14 @@ pub struct HooksArgs {
     /// allowlist and a Stop hook that runs req validate.
     #[arg(long)]
     pub claude_code: bool,
+    /// Install the STRICT pre-commit hook. The strict body invokes
+    /// `req review --staged --gate --marker-near-hunks 50`, so edits
+    /// inside an already-marked file still need a marker near the
+    /// changed hunk. Default (no flag) writes the file-level hook
+    /// that catches markerless new files but lets in-file edits
+    /// through. Re-run with or without the flag to swap modes.
+    #[arg(long)]
+    pub strict: bool,
 }
 
 #[derive(Args, Debug)]

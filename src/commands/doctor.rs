@@ -23,16 +23,25 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     let mut checks = Vec::new();
 
     // 1. pre-commit hook present + managed by req
+    // REQ-0099: surface the gate mode (strict vs default) so reviewers
+    // know whether hunk-level enforcement is on in this clone.
     let pre_commit = PathBuf::from(".git/hooks/pre-commit");
     if pre_commit.exists() {
         let body = std::fs::read_to_string(&pre_commit).unwrap_or_default();
         let managed = body.contains("# managed-by: req-hooks");
         let runs_validate = body.contains("req validate");
+        let mode = if body.contains("# mode: strict") {
+            " [strict mode]"
+        } else if body.contains("# mode: default") {
+            " [default mode]"
+        } else {
+            ""
+        };
         checks.push(Check {
             name: "pre-commit hook".into(),
             ok: managed && runs_validate,
             detail: if managed && runs_validate {
-                format!("present at {}", pre_commit.display())
+                format!("present at {}{}", pre_commit.display(), mode)
             } else if pre_commit.exists() {
                 "present but not managed by req — run `req hooks install --force`".into()
             } else {

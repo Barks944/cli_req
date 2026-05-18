@@ -8,6 +8,20 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-05-18
+
+### Added — strict pre-commit mode (REQ-0100)
+- **`req hooks install --strict`** writes a pre-commit hook that
+  invokes `req review --staged --gate --marker-near-hunks 50`, so
+  edits inside an already-marked file still need a marker near the
+  changed hunk. Closes the file-level loophole observed live during
+  0.2.3 implementation.
+- Re-running `req hooks install` (with or without `--strict`)
+  swaps modes deterministically.
+- **`req doctor`** surfaces the active gate mode (`[strict mode]`
+  or `[default mode]`) on the pre-commit-hook check.
+- **`req help integration`** documents both modes and the tradeoff.
+
 ## [0.2.3] — 2026-05-18
 
 Clears the six Draft requirements added in 0.2.1.

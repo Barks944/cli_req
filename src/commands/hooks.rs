@@ -8,23 +8,33 @@ use std::path::{Path, PathBuf};
 use crate::cli::HooksArgs;
 
 const HOOK_MARKER: &str = "# managed-by: req-hooks";
-// Hook body is /bin/sh — works natively on Linux/macOS and via the
-// sh.exe shipped with Git for Windows for hook execution. Avoid bash-isms.
+const HOOK_MODE_STRICT: &str = "# mode: strict";
+const HOOK_MODE_DEFAULT: &str = "# mode: default";
+
+// REQ-0099: pre-commit hook gates on markerless staged source.
+// REQ-0100: --strict variant uses hunk-level matching via
+//           `req review --staged --gate --marker-near-hunks 50` so
+//           edits inside an already-marked file still need a marker
+//           near the changed hunk. The two bodies share the same
+//           outer structure; only the gate command differs.
 //
-// Two checks fire on every commit:
-//   1. `req validate` when a .req file is staged — catches integrity
-//      breaks and validator errors before they enter history.
-//   2. `req review --staged --gate` when ANY file is staged — catches
-//      new code with no REQ marker, the exact failure mode that let
-//      0.1.x ship features without backing requirements. The output is
-//      educational on purpose (names the file, names the two fix
-//      paths), not just an error code.
-//
-// REQ_SKIP_GATE=1 bypasses the gate (only). Use for genuine WIP / merge
-// / rebase commits where the marker hygiene check is noise; the env
-// var leaves a trace in shell history rather than being silent.
-const PRECOMMIT_BODY: &str = r#"#!/bin/sh
-# managed-by: req-hooks
+// REQ_SKIP_GATE=1 bypasses the gate. Use for genuine WIP / merge /
+// rebase commits; the env var leaves a trace in shell history.
+fn precommit_body(strict: bool) -> String {
+    let mode = if strict {
+        HOOK_MODE_STRICT
+    } else {
+        HOOK_MODE_DEFAULT
+    };
+    let gate_cmd = if strict {
+        "req review --staged --gate --marker-near-hunks 50"
+    } else {
+        "req review --staged --gate"
+    };
+    format!(
+        r#"#!/bin/sh
+{marker}
+{mode_line}
 # Validates staged .req files AND checks for code changes without REQ
 # markers. Remove with `req hooks --uninstall` or by deleting this file.
 set -e
@@ -42,15 +52,15 @@ if [ -z "$REQ_SKIP_GATE" ]; then
   if ! git diff --cached --name-only | grep -q '.'; then
     exit 0
   fi
-  if ! req review --staged --gate >/dev/null 2>&1; then
+  if ! {gate_cmd} >/dev/null 2>&1; then
     echo "" >&2
     echo "req: pre-commit gate blocked this commit." >&2
     echo "" >&2
-    req review --staged --gate >&2 || true
+    {gate_cmd} >&2 || true
     echo "" >&2
     echo "Either:" >&2
-    echo "  - add a '// REQ-NNNN:' comment line to each flagged source" >&2
-    echo "    file citing the requirement this code implements, OR" >&2
+    echo "  - add a '// REQ-NNNN:' comment line near each flagged hunk" >&2
+    echo "    citing the requirement this code implements, OR" >&2
     echo "  - run 'req add ...' to create a new requirement, then add" >&2
     echo "    its marker to the source." >&2
     echo "" >&2
@@ -59,7 +69,12 @@ if [ -z "$REQ_SKIP_GATE" ]; then
     exit 1
   fi
 fi
-"#;
+"#,
+        marker = HOOK_MARKER,
+        mode_line = mode,
+        gate_cmd = gate_cmd,
+    )
+}
 
 pub fn run(args: HooksArgs) -> Result<()> {
     let action = args.action.to_lowercase();
@@ -107,9 +122,18 @@ pub fn run(args: HooksArgs) -> Result<()> {
             ));
         }
     }
-    fs::write(&hook, PRECOMMIT_BODY).context("write pre-commit hook")?;
+    let body = precommit_body(args.strict);
+    fs::write(&hook, &body).context("write pre-commit hook")?;
     set_executable(&hook).ok();
-    println!("Installed {}", hook.display());
+    println!(
+        "Installed {} ({})",
+        hook.display(),
+        if args.strict {
+            "strict mode — hunk-level marker check"
+        } else {
+            "default mode — file-level marker check"
+        }
+    );
 
     let attrs = repo.join(".gitattributes");
     // REQ-0071: pin project.req to LF and disable text-mode normalization
