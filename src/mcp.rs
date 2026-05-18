@@ -663,7 +663,7 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_migrate" => tool_migrate(file),
         "req_review" => tool_review(args, file),
         "req_split" => tool_split(args, file),
-        "req_lint" => tool_lint(args, file), // REQ-0101
+        "req_lint" => tool_lint(args, file),   // REQ-0101
         "req_brief" => tool_brief(args, file), // REQ-0104
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
@@ -2257,11 +2257,8 @@ fn tool_review(args: &Value, file: &Path) -> Result<String> {
 fn tool_brief(args: &Value, file: &Path) -> Result<String> {
     let full = args.get("full").and_then(Value::as_bool).unwrap_or(false);
     let json = args.get("json").and_then(Value::as_bool).unwrap_or(true);
-    let mut argv: Vec<std::ffi::OsString> = vec![
-        "--file".into(),
-        file.as_os_str().into(),
-        "brief".into(),
-    ];
+    let mut argv: Vec<std::ffi::OsString> =
+        vec!["--file".into(), file.as_os_str().into(), "brief".into()];
     if full {
         argv.push("--full".into());
     }
