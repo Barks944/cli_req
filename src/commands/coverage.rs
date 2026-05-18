@@ -28,6 +28,11 @@ const SKIP_DIRS: &[&str] = &[
     ".venv",
     ".idea",
     ".vscode",
+    // Local sandboxes for ad-hoc testing and the workflow's own
+    // bot-comment scratch dir. Gitignored, but a coverage scan
+    // shouldn't dredge their REQ tokens into the ghost report.
+    ".agent-sandbox",
+    ".review-out",
 ];
 
 #[derive(serde::Serialize)]
@@ -97,10 +102,16 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         }
     }
+    // Orphan = a requirement exists in the spec but no source marker
+    // references it. Drafts haven't been implemented yet, so expecting
+    // a marker is wrong by definition — exclude them. Obsolete reqs
+    // are also excluded (already retired). This makes `req coverage
+    // --strict` safe to use on projects that record near-term backlog
+    // as Drafts without flooding CI with orphan findings.
     for id in known {
         if !hits.contains_key(id) {
             let r = &project.requirements[id];
-            if !matches!(r.status, Status::Obsolete) {
+            if !matches!(r.status, Status::Obsolete | Status::Draft) {
                 report.orphans.push(id.clone());
             }
         }
