@@ -175,6 +175,25 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
 
     let findings = validate::validate_requirement(&req);
     let errors = validate::errors_only(&findings);
+
+    // REQ-0095: warn when the new title is very similar to a
+    // requirement retired to Obsolete in the last 60 days. The common
+    // mistake is to `req delete` then immediately re-add the same idea
+    // under a fresh ID, losing the history thread. Surface the prior
+    // ID so the author can choose to update or split-keep instead.
+    let recent_obsolete_match = find_recent_obsolete_similar(&project, &req.title, &req.statement);
+    if let Some((prior_id, similarity)) = recent_obsolete_match {
+        eprintln!(
+            "Note: title looks similar ({:.0}%) to recently-obsolete {} — \
+             consider `req update {} ...` or `req split {} --keep-original ...` \
+             instead of creating a fresh ID.",
+            similarity * 100.0,
+            prior_id,
+            prior_id,
+            prior_id
+        );
+    }
+
     if !findings.is_empty() {
         eprintln!("Validation:");
         for f in &findings {
@@ -309,4 +328,65 @@ fn merge_from_json(mut args: AddArgs, src: &str) -> Result<AddArgs> {
         args.parent = doc.parent;
     }
     Ok(args)
+}
+
+// REQ-0095: dedup-warn on recently-obsolete reqs. Reuses validate's
+// Jaccard token-set heuristic with the same 0.65 threshold so the
+// warning fires on the same conceptual overlap REQ-V-0020 catches.
+// Window is 60 days from now: longer than that and "re-adding the
+// same idea" is no longer the typical mistake — it's reinvention.
+fn find_recent_obsolete_similar(
+    project: &crate::model::Project,
+    new_title: &str,
+    new_statement: &str,
+) -> Option<(String, f64)> {
+    use std::collections::HashSet;
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(60);
+    let new_text = format!("{} {}", new_title, new_statement);
+    let new_tokens = jaccard_tokens(&new_text);
+    let mut best: Option<(String, f64)> = None;
+    for (id, r) in &project.requirements {
+        if !matches!(r.status, Status::Obsolete) {
+            continue;
+        }
+        if r.updated < cutoff {
+            continue;
+        }
+        let old_text = format!("{} {}", r.title, r.statement);
+        let old_tokens: HashSet<String> = jaccard_tokens(&old_text);
+        let inter = new_tokens.intersection(&old_tokens).count() as f64;
+        let union = new_tokens.union(&old_tokens).count() as f64;
+        if union == 0.0 {
+            continue;
+        }
+        let sim = inter / union;
+        if sim < 0.65 {
+            continue;
+        }
+        if best.as_ref().map(|(_, s)| sim > *s).unwrap_or(true) {
+            best = Some((id.clone(), sim));
+        }
+    }
+    best
+}
+
+fn jaccard_tokens(s: &str) -> std::collections::HashSet<String> {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+    static STOP: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
+        [
+            "the", "a", "an", "and", "or", "of", "to", "for", "on", "in", "is", "be", "by", "with",
+            "as", "that", "this", "shall", "must", "should", "will", "system", "cli",
+        ]
+        .iter()
+        .copied()
+        .collect()
+    });
+    static WORD_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[a-z0-9]+").unwrap());
+    let lower = s.to_lowercase();
+    WORD_RE
+        .find_iter(&lower)
+        .map(|m| m.as_str().to_string())
+        .filter(|w| w.len() > 2 && !STOP.contains(w.as_str()))
+        .collect()
 }

@@ -398,14 +398,11 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
             // REQ-0077: a `verifies` link is a verification claim — if the
             // source has no test record at all, the claim has no evidence.
-            // Gated on status >= Implemented: a Draft/Proposed/Approved
-            // requirement is not yet expected to carry evidence, and
-            // firing the warning that early trains authors to ignore
+            // REQ-0093: gated on status >= Implemented. A Draft/Proposed/
+            // Approved requirement is not yet expected to carry evidence,
+            // and firing the warning that early trains authors to ignore
             // validator output.
-            let evidence_expected = matches!(
-                r.status,
-                Status::Implemented | Status::Verified
-            );
+            let evidence_expected = matches!(r.status, Status::Implemented | Status::Verified);
             if matches!(link.kind, crate::model::LinkKind::Verifies)
                 && r.tests.is_empty()
                 && evidence_expected
@@ -436,7 +433,8 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             out.push((id.clone(), findings));
         }
     }
-    // REQ-0087 / REQ-V-0023: opt-in external statement-quality hook. The CLI
+    // REQ-0087 / REQ-V-0023: opt-in external statement-quality hook.
+    // REQ-0097: bounded parallelism via REQ_VALIDATE_LLM_CONCURRENCY. The CLI
     // stays deterministic by default; only when REQ_VALIDATE_LLM_CMD
     // is set do we shell out (per non-obsolete requirement) to ask
     // an external judge whether the statement is testable. The hook
@@ -445,47 +443,83 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     // hook itself surfaces as a single REQ-V-0023 warning but does
     // not stop the rest of validation.
     if let Ok(cmd) = std::env::var("REQ_VALIDATE_LLM_CMD") {
-        let trimmed = cmd.trim();
+        let trimmed = cmd.trim().to_string();
         if !trimmed.is_empty() {
-            for (id, r) in &p.requirements {
-                if matches!(r.status, crate::model::Status::Obsolete) {
-                    continue;
+            // REQ-0097: configurable concurrency cap. Default 1 keeps
+            // behaviour identical to 0.2.x for callers that don't opt
+            // in. Higher values fan out across non-obsolete reqs in
+            // a thread pool; findings are sorted by id afterwards so
+            // output stays stable regardless of completion order.
+            let concurrency: usize = std::env::var("REQ_VALIDATE_LLM_CONCURRENCY")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .filter(|n: &usize| *n >= 1)
+                .unwrap_or(1);
+            // Build the work list once.
+            let work: Vec<(String, String)> = p
+                .requirements
+                .iter()
+                .filter(|(_, r)| !matches!(r.status, crate::model::Status::Obsolete))
+                .map(|(id, r)| {
+                    let payload = serde_json::json!({
+                        "id": id,
+                        "title": r.title,
+                        "statement": r.statement,
+                        "rationale": r.rationale,
+                    })
+                    .to_string();
+                    (id.clone(), payload)
+                })
+                .collect();
+            // Run, batching in `concurrency`-sized chunks. Each chunk
+            // spawns N OS threads; we join them all before the next
+            // chunk. Simple and good enough for the IO-bound LLM
+            // workload — no crate dependency.
+            type LlmJob = std::thread::JoinHandle<(String, Result<(bool, String), String>)>;
+            let mut llm_findings: Vec<(String, Finding)> = Vec::new();
+            for chunk in work.chunks(concurrency.max(1)) {
+                let mut handles: Vec<LlmJob> = Vec::new();
+                for (id, payload) in chunk {
+                    let id = id.clone();
+                    let payload = payload.clone();
+                    let cmd = trimmed.clone();
+                    handles.push(std::thread::spawn(move || {
+                        let outcome = run_llm_hook(&cmd, &payload);
+                        (id, outcome)
+                    }));
                 }
-                let payload = serde_json::json!({
-                    "id": id,
-                    "title": r.title,
-                    "statement": r.statement,
-                    "rationale": r.rationale,
-                });
-                let outcome = run_llm_hook(trimmed, &payload.to_string());
-                match outcome {
-                    Ok(verdict) => {
-                        if verdict.0 {
-                            continue;
-                        }
-                        let finding = Finding::warn(
-                            "REQ-V-0023",
-                            "statement",
-                            format!("LLM hook flagged: {}", verdict.1),
-                        );
-                        if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| rid == id) {
-                            existing.push(finding);
-                        } else {
-                            out.push((id.clone(), vec![finding]));
-                        }
-                    }
-                    Err(e) => {
-                        let finding = Finding::warn(
-                            "REQ-V-0023",
-                            "statement",
-                            format!("LLM hook unavailable: {}", e),
-                        );
-                        if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| rid == id) {
-                            existing.push(finding);
-                        } else {
-                            out.push((id.clone(), vec![finding]));
+                for h in handles {
+                    if let Ok((id, outcome)) = h.join() {
+                        match outcome {
+                            Ok((true, _)) => continue,
+                            Ok((false, message)) => llm_findings.push((
+                                id,
+                                Finding::warn(
+                                    "REQ-V-0023",
+                                    "statement",
+                                    format!("LLM hook flagged: {}", message),
+                                ),
+                            )),
+                            Err(e) => llm_findings.push((
+                                id,
+                                Finding::warn(
+                                    "REQ-V-0023",
+                                    "statement",
+                                    format!("LLM hook unavailable: {}", e),
+                                ),
+                            )),
                         }
                     }
+                }
+            }
+            // Sort by id so the final findings list is order-stable
+            // regardless of which thread finished first.
+            llm_findings.sort_by(|a, b| a.0.cmp(&b.0));
+            for (id, finding) in llm_findings {
+                if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| *rid == id) {
+                    existing.push(finding);
+                } else {
+                    out.push((id, vec![finding]));
                 }
             }
         }
@@ -538,18 +572,42 @@ fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
 
-    let (shell, flag) = if cfg!(windows) {
-        ("cmd", "/C")
-    } else {
-        ("sh", "-c")
+    // REQ-0096: honour an explicit shell override so Windows users
+    // with Git Bash or WSL on PATH can run sh-script hooks without
+    // cmd.exe's quirks. Default is the platform shell. Common values:
+    //   sh   bash   pwsh   powershell   cmd
+    let (shell, flag): (String, String) = match std::env::var("REQ_VALIDATE_LLM_SHELL") {
+        Ok(s) if !s.trim().is_empty() => {
+            let s = s.trim().to_string();
+            let f = if s.eq_ignore_ascii_case("cmd") {
+                "/C".to_string()
+            } else if s.eq_ignore_ascii_case("powershell") || s.eq_ignore_ascii_case("pwsh") {
+                "-Command".to_string()
+            } else {
+                "-c".to_string()
+            };
+            (s, f)
+        }
+        _ => {
+            if cfg!(windows) {
+                ("cmd".to_string(), "/C".to_string())
+            } else {
+                ("sh".to_string(), "-c".to_string())
+            }
+        }
     };
-    let mut child = Command::new(shell)
-        .args([flag, cmd])
+    let mut child = Command::new(&shell)
+        .args([&flag, cmd])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("spawn: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "spawn `{}` (override with REQ_VALIDATE_LLM_SHELL): {}",
+                shell, e
+            )
+        })?;
     {
         // Take ownership of stdin so it is dropped (and the pipe is
         // closed) at the end of this block. Without the close, a hook

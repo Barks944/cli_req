@@ -8,6 +8,49 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-05-18
+
+Clears the six Draft requirements added in 0.2.1.
+
+### Validator
+- **REQ-0093 / REQ-V-0019 gated on status >= Implemented.** A
+  `verifies` link on a Draft/Proposed/Approved source no longer
+  triggers the "no test record" warning; it only fires once the
+  requirement actually reaches Implemented. Stops the validator
+  from crying wolf during the early lifecycle.
+- **REQ-0095**: `req add` warns when the new title is highly
+  similar (Jaccard ≥ 0.65) to a requirement that became Obsolete
+  in the last 60 days, suggesting `req update` or `req split
+  --keep-original` instead of a fresh ID.
+
+### CLI surface
+- **REQ-0094**: every `value_enum` arg (`--status`, `--kind`,
+  `--priority`, `--by`, etc.) is now case-insensitive.
+  `Implemented`, `IMPLEMENTED`, and `implemented` all fold to the
+  canonical lowercase form.
+
+### LLM hook
+- **REQ-0096**: new `REQ_VALIDATE_LLM_SHELL` env var overrides the
+  shell used to invoke the hook. Set to `bash`, `pwsh`, or `sh` so
+  shell-script hooks work on Windows when Git Bash or PowerShell is
+  on PATH and `cmd.exe` is not finding the interpreter.
+- **REQ-0097**: new `REQ_VALIDATE_LLM_CONCURRENCY` env var caps the
+  number of in-flight hook calls. Default 1 (sequential, matches
+  0.2.x). Findings are sorted by id afterwards so output is stable
+  regardless of completion order. 10s timeout remains per-call.
+
+### Review gate
+- **REQ-0098**: new `--marker-near-hunks N` flag on `req review`
+  requires a `// REQ-NNNN:` comment within N lines of each changed
+  hunk, not merely somewhere in the file. Default 0 keeps the
+  0.2.x file-level behaviour. Use a positive value (e.g. 50) for
+  strict hunk-level enforcement on real PRs.
+
+### Test fixture update
+- `req_0077_verifies_link_without_test_record_warns` walks the
+  fixture to Implemented before asserting the rule fires, matching
+  the new REQ-V-0019 gating semantics.
+
 ## [0.2.2] — 2026-05-18
 
 ### Added — pre-commit gate (REQ-0099)

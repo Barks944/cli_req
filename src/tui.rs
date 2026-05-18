@@ -112,6 +112,7 @@ fn dispatch(
                 ext: vec![],
                 ignore: vec![],
                 staged: false,
+                marker_near_hunks: 0,
                 gate: false,
                 json: false,
             },

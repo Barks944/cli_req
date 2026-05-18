@@ -1,5 +1,7 @@
 // Implements REQ-0001 (single managed CLI binary): one source of truth for
 // every subcommand the tool exposes.
+// REQ-0094: every `value_enum` arg uses `ignore_case = true` so `Implemented`,
+// `implemented`, and `IMPLEMENTED` all fold to the canonical lowercase form.
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
@@ -175,6 +177,13 @@ pub struct ReviewArgs {
     /// not after pushing. Implies `--base HEAD`.
     #[arg(long)]
     pub staged: bool,
+    /// Require a `// REQ-NNNN:` marker within N lines of each changed
+    /// hunk, not merely somewhere in the file. Default (0) means
+    /// file-level matching — any marker anywhere in a changed file
+    /// satisfies the gate. Use a positive value (e.g. 50) for strict
+    /// hunk-level enforcement on real PRs.
+    #[arg(long = "marker-near-hunks", default_value_t = 0)]
+    pub marker_near_hunks: u32,
     /// Exit non-zero when the report finds anything blocking: validate
     /// errors, coverage ghosts, source files changed in this range
     /// that carry zero REQ markers, OR — critically — a missing/
@@ -328,7 +337,7 @@ pub struct InitArgs {
     /// Storage layout: `single` (default) keeps everything in one .req file;
     /// `directory` writes per-requirement files under output/requirements/
     /// plus an index file. Both preserve the integrity guarantee.
-    #[arg(long, value_enum, default_value = "single")]
+    #[arg(long, value_enum, ignore_case = true, default_value = "single")]
     pub layout: LayoutArg,
 }
 
@@ -356,10 +365,10 @@ pub struct AddArgs {
     #[arg(short = 'a', long = "accept")]
     pub acceptance: Vec<String>,
     /// Requirement kind.
-    #[arg(short = 'k', long, value_enum)]
+    #[arg(short = 'k', long, value_enum, ignore_case = true)]
     pub kind: Option<KindArg>,
     /// Priority.
-    #[arg(short, long, value_enum)]
+    #[arg(short, long, value_enum, ignore_case = true)]
     pub priority: Option<PriorityArg>,
     /// Tags.
     #[arg(long)]
@@ -382,17 +391,17 @@ pub struct AddArgs {
 #[derive(Args, Debug)]
 pub struct ListArgs {
     /// Filter by status.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, ignore_case = true)]
     pub status: Option<StatusArg>,
     /// Include Obsolete requirements (hidden by default; --status obsolete
     /// always overrides this).
     #[arg(long)]
     pub include_obsolete: bool,
     /// Filter by kind.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, ignore_case = true)]
     pub kind: Option<KindArg>,
     /// Filter by priority.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, ignore_case = true)]
     pub priority: Option<PriorityArg>,
     /// Filter by tag (repeatable, AND semantics).
     #[arg(long)]
@@ -432,11 +441,11 @@ pub struct UpdateArgs {
     /// Remove an acceptance criterion by 1-based index (repeatable).
     #[arg(long = "remove-acceptance")]
     pub remove_acceptance: Vec<usize>,
-    #[arg(short = 'k', long, value_enum)]
+    #[arg(short = 'k', long, value_enum, ignore_case = true)]
     pub kind: Option<KindArg>,
-    #[arg(short, long, value_enum)]
+    #[arg(short, long, value_enum, ignore_case = true)]
     pub priority: Option<PriorityArg>,
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, ignore_case = true)]
     pub status: Option<StatusArg>,
     /// Add a tag (repeatable).
     #[arg(long)]
@@ -477,7 +486,7 @@ pub struct LinkArgs {
     /// Target requirement.
     pub to: String,
     /// Link kind.
-    #[arg(short, long, value_enum, default_value = "parent")]
+    #[arg(short, long, value_enum, ignore_case = true, default_value = "parent")]
     pub kind: LinkKindArg,
     /// Remove the link instead of adding it.
     #[arg(long)]
@@ -490,7 +499,13 @@ pub struct LinkArgs {
 #[derive(Args, Debug)]
 pub struct ExportArgs {
     /// Output format.
-    #[arg(short, long, value_enum, default_value = "markdown")]
+    #[arg(
+        short,
+        long,
+        value_enum,
+        ignore_case = true,
+        default_value = "markdown"
+    )]
     pub format: ExportFormat,
     /// Output path. `-` for stdout.
     #[arg(short, long, default_value = "-")]
@@ -507,13 +522,13 @@ pub struct VersionArgs {
 #[derive(Args, Debug)]
 pub struct NextArgs {
     /// Restrict to one status (default: any non-Obsolete).
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, ignore_case = true)]
     pub status: Option<StatusArg>,
     /// Restrict to one kind.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, ignore_case = true)]
     pub kind: Option<KindArg>,
     /// Restrict to one priority.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, ignore_case = true)]
     pub priority: Option<PriorityArg>,
     /// Restrict to a tag (repeatable, AND).
     #[arg(long)]
@@ -526,7 +541,7 @@ pub struct NextArgs {
 #[derive(Args, Debug)]
 pub struct SchemaArgs {
     /// Which schema to emit.
-    #[arg(value_enum, default_value = "add")]
+    #[arg(value_enum, ignore_case = true, default_value = "add")]
     pub which: SchemaWhich,
 }
 
@@ -559,7 +574,7 @@ pub struct BatchArgs {
 #[derive(Args, Debug)]
 pub struct ImportArgs {
     /// Format of the source: markdown or json.
-    #[arg(short, long, value_enum)]
+    #[arg(short, long, value_enum, ignore_case = true)]
     pub format: ImportFormat,
     /// Source path (`-` for stdin).
     pub source: String,
@@ -637,7 +652,7 @@ pub struct VerifyArgs {
     pub id: String,
     /// Evidence kind: composition or inspection. Use `req test record` for
     /// automated evidence (the default kind there).
-    #[arg(long = "by", value_enum)]
+    #[arg(long = "by", value_enum, ignore_case = true)]
     pub by: VerifyKindArg,
     /// Notes describing the verification. For composition this should name
     /// the cited tests or requirements; for inspection it should describe
@@ -716,7 +731,7 @@ pub struct StatusArgs {
 pub struct TestRecordArgs {
     pub id: String,
     /// Test result: pass or fail.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, ignore_case = true)]
     pub result: TestResultArg,
     /// Free-text notes attached to the test record.
     #[arg(long, default_value = "")]

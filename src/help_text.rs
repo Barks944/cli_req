@@ -428,7 +428,23 @@ REQ_VALIDATE_LLM_CMD
                      ~100s. Cache verdicts by sha256(statement) in your
                      hook if you call a paid model.
                    - Default validator stays deterministic and offline
-                     when this var is unset.",
+                     when this var is unset.
+
+REQ_VALIDATE_LLM_SHELL
+                 Override the shell used to invoke the hook. Default is
+                 `sh` on Unix and `cmd` on Windows. Set to `bash`,
+                 `pwsh`, or `sh` to run shell-script hooks on Windows
+                 when Git Bash or PowerShell are on PATH and cmd.exe is
+                 not finding the interpreter.
+
+REQ_VALIDATE_LLM_CONCURRENCY
+                 Maximum number of hook invocations in flight at once.
+                 Default 1 (sequential, matches 0.2.x behaviour). Set
+                 to a small integer (e.g. 4) to fan out across reqs
+                 when your hook calls a slow remote model. Findings
+                 are sorted by id afterwards so output order is stable
+                 regardless of completion order. The 10s timeout is
+                 per-call, not aggregate.",
     },
     Section {
         name: "verification",

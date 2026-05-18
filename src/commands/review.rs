@@ -174,11 +174,53 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                     }
                 }
                 // Comment-context scan decides "is this file marked?"
-                for cap in marker_line_re.captures_iter(&text) {
-                    let id = cap.get(1).unwrap().as_str().to_string();
-                    if current.requirements.contains_key(&id) {
-                        saw_marker_in_comment = true;
-                        break;
+                // REQ-0098: when --marker-near-hunks N is set, require
+                // a marker within N lines of each changed hunk, not
+                // merely somewhere in the file. Default 0 keeps the
+                // 0.2.x file-level behaviour.
+                let marker_lines: Vec<usize> = if args.marker_near_hunks > 0 {
+                    text.lines()
+                        .enumerate()
+                        .filter_map(|(i, line)| {
+                            for cap in marker_line_re.captures_iter(line) {
+                                let id = cap.get(1).unwrap().as_str().to_string();
+                                if current.requirements.contains_key(&id) {
+                                    return Some(i + 1);
+                                }
+                            }
+                            None
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                if args.marker_near_hunks > 0 {
+                    let hunks = if args.staged {
+                        git_hunks_for_staged(f)
+                    } else {
+                        git_hunks_for_file(&base_ref, f)
+                    }
+                    .unwrap_or_default();
+                    if !hunks.is_empty() {
+                        let window = args.marker_near_hunks as usize;
+                        saw_marker_in_comment = hunks.iter().all(|(start, len)| {
+                            let lo = start.saturating_sub(window);
+                            let hi = start.saturating_add(*len).saturating_add(window);
+                            marker_lines.iter().any(|m| *m >= lo && *m <= hi)
+                        });
+                    } else {
+                        // Couldn't get hunks (rename-only, deleted, or
+                        // not a git repo). Fall back to file-level so
+                        // we don't false-positive a benign rename.
+                        saw_marker_in_comment = !marker_lines.is_empty();
+                    }
+                } else {
+                    for cap in marker_line_re.captures_iter(&text) {
+                        let id = cap.get(1).unwrap().as_str().to_string();
+                        if current.requirements.contains_key(&id) {
+                            saw_marker_in_comment = true;
+                            break;
+                        }
                     }
                 }
                 if is_source && !saw_marker_in_comment {
@@ -467,6 +509,54 @@ fn diff_buckets(
     removed.sort();
     changed.sort();
     (added, removed, changed)
+}
+
+// REQ-0098: parse `git diff -U0 <range> -- <file>` into a list of
+// (start_line, length) tuples for the NEW side. Used by the
+// hunk-level marker check.
+fn parse_hunks(diff: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for line in diff.lines() {
+        // Hunk header: @@ -a,b +c,d @@ ...
+        if let Some(after) = line.strip_prefix("@@ ") {
+            if let Some(plus_pos) = after.find('+') {
+                let after_plus = &after[plus_pos + 1..];
+                let end = after_plus.find(' ').unwrap_or(after_plus.len());
+                let range = &after_plus[..end];
+                let (start_s, len_s) = match range.split_once(',') {
+                    Some((a, b)) => (a, b),
+                    None => (range, "1"),
+                };
+                if let (Ok(start), Ok(len)) = (start_s.parse::<usize>(), len_s.parse::<usize>()) {
+                    if len > 0 {
+                        out.push((start, len));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn git_hunks_for_file(base_ref: &str, file: &str) -> Result<Vec<(usize, usize)>> {
+    let range = format!("{}...HEAD", base_ref);
+    let out = Command::new("git")
+        .args(["diff", "-U0", &range, "--", file])
+        .output()?;
+    if !out.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(parse_hunks(&String::from_utf8_lossy(&out.stdout)))
+}
+
+fn git_hunks_for_staged(file: &str) -> Result<Vec<(usize, usize)>> {
+    let out = Command::new("git")
+        .args(["diff", "-U0", "--cached", "--", file])
+        .output()?;
+    if !out.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(parse_hunks(&String::from_utf8_lossy(&out.stdout)))
 }
 
 fn git_staged_files() -> Result<Vec<String>> {

@@ -196,8 +196,21 @@ fn req_0077_verifies_link_without_test_record_warns() {
             "could",
         ]);
     }
-    // REQ-0002 verifies REQ-0001 — but REQ-0002 has no test record
+    // REQ-0002 verifies REQ-0001 but has no test record.
+    // REQ-0093: REQ-V-0019 only fires when the source is Implemented
+    // or later. Walk REQ-0002 there first so the rule has something
+    // to flag.
     s.run(&["link", "REQ-0002", "REQ-0001", "-k", "verifies"]);
+    for status in ["proposed", "approved", "implemented"] {
+        s.run(&[
+            "update",
+            "REQ-0002",
+            "--status",
+            status,
+            "--reason",
+            "test setup",
+        ]);
+    }
     let out = s.run(&["validate"]);
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
