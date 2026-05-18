@@ -398,7 +398,18 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
             // REQ-0077: a `verifies` link is a verification claim — if the
             // source has no test record at all, the claim has no evidence.
-            if matches!(link.kind, crate::model::LinkKind::Verifies) && r.tests.is_empty() {
+            // Gated on status >= Implemented: a Draft/Proposed/Approved
+            // requirement is not yet expected to carry evidence, and
+            // firing the warning that early trains authors to ignore
+            // validator output.
+            let evidence_expected = matches!(
+                r.status,
+                Status::Implemented | Status::Verified
+            );
+            if matches!(link.kind, crate::model::LinkKind::Verifies)
+                && r.tests.is_empty()
+                && evidence_expected
+            {
                 findings.push(Finding::warn(
                     "REQ-V-0019",
                     "links",
