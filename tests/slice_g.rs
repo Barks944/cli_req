@@ -288,14 +288,7 @@ fn req_0079_audit_gate_exits_nonzero_without_signing() {
     // to unsigned so the test reflects what it claims to test.
     let _ = std::process::Command::new("git")
         .current_dir(dir)
-        .args([
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-q",
-            "-m",
-            "init",
-        ])
+        .args(["-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"])
         .output();
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_req"))
         .current_dir(dir)
