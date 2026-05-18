@@ -202,6 +202,20 @@ fn req_0065_strict_allow_lets_known_orphans_pass() {
         "--priority",
         "could",
     ]);
+    // Walk past Draft — coverage excludes Drafts from the orphan
+    // check by design (a Draft has no implementation yet, so
+    // expecting a marker is wrong). Implemented + no marker is the
+    // canonical "orphan that should trip strict" case this test
+    // exercises.
+    let _ = s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "implemented",
+        "--reason",
+        "test fixture: implemented but verification-only",
+        "--force",
+    ]);
     // Without --allow: strict fails
     let blocked = s.run(&[
         "coverage",
