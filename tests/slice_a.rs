@@ -196,6 +196,19 @@ fn req_0065_coverage_strict_exits_nonzero_with_orphans() {
         "constraint",
         &[],
     );
+    // Walk past Draft: coverage excludes Drafts from the orphan
+    // check by design (a Draft has no implementation yet). For the
+    // strict-mode-trips-on-orphans assertion to apply we need a
+    // requirement that should have a marker but doesn't.
+    let _ = s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "implemented",
+        "--reason",
+        "test fixture: orphan candidate at implemented",
+        "--force",
+    ]);
     let out = s.run(&[
         "coverage",
         "--path",
