@@ -105,10 +105,16 @@ jobs:
         # main-branch pushes so the first run after merge does not
         # retroactively block the build for files added before the
         # gate existed; PRs get the hard gate.
+        # REQ-0100: --marker-near-hunks 50 matches the strict pre-commit
+        # hook this project installs (`req hooks install --strict`), so
+        # CI enforces the same hunk-level marker rule contributors hit
+        # locally. Without --marker-near-hunks, in-file edits in
+        # already-marked files slip through CI silently.
         if: github.event_name == 'pull_request'
         run: |
           ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} \
-            review --base "origin/${{ github.base_ref }}" --path . --gate
+            review --base "origin/${{ github.base_ref }}" --path . --gate \
+              --marker-near-hunks 50
 
   lint:
     name: lint
