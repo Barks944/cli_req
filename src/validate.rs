@@ -217,8 +217,7 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
             out.push(Finding::err(
                 "REQ-V-0008",
                 "statement",
-                "statement has no normative modal verb — use `shall` (mandatory), `must` (mandatory \
-                 with strong emphasis), `should` (recommended), or `will` (factual future)",
+                "statement has no normative modal verb (shall / must / should / will) — see `req help best-practice` for which to use when",
             ));
         }
         // Weasel + compound checks both run against the stripped-prose form
@@ -273,18 +272,25 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         // REQ-0089 / REQ-V-0022: stacked uncertainty hedges. A single hedge in
         // prose is sloppy; two or more is a smell that the author
         // doesn't know what they want.
-        let hedge_hits = HEDGE_WORDS
+        // REQ-0102: hedge-stacking message names the offending pattern AND
+        // quotes the matching words so the author sees exactly what to fix.
+        let hedge_words_found: Vec<&str> = HEDGE_WORDS
             .iter()
+            .copied()
             .filter(|w| prose_lower.contains(*w))
-            .count();
-        // REQ-0102: hedge-stacking message names the offending pattern.
-        if hedge_hits >= 2 {
+            .collect();
+        if hedge_words_found.len() >= 2 {
+            let quoted = hedge_words_found
+                .iter()
+                .map(|w| format!("`{}`", w))
+                .collect::<Vec<_>>()
+                .join(", ");
             out.push(Finding::warn(
                 "REQ-V-0022",
                 "statement",
                 format!(
-                    "{} uncertainty hedges stacked — commit to a concrete behaviour (drop `perhaps`/`maybe`/`possibly`/`might`/`probably` and state what the system actually does)",
-                    hedge_hits
+                    "uncertainty hedges stacked: {} — commit to a concrete behaviour and state what the system actually does",
+                    quoted
                 ),
             ));
         }
@@ -453,8 +459,8 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     "REQ-V-0019",
                     "links",
                     format!(
-                        "verifies → {} but {} has no test records",
-                        link.target, r.id
+                        "verifies → {} but {} has no test records — attach evidence with `req test record {} --result pass --notes \"...\"` or `req verify {} --by inspection --notes \"...\"`",
+                        link.target, r.id, r.id, r.id
                     ),
                 ));
             }
@@ -601,6 +607,11 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
         }
     }
+    // REQ-0102: deterministic finding order. HashMap iteration is
+    // unordered; without an explicit sort consecutive `req validate`
+    // runs can list reqs in different orders. Sort by id ascending so
+    // tooling and diffs are stable.
+    out.sort_by(|a, b| a.0.cmp(&b.0));
     out
 }
 

@@ -156,11 +156,19 @@ fn load_at_ref(reference: &str, filename: &str) -> Result<Project> {
         .output()
         .with_context(|| format!("git show {}", spec))?;
     if !out.status.success() {
-        return Err(anyhow!(
-            "git show {} failed: {}",
-            spec,
-            String::from_utf8_lossy(&out.stderr)
-        ));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // REQ-0069: friendly hint when git's error is opaque. On a
+        // shallow checkout or a fresh repo, `req diff HEAD~1` produces
+        // git's raw `fatal: invalid object name 'HEAD~1'` — useless
+        // without context.
+        if stderr.contains("invalid object name") || stderr.contains("unknown revision") {
+            return Err(anyhow!(
+                "git cannot resolve `{}` — does the ref exist in this clone? On a fresh repo with one commit, `HEAD~1` has no parent. (git said: {})",
+                reference,
+                stderr.trim()
+            ));
+        }
+        return Err(anyhow!("git show {} failed: {}", spec, stderr));
     }
     let tmp = std::env::temp_dir().join(format!(
         "req-diff-{}-{}.req",

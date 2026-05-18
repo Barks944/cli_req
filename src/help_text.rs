@@ -537,6 +537,65 @@ and `req stale` but do NOT automatically demote status. Re-running
 fresh when their evidence is re-affirmed.",
     },
     Section {
+        name: "lint",
+        summary: "Project-wide quality audit beyond the validator.",
+        body: "`req lint` is to `req validate` what `clippy` is to `rustc`: same
+domain, softer signal, opt-in by running the command. The validator
+gates ship; lint surfaces things you might want to fix that wouldn't
+block a release.
+
+WHAT LINT REPORTS
+
+  validator findings    Same as `req validate`, included for context.
+  markerless_active     Non-Draft, non-Obsolete requirements with no
+                        `// REQ-NNNN:` reference in the scanned source
+                        tree. May be verification-only or policy meta-
+                        reqs that legitimately carry no code marker —
+                        document the exception in the rationale.
+  short_rationale       Active rationales under 10 words. The validator
+                        catches very short ones (REQ-V-0013); lint
+                        catches the 3-9 word band the validator lets
+                        through. De-duped against the validator so a
+                        single req is never flagged twice.
+  single_acceptance     Functional requirements with one or zero
+                        acceptance criteria. Functional reqs usually
+                        deserve multiple observable checkpoints.
+  no_test_record        Proposed-or-later requirements with no evidence
+                        record at all. Three legitimate evidence
+                        channels: `req test record`, `req verify --by
+                        inspection`, `req test run --promote`.
+  verification_kinds    Distribution across automated / composition /
+                        inspection. Informational. A composition or
+                        inspection desert may mean over-reliance on
+                        end-to-end tests.
+
+OUTPUT MODES
+
+  req lint                   Markdown to stdout (review-friendly).
+  req lint --json            Machine-readable; pipe to jq / CI.
+  req lint --path src        Restrict marker scan to a subdirectory.
+
+EXIT CODE
+
+  Reflects validator errors only. Quality observations NEVER gate.
+  Zero exit on a healthy project. Non-zero only when `req validate`
+  would also fail.
+
+CI USE
+
+  Lint is informational by design; do not gate on it. Print it as a
+  PR comment or upload as a workflow artefact alongside `req review`.
+  If you want a gate, raise it via the validator (add a new REQ-V
+  rule), not via lint.
+
+WHEN TO RUN
+
+  Before each release.
+  After a `req split` to confirm the children stand on their own.
+  Quarterly for projects in maintenance mode — short rationales and
+  missing evidence drift in over time.",
+    },
+    Section {
         name: "testing",
         summary: "How to wire cargo tests into requirement test records.",
         body: "Convention: name every #[test] function `req_NNNN_description` where

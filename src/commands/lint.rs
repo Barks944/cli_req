@@ -72,11 +72,15 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         .count();
 
     // Marker coverage: scan src_path for // REQ-NNNN markers.
+    // REQ-0101: "active" = not Draft and not Obsolete. Drafts are
+    // sketches that haven't been implemented yet, so flagging them
+    // as markerless is noise. The no-test-record check uses the same
+    // scope, keeping the term consistent across lint sections.
     let referenced = scan_markers(src_path);
     let markerless_active: Vec<String> = project
         .requirements
         .iter()
-        .filter(|(_, r)| !matches!(r.status, Status::Obsolete))
+        .filter(|(_, r)| !matches!(r.status, Status::Obsolete | Status::Draft))
         .filter(|(id, _)| !referenced.contains(*id))
         .map(|(id, _)| id.clone())
         .collect();
@@ -85,11 +89,24 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
     markerless_active.sort();
 
     // Soft observations.
+    // REQ-0101: de-dupe with the validator. REQ-V-0013 already fires
+    // on very-short rationales (<3 words). Suppress the lint entry
+    // when the validator has already named the same requirement, so
+    // a user doesn't see the same REQ flagged twice with different
+    // thresholds.
+    let validator_rationale_ids: std::collections::BTreeSet<String> = validator_findings
+        .iter()
+        .filter(|(_, fs)| fs.iter().any(|f| f.rule_code == "REQ-V-0013"))
+        .map(|(id, _)| id.clone())
+        .collect();
     let mut short_rationale: Vec<(String, usize)> = project
         .requirements
         .iter()
         .filter(|(_, r)| !matches!(r.status, Status::Obsolete))
         .filter_map(|(id, r)| {
+            if validator_rationale_ids.contains(id) {
+                return None;
+            }
             let words = r.rationale.split_whitespace().count();
             if words < SHORT_RATIONALE_WORDS {
                 Some((id.clone(), words))
@@ -234,7 +251,13 @@ impl LintReport {
             },
             "quality": {
                 "markerless_active": self.markerless_active,
-                "short_rationale": self.short_rationale,
+                // REQ-0101: short_rationale entries are objects so the
+                // JSON shape matches the rest of the quality block (every
+                // other field is an ID array; this one carries the word
+                // count, but as a named field rather than a tuple).
+                "short_rationale": self.short_rationale.iter().map(|(id, words)| {
+                    json!({ "id": id, "words": words })
+                }).collect::<Vec<_>>(),
                 "single_acceptance_functional": self.single_acceptance_functional,
                 "no_test_record": self.no_test_record,
                 "verification_kinds": {
