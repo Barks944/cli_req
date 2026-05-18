@@ -1,7 +1,32 @@
 <!-- REQ-0036: project README is the canonical landing page. -->
 # req
 
-**Spec-memory for vibecoded projects.**
+```
+                                                                
+        ____  _____ ___                                          
+       |  _ \| ____/ _ \      spec-memory for                   
+       | |_) |  _|| | | |     vibecoded projects                
+       |  _ <| |__| |_| |                                        
+       |_| \_\_____\__\_\                                        
+                                                                
+                                                                
+        session 1     session 2     session N                   
+            \             |             /                       
+             \   req add, update, verify                        
+              \           |           /                         
+               ▼          ▼          ▼                          
+        ╔════════════════════════════════════╗                  
+        ║         project.req                ║                  
+        ║                +                   ║   ← survives     
+        ║         // REQ-NNNN: src/*         ║     between      
+        ╚════════════════════════════════════╝     conversations
+               ▲          ▲          ▲                          
+              /          /          /                           
+        req brief, req next, req verify                         
+            /            |             \                        
+        session 1     session 2     session N                   
+                                                                
+```
 
 `req` keeps software-project requirements in a single git-tracked JSON file (`project.req`) and mediates every change through a CLI that enforces requirements best practice. The file diffs cleanly, history is append-only, and an integrity hash catches hand edits before they corrupt your spec.
 
