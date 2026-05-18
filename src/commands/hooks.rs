@@ -81,9 +81,9 @@ if [ -z "$REQ_SKIP_GATE" ]; then
     echo "  REQ_SKIP_GATE=1 git commit ..." >&2
     exit 1
   fi
-  # Gate passed: print a calm one-line summary + reminder. Silent
-  # when no source files are staged (pure-docs commits).
-  req review --staged --summary 2>/dev/null || true
+  # Gate passed silently. The post-commit hook prints the
+  # status-aware impact summary once the commit has landed —
+  # firing both here and post-commit duplicates the same line.
 fi
 "#,
         marker = HOOK_MARKER,
@@ -142,13 +142,25 @@ pub fn run(args: HooksArgs) -> Result<()> {
             ));
         }
     }
-    let body = precommit_body(args.strict);
+    // REQ-0100: strict-sticky — when re-installing, inherit the existing
+    // hook's mode unless --strict was explicitly passed. Avoids the
+    // footgun of `req hooks install` (no flag) silently downgrading a
+    // previously-strict project to default mode.
+    let strict = if args.strict {
+        true
+    } else if hook.exists() {
+        let existing = fs::read_to_string(&hook).unwrap_or_default();
+        existing.contains(HOOK_MODE_STRICT)
+    } else {
+        false
+    };
+    let body = precommit_body(strict);
     fs::write(&hook, &body).context("write pre-commit hook")?;
     set_executable(&hook).ok();
     println!(
         "Installed {} ({})",
         hook.display(),
-        if args.strict {
+        if strict {
             "strict mode — hunk-level marker check"
         } else {
             "default mode — file-level marker check"

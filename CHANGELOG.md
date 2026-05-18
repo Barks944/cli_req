@@ -8,6 +8,43 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-18
+
+Closes the four real frictions from the 0.3.0 agent sweep. No new
+commands; the loop just actually closes now.
+
+### Fixed — status-aware post-commit (REQ-0106)
+- **`req review --summary`** now reads each cited REQ's current
+  status and prints the LEGAL next transition for that status, not
+  a one-size-fits-all `--promote` suggestion. Draft gets "advance
+  to proposed", Approved gets "mark implemented", Implemented gets
+  "verify --promote", Verified/Obsolete get a quiet "no action"
+  note.
+- **Pre-commit hook's pass path is silent.** The 0.3.0 hook
+  duplicated the post-commit summary; users saw the same line
+  twice per commit. Single source of truth now lives in the
+  post-commit hook.
+
+### Fixed — `req setup` is actually one-shot
+- **Merge driver auto-registered.** Setup now runs the two `git
+  config merge.req-merge.*` commands inline after writing
+  `.gitattributes`. No more "next steps you must paste"; `req
+  doctor` reports the driver as active on a fresh bootstrap.
+- **Next-steps example is copy-paste-runnable.** The 0.3.0 example
+  was `req add ... -k functional -p must` with no `-a`, which the
+  validator immediately rejects (functional reqs need acceptance).
+  Now includes a sample acceptance criterion.
+
+### Fixed — strict mode sticky on reinstall
+- `req hooks install` (no flag) now inherits the existing hook's
+  mode. A project that's strict stays strict on re-install. Pass
+  `--strict` explicitly to flip from default to strict.
+
+### CI
+- 0.3.0 `cargo fmt` failure in `src/mcp.rs` fixed in 5b41e9c
+  (trailing-comment alignment + vec macro collapse). Green across
+  ubuntu/macos/windows + lint.
+
 ## [0.3.0] — 2026-05-18
 
 Reframes the tool around **spec-memory that survives between

@@ -1,4 +1,6 @@
 // REQ-0086: req review — one-shot PR-style spec impact report.
+// REQ-0106: --summary mode is status-aware; pre-commit no longer
+//           duplicates the post-commit summary.
 // Single-shot "what should this PR have done with the spec?" report.
 // Wraps validate, coverage, stale, audit, and the changed-requirement
 // diff into one markdown (or JSON) document scoped to <base>..HEAD.
@@ -237,12 +239,13 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         .map(|(id, file)| format!("{} (in {})", id, file))
         .collect();
 
-    // REQ-0086: --summary mode prints a single calm line for the
-    // pre-commit hook's pass path. Stays silent when no source files
-    // are staged (pure-docs commits shouldn't print noise).
+    // REQ-0086 / REQ-0106: --summary mode prints a calm, status-aware
+    // impact line per cited REQ. Used by the post-commit hook only —
+    // the pre-commit pass path is silent now to avoid duplication.
+    // For each cited REQ, look up its current status and propose the
+    // legal next move (not a one-size-fits-all `--promote` that the
+    // lifecycle would then reject for fresh Drafts).
     if args.summary {
-        // Count source-extension files in the changed set so we report
-        // "N source file(s) staged" not "N files of any kind".
         let source_count = changed_files
             .iter()
             .filter(|f| {
@@ -256,40 +259,47 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         if source_count == 0 {
             return Ok(());
         }
-        let cites: Vec<&String> = coverage_referenced.iter().collect();
-        let cites_str = if cites.is_empty() {
-            "no markers".to_string()
-        } else if cites.len() <= 5 {
-            cites
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        } else {
-            format!(
-                "{} +{} more",
-                cites
-                    .iter()
-                    .take(3)
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                cites.len() - 3
-            )
-        };
+        let cites: Vec<String> = coverage_referenced.iter().cloned().collect();
+        if cites.is_empty() {
+            println!(
+                "req: {} source file(s) touched · no REQ markers cited",
+                source_count
+            );
+            return Ok(());
+        }
         println!(
-            "req: {} source file(s) staged · cites {} ",
-            source_count, cites_str
+            "req: {} source file(s) touched · cited {} REQ(s):",
+            source_count,
+            cites.len()
         );
-        // Reminder: a passing gate doesn't mean the cited REQs are
-        // verified. Nudge the agent to check status without
-        // hard-coding which command to run (each cited REQ might be
-        // at a different status).
-        println!(
-            "     reminder: `req show <id>` to check cited status — \
-             promote with `req update <id> --status implemented --reason \"...\"` \
-             or `req verify <id> --by inspection --notes \"...\" --promote` when done."
-        );
+        for id in &cites {
+            let r = match current.requirements.get(id) {
+                Some(r) => r,
+                None => continue, // ghost — already surfaced separately
+            };
+            use crate::model::Status;
+            let suggestion = match r.status {
+                Status::Draft => format!(
+                    "advance with `req update {} --status proposed --reason \"...\"`",
+                    id
+                ),
+                Status::Proposed => format!(
+                    "advance with `req update {} --status approved --reason \"...\"`",
+                    id
+                ),
+                Status::Approved => format!(
+                    "mark implemented with `req update {} --status implemented --reason \"...\"`",
+                    id
+                ),
+                Status::Implemented => format!(
+                    "verify with `req verify {} --by inspection --notes \"...\" --promote`",
+                    id
+                ),
+                Status::Verified => "(already verified — no action)".to_string(),
+                Status::Obsolete => "(retired — no action)".to_string(),
+            };
+            println!("  {} ({}) — {}", id, r.status.as_str(), suggestion);
+        }
         return Ok(());
     }
 

@@ -56,11 +56,38 @@ pub fn run(args: SetupArgs) -> Result<()> {
             strict: args.strict,
         };
         crate::commands::hooks::run(hooks_args)?;
-        // hooks::run prints its own status lines; suffix with summary.
         println!(
             "  [done] req hooks install{}",
             if args.strict { " --strict" } else { "" }
         );
+
+        // REQ-0105: auto-register the merge driver. Without this, the
+        // .gitattributes line is dead — git would refuse the merge
+        // driver call and `req doctor` would flag it as inactive on a
+        // fresh setup. We know we're in a git repo at this branch, so
+        // running `git config` is safe and one-shot.
+        let registered_name = std::process::Command::new("git")
+            .args(["config", "merge.req-merge.name", "req merge driver"])
+            .current_dir(&cwd)
+            .status();
+        let registered_driver = std::process::Command::new("git")
+            .args([
+                "config",
+                "merge.req-merge.driver",
+                "req renumber --base %O || true",
+            ])
+            .current_dir(&cwd)
+            .status();
+        match (registered_name, registered_driver) {
+            (Ok(s1), Ok(s2)) if s1.success() && s2.success() => {
+                println!("  [done] git merge driver registered");
+            }
+            _ => {
+                println!(
+                    "  [skip] git merge driver (could not run `git config` — register manually)"
+                );
+            }
+        }
     }
 
     // 3. AGENTS.md (unless --no-agents).
@@ -79,7 +106,13 @@ pub fn run(args: SetupArgs) -> Result<()> {
     println!();
     println!("You're set up. Next steps:");
     println!();
-    println!("  req add -t \"...\" -s \"The system shall ...\" -r \"...\" -k functional -p must");
+    // REQ-0105: the example must be copy-paste-runnable. Functional
+    // requirements need at least one --accept entry, so the example
+    // includes one. Constraint/non-functional could omit -a but we
+    // pick functional as the most common starting kind.
+    println!("  req add -t \"...\" -s \"The system shall ...\" \\");
+    println!("          -r \"...\" -k functional -p must \\");
+    println!("          -a \"Concrete observable behaviour to check\"");
     println!("                                        # write your first requirement");
     println!("  req brief                             # session-start summary");
     println!("  req help agents                       # the agent workflow guide");
