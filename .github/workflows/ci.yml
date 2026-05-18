@@ -94,26 +94,24 @@ jobs:
 
       - name: req review --gate (spec hygiene on changed files)
         shell: bash
-        # Wraps validate + coverage + stale + audit + the
-        # changed-requirement diff into a single PR-style report, and
-        # — critically — gates on changed source files that contain
-        # zero REQ markers. This is the rule that catches "new code
-        # shipped without a backing requirement", the exact failure
-        # mode that took three releases to surface. On `push` events
-        # the base ref is HEAD~1 (we only have HEAD..HEAD on PRs from
-        # the merge commit). The gate is treated as advisory on
-        # main-branch pushes so the first run after merge does not
-        # retroactively block the build for files added before the
-        # gate existed; PRs get the hard gate.
+        # Gates on changed source files that contain zero REQ markers
+        # — the rule that catches "new code shipped without a backing
+        # requirement". Fires on BOTH push and pull_request so that
+        # direct pushes to main, force-pushes, and PR-merge commits
+        # all face the same check the pre-commit hook applies locally.
+        # The base ref differs:
+        #   - pull_request: origin/<base-branch> (the PR target)
+        #   - push:         HEAD~1 (the previous commit on this branch)
         # REQ-0100: --marker-near-hunks 50 matches the strict pre-commit
-        # hook this project installs (`req hooks install --strict`), so
-        # CI enforces the same hunk-level marker rule contributors hit
-        # locally. Without --marker-near-hunks, in-file edits in
-        # already-marked files slip through CI silently.
-        if: github.event_name == 'pull_request'
+        # hook this project installs (`req hooks install --strict`).
         run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            BASE="HEAD~1"
+          fi
           ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} \
-            review --base "origin/${{ github.base_ref }}" --path . --gate \
+            review --base "$BASE" --path . --gate \
               --marker-near-hunks 50
 
   lint:
