@@ -334,6 +334,7 @@ fn review_schema() -> Value {
             "base": { "type": "string", "description": "Base git rev (default: origin/main). Compared as `<base>..HEAD`." },
             "path": { "type": "string", "description": "Directory to scan for `// REQ-NNNN` markers (default: repo root)." },
             "gate": { "type": "boolean", "description": "Surface the markerless-source / ghost findings as a non-zero exit so callers can treat the report as a CI gate." },
+            "staged": { "type": "boolean", "description": "Scope the report to staged changes (`git diff --cached`) instead of `<base>..HEAD`. Mirrors the pre-commit hook." },
             "json": { "type": "boolean", "description": "Return JSON instead of markdown. Defaults to true on MCP." }
         }
     })
@@ -2187,6 +2188,7 @@ fn tool_review(args: &Value, file: &Path) -> Result<String> {
     let path = s(args, "path").unwrap_or_else(|| ".".into());
     let json = args.get("json").and_then(Value::as_bool).unwrap_or(true);
     let gate = args.get("gate").and_then(Value::as_bool).unwrap_or(false);
+    let staged = args.get("staged").and_then(Value::as_bool).unwrap_or(false);
     let mut argv: Vec<std::ffi::OsString> = vec![
         "--file".into(),
         file.as_os_str().into(),
@@ -2201,6 +2203,9 @@ fn tool_review(args: &Value, file: &Path) -> Result<String> {
     }
     if gate {
         argv.push("--gate".into());
+    }
+    if staged {
+        argv.push("--staged".into());
     }
     let out = std::process::Command::new(std::env::current_exe()?)
         .args(&argv)

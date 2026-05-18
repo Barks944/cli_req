@@ -987,6 +987,138 @@ fn diff_with_req_id_returns_friendly_hint() {
     );
 }
 
+// ---------- 0.2.2 pre-commit gate ----------
+
+#[test]
+fn review_staged_does_not_need_existing_head() {
+    // --staged mode is used by the pre-commit hook, which runs on
+    // the FIRST commit too (no HEAD yet). The general fail-closed
+    // check must not fire here — the gate's job is to inspect what's
+    // staged regardless of comparison ref.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Staged-no-head fixture title",
+        "--statement",
+        "The system shall handle --staged on an empty repo.",
+        "--rationale",
+        "Fixture rationale.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let out = s.run(&["review", "--staged", "--gate"]);
+    assert!(
+        out.status.success(),
+        "--staged with no HEAD should not fail-closed; stderr: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn review_staged_flags_markerless_changed_source() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Staged hook smoke fixture title",
+        "--statement",
+        "The system shall block staged markerless commits.",
+        "--rationale",
+        "Staged gate fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args(["init", "-q", "-b", "main"])
+        .output();
+    for cfg in [["user.email", "t@t.t"], ["user.name", "t"]] {
+        let _ = Command::new("git")
+            .current_dir(s.dir.path())
+            .args(["config", cfg[0], cfg[1]])
+            .output();
+    }
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "baseline",
+        ])
+        .output();
+    let src_dir = s.dir.path().join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(src_dir.join("oops.rs"), "fn pretend(){}\n").unwrap();
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args(["add", "src/oops.rs"])
+        .output();
+    let out = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "review",
+            "--staged",
+            "--gate",
+        ])
+        .output()
+        .expect("review");
+    let body = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !out.status.success(),
+        "markerless staged source should block: {}",
+        body
+    );
+    assert!(
+        body.contains("oops.rs"),
+        "gate output should name the offending file: {}",
+        body
+    );
+    // Adding a marker resolves it.
+    std::fs::write(
+        src_dir.join("oops.rs"),
+        "// REQ-0001: marker fixture\nfn pretend(){}\n",
+    )
+    .unwrap();
+    let _ = Command::new("git")
+        .current_dir(s.dir.path())
+        .args(["add", "src/oops.rs"])
+        .output();
+    let fixed = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "review",
+            "--staged",
+            "--gate",
+        ])
+        .output()
+        .expect("review");
+    assert!(
+        fixed.status.success(),
+        "marker present should pass: {}{}",
+        String::from_utf8_lossy(&fixed.stdout),
+        String::from_utf8_lossy(&fixed.stderr)
+    );
+}
+
 // ---------- 0.2.1 gate hardening + LLM hook + split fixes ----------
 
 #[test]

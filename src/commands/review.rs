@@ -18,14 +18,26 @@ use crate::validate;
 pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
     let current = storage::load(&path).context("load project.req")?;
-    let base_ref = resolve_base(&args.base);
+    // --staged forces the base ref to HEAD and switches the
+    // changed-files source from `git diff <base>...HEAD --name-only`
+    // to `git diff --cached --name-only`. Used by the pre-commit hook.
+    let base_ref = if args.staged {
+        "HEAD".to_string()
+    } else {
+        resolve_base(&args.base)
+    };
 
     // Fail closed on missing base ref under --gate so a CI YAML typo
     // (`origin/master` vs `origin/main`) does not silently disable the
     // whole check. Without --gate this is still advisory: the rest of
     // the report is useful even without a comparison point.
+    //
+    // EXCEPTION: --staged mode uses `git diff --cached` directly and
+    // does not need HEAD to exist (the first commit in a fresh repo
+    // has no HEAD yet). The gate still works — it checks staged files
+    // for markers regardless of comparison ref.
     let base_ref_exists = rev_exists(&base_ref);
-    if args.gate && !base_ref_exists {
+    if args.gate && !args.staged && !base_ref_exists {
         return Err(anyhow!(
             "base ref `{}` does not exist (or this is not a git repository) — \
              refusing to gate on an empty diff. Pass an explicit --base, or \
@@ -97,11 +109,24 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         "**/build.rs".into(),
         "**/generated/**".into(),
         "**/.generated/**".into(),
+        // Project documentation that mentions REQ-IDs descriptively
+        // rather than as code markers. Skipped from both scans so
+        // CHANGELOG entries like "REQ-0042: …" don't read as ghosts.
+        "CHANGELOG.md".into(),
+        "**/CHANGELOG.md".into(),
+        "README.md".into(),
+        "**/README.md".into(),
+        "AGENTS.md".into(),
+        "**/AGENTS.md".into(),
     ];
     let mut ignore_patterns: Vec<String> = default_ignore;
     ignore_patterns.extend(args.ignore.iter().cloned());
 
-    let changed_files = git_changed_files(&base_ref).unwrap_or_default();
+    let changed_files = if args.staged {
+        git_staged_files().unwrap_or_default()
+    } else {
+        git_changed_files(&base_ref).unwrap_or_default()
+    };
     // Dedup ghosts: one finding per (id, file) pair, not per occurrence.
     let mut ghost_set: BTreeSet<(String, String)> = BTreeSet::new();
     let mut coverage_referenced: BTreeSet<String> = BTreeSet::new();
@@ -128,11 +153,18 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         let ignored = ignore_patterns
             .iter()
             .any(|p| glob_match(p, &rel_normalised));
+        // Ignored files are skipped from BOTH scans. The .req project
+        // file's `_instructions` block contains example REQ-NNNN tokens
+        // that should never be treated as ghosts; CHANGELOG / README
+        // mention IDs descriptively, not as ghost references.
+        if ignored {
+            continue;
+        }
         match std::fs::read_to_string(&full) {
             Ok(text) => {
                 let mut saw_marker_in_comment = false;
-                // Ghost scan stays broad: a ghost in a string literal
-                // is still worth knowing about.
+                // Ghost scan stays broad on non-ignored files: a ghost
+                // in a string literal is still worth knowing about.
                 for cap in any_req_re.find_iter(&text) {
                     let id = cap.as_str().to_string();
                     if !current.requirements.contains_key(&id) {
@@ -149,7 +181,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                         break;
                     }
                 }
-                if is_source && !ignored && !saw_marker_in_comment {
+                if is_source && !saw_marker_in_comment {
                     markerless_changed_source.push(rel_normalised);
                 }
             }
@@ -435,6 +467,20 @@ fn diff_buckets(
     removed.sort();
     changed.sort();
     (added, removed, changed)
+}
+
+fn git_staged_files() -> Result<Vec<String>> {
+    let out = Command::new("git")
+        .args(["diff", "--cached", "--name-only"])
+        .output()?;
+    if !out.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
 }
 
 fn git_changed_files(base: &str) -> Result<Vec<String>> {

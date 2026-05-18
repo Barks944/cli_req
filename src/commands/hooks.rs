@@ -1,5 +1,6 @@
-// Implements REQ-0023 (install pre-commit hook) and REQ-0024 (register the
-// `req-merge` merge driver via .gitattributes + printed git config commands).
+// Implements REQ-0023 (install pre-commit hook), REQ-0024 (register the
+// `req-merge` merge driver via .gitattributes + printed git config
+// commands), and REQ-0099 (pre-commit gate on markerless staged source).
 use anyhow::{anyhow, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,18 +10,54 @@ use crate::cli::HooksArgs;
 const HOOK_MARKER: &str = "# managed-by: req-hooks";
 // Hook body is /bin/sh — works natively on Linux/macOS and via the
 // sh.exe shipped with Git for Windows for hook execution. Avoid bash-isms.
+//
+// Two checks fire on every commit:
+//   1. `req validate` when a .req file is staged — catches integrity
+//      breaks and validator errors before they enter history.
+//   2. `req review --staged --gate` when ANY file is staged — catches
+//      new code with no REQ marker, the exact failure mode that let
+//      0.1.x ship features without backing requirements. The output is
+//      educational on purpose (names the file, names the two fix
+//      paths), not just an error code.
+//
+// REQ_SKIP_GATE=1 bypasses the gate (only). Use for genuine WIP / merge
+// / rebase commits where the marker hygiene check is noise; the env
+// var leaves a trace in shell history rather than being silent.
 const PRECOMMIT_BODY: &str = r#"#!/bin/sh
 # managed-by: req-hooks
-# Runs `req validate` on staged .req files. Remove this hook with
-# `req hooks --uninstall` or by deleting this file.
+# Validates staged .req files AND checks for code changes without REQ
+# markers. Remove with `req hooks --uninstall` or by deleting this file.
 set -e
+if ! command -v req >/dev/null 2>&1; then
+  echo "req: binary not found on PATH; skipping pre-commit checks" >&2
+  exit 0
+fi
+
 if git diff --cached --name-only | grep -qE '\.req$'; then
-  if ! command -v req >/dev/null 2>&1; then
-    echo "req: binary not found on PATH; skipping requirements validation" >&2
-    exit 0
-  fi
   echo "req: validating staged requirements file(s)..."
   req validate
+fi
+
+if [ -z "$REQ_SKIP_GATE" ]; then
+  if ! git diff --cached --name-only | grep -q '.'; then
+    exit 0
+  fi
+  if ! req review --staged --gate >/dev/null 2>&1; then
+    echo "" >&2
+    echo "req: pre-commit gate blocked this commit." >&2
+    echo "" >&2
+    req review --staged --gate >&2 || true
+    echo "" >&2
+    echo "Either:" >&2
+    echo "  - add a '// REQ-NNNN:' comment line to each flagged source" >&2
+    echo "    file citing the requirement this code implements, OR" >&2
+    echo "  - run 'req add ...' to create a new requirement, then add" >&2
+    echo "    its marker to the source." >&2
+    echo "" >&2
+    echo "If this is a genuine WIP / rebase / merge commit, bypass with:" >&2
+    echo "  REQ_SKIP_GATE=1 git commit ..." >&2
+    exit 1
+  fi
 fi
 "#;
 

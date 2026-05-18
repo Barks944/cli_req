@@ -111,6 +111,7 @@ fn dispatch(
                 path: PathBuf::from("."),
                 ext: vec![],
                 ignore: vec![],
+                staged: false,
                 gate: false,
                 json: false,
             },

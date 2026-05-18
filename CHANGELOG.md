@@ -8,6 +8,30 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-05-18
+
+### Added — pre-commit gate (REQ-0099)
+- **`req hooks install` now wires the gate into the pre-commit
+  hook**, not just CI. An agent (or human) committing code without a
+  `// REQ-NNNN:` marker is blocked locally with the same educational
+  message the CI gate uses, listing the offending files and naming
+  the two fix paths (add a marker citing an existing REQ, or
+  `req add` a new one then mark the code).
+- **`REQ_SKIP_GATE=1 git commit ...`** bypasses the gate for genuine
+  WIP / rebase / merge cases. The env var leaves a trace in shell
+  history rather than being silent.
+- **`req review --staged`** is the new scope mode the hook uses:
+  reads `git diff --cached --name-only` instead of `git diff
+  <base>...HEAD`. Works on the first commit (HEAD doesn't have to
+  exist) — `--gate` does NOT fail-closed in staged mode.
+- **CHANGELOG.md / README.md / AGENTS.md added to default `--ignore`**
+  so descriptive REQ-ID mentions in docs aren't read as ghosts.
+
+### Upgrade path
+- Existing managed pre-commit hooks are upgraded by re-running:
+  `req hooks install --force`. Hooks not managed by `req` are left
+  alone unless `--force` is passed.
+
 ## [0.2.1] — 2026-05-17
 
 Closes every finding from the 0.2.0 adversarial agent sweep.

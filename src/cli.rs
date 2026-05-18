@@ -169,6 +169,12 @@ pub struct ReviewArgs {
     /// `.req` project file itself.
     #[arg(long = "ignore")]
     pub ignore: Vec<String>,
+    /// Scope the report to STAGED changes (`git diff --cached`) rather
+    /// than `<base>..HEAD`. Used by the pre-commit hook so an agent
+    /// adding new code without a REQ marker is told at commit time,
+    /// not after pushing. Implies `--base HEAD`.
+    #[arg(long)]
+    pub staged: bool,
     /// Exit non-zero when the report finds anything blocking: validate
     /// errors, coverage ghosts, source files changed in this range
     /// that carry zero REQ markers, OR — critically — a missing/
