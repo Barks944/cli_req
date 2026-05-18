@@ -25,6 +25,8 @@ pub const MENU: &[&str] = &[
     "Delete (mark obsolete)",
     "Split a compound requirement",
     "Validate project",
+    // REQ-0101: lint menu entry.
+    "Lint (quality audit)",
     "Coverage report",
     "Stale report",
     "Review (PR-style spec report)",
@@ -103,6 +105,14 @@ fn dispatch(
         }
         "Split a compound requirement" => split_flow(file, theme),
         "Validate project" => commands::validate_cmd::run(ValidateArgs { json: false }, file),
+        // REQ-0101: lint TUI dispatch.
+        "Lint (quality audit)" => commands::lint::run(
+            crate::cli::LintArgs {
+                path: PathBuf::from("."),
+                json: false,
+            },
+            file,
+        ),
         "Coverage report" => commands::coverage::run(default_coverage(), file),
         "Stale report" => commands::stale::run(default_stale(), file),
         "Review (PR-style spec report)" => commands::review::run(

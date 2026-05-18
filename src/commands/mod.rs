@@ -12,6 +12,7 @@ pub mod hooks;
 pub mod import;
 pub mod init;
 pub mod link;
+pub mod lint;
 pub mod list;
 pub mod migrate;
 pub mod next;

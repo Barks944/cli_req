@@ -319,6 +319,12 @@ const TOOLS: &[ToolDef] = &[
         description: "Split a compound requirement into N atomic ones. Pass `id` and `into` (an array of new statements). The original is soft-retired to Obsolete (unless `keep_original` is true). New parts inherit the original's kind, priority, and tags; titles get a `— part i of N` suffix. Use to remediate REQ-V-0010 compound findings without manual fan-out.",
         schema: split_schema,
     },
+    // REQ-0101: req_lint MCP tool.
+    ToolDef {
+        name: "req_lint",
+        description: "Project-wide quality audit beyond the validator. Returns markdown (default) or JSON with sections for validator findings, requirements lacking source markers, short rationales, single-acceptance functionals, and active requirements with no test record. Read-only; lint observations never gate.",
+        schema: lint_schema,
+    },
 ];
 
 // ---------- schemas ----------
@@ -349,6 +355,17 @@ fn split_schema() -> Value {
             "into": { "type": "array", "minItems": 2, "items": { "type": "string" }, "description": "Two or more atomic statements to create as siblings." },
             "reason": { "type": "string", "description": "Recorded on the original's history when soft-retired." },
             "keep_original": { "type": "boolean", "description": "Don't soft-retire the original; create new parts beside it." }
+        }
+    })
+}
+
+// REQ-0101: schema for the req_lint MCP tool.
+fn lint_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "Source-tree root to scan for `// REQ-NNNN:` markers. Default `.`." },
+            "json": { "type": "boolean", "description": "Return JSON instead of markdown. Defaults to true on MCP." }
         }
     })
 }
@@ -629,6 +646,7 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_migrate" => tool_migrate(file),
         "req_review" => tool_review(args, file),
         "req_split" => tool_split(args, file),
+        "req_lint" => tool_lint(args, file), // REQ-0101
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
 }
@@ -2214,6 +2232,29 @@ fn tool_review(args: &Value, file: &Path) -> Result<String> {
     if !out.status.success() {
         return Err(anyhow!("{}", first_envelope_line(&out.stdout, &out.stderr)));
     }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+// REQ-0101: req_lint MCP tool implementation.
+fn tool_lint(args: &Value, file: &Path) -> Result<String> {
+    let path = s(args, "path").unwrap_or_else(|| ".".into());
+    let json = args.get("json").and_then(Value::as_bool).unwrap_or(true);
+    let mut argv: Vec<std::ffi::OsString> = vec![
+        "--file".into(),
+        file.as_os_str().into(),
+        "lint".into(),
+        "--path".into(),
+        path.into(),
+    ];
+    if json {
+        argv.push("--json".into());
+    }
+    let out = std::process::Command::new(std::env::current_exe()?)
+        .args(&argv)
+        .output()
+        .context("invoke self for lint")?;
+    // lint exits non-zero only on validator errors; treat any output as
+    // the report and let the caller inspect it.
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 

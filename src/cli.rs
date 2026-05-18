@@ -61,6 +61,7 @@ impl Command {
             Command::Next(a) => a.json,
             Command::Review(a) => a.json,
             Command::Split(a) => a.json,
+            Command::Lint(a) => a.json, // REQ-0101
             Command::Check(a) => a.json,
             Command::Doctor(a) => a.json,
             Command::Diff(a) => a.json,
@@ -145,6 +146,19 @@ pub enum Command {
     Review(ReviewArgs),
     /// Interactive split of a compound requirement into atomic ones.
     Split(SplitArgs),
+    /// REQ-0101: project-wide quality audit beyond the validator: marker
+    /// coverage, rationale length, acceptance count, test-record presence.
+    Lint(LintArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct LintArgs {
+    /// Root of the source tree to scan for `// REQ-NNNN:` markers.
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Emit the audit as JSON instead of markdown.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

@@ -142,31 +142,43 @@ fn strip_non_prose(s: &str) -> String {
     no_code.into_owned()
 }
 
+// REQ-0102: validator findings name the cause and a suggested fix so
+// each warning is a teaching moment rather than a terse rule name.
 pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
     let mut out = Vec::new();
 
     let title = r.title.trim();
     let title_chars = title.chars().count();
     if title.is_empty() {
-        out.push(Finding::err("REQ-V-0001", "title", "title is required"));
+        out.push(Finding::err(
+            "REQ-V-0001",
+            "title",
+            "title is required — write a short imperative phrase naming the obligation",
+        ));
     } else if title_chars < 5 {
         out.push(Finding::err(
             "REQ-V-0002",
             "title",
-            "title is too short (min 5 characters)",
+            format!(
+                "title is too short ({} chars; min 5) — expand to a phrase a reviewer can grep for",
+                title_chars
+            ),
         ));
     } else if title_chars > 120 {
         out.push(Finding::err(
             "REQ-V-0003",
             "title",
-            "title is too long (max 120 characters)",
+            format!(
+                "title is too long ({} chars; max 120) — move detail into the statement, keep the title scannable",
+                title_chars
+            ),
         ));
     }
     if title.ends_with('.') {
         out.push(Finding::warn(
             "REQ-V-0004",
             "title",
-            "drop the trailing period — titles are not sentences",
+            "trailing period on title — titles are noun phrases, not sentences; drop it",
         ));
     }
 
@@ -175,7 +187,7 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         out.push(Finding::err(
             "REQ-V-0005",
             "statement",
-            "statement is required",
+            "statement is required — write the obligation as one sentence with a normative modal verb",
         ));
     } else {
         let words = stmt.split_whitespace().count();
@@ -183,15 +195,19 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
             out.push(Finding::err(
                 "REQ-V-0006",
                 "statement",
-                "statement must be a complete sentence (>=5 words)",
+                format!(
+                    "statement is {} words; needs ≥5 — a complete obligation usually reads `<actor> shall <verb> <object> <condition>`",
+                    words
+                ),
             ));
         }
+        // REQ-0102: statement-length messages quote the actual word count.
         if words > 80 {
             out.push(Finding::warn(
                 "REQ-V-0007",
                 "statement",
                 format!(
-                    "statement is {} words long — split into atomic requirements",
+                    "statement is {} words — try `req split <id>` to break it into atomic obligations",
                     words
                 ),
             ));
@@ -201,7 +217,8 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
             out.push(Finding::err(
                 "REQ-V-0008",
                 "statement",
-                "statement must contain a normative modal verb (shall / must / should / will)",
+                "statement has no normative modal verb — use `shall` (mandatory), `must` (mandatory \
+                 with strong emphasis), `should` (recommended), or `will` (factual future)",
             ));
         }
         // Weasel + compound checks both run against the stripped-prose form
@@ -214,7 +231,7 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
                     "REQ-V-0009",
                     "statement",
                     format!(
-                        "avoid the vague term '{}': prefer a measurable criterion",
+                        "vague term '{}' — replace with a measurable criterion (specific number, named protocol, exact behaviour)",
                         w
                     ),
                 ));
@@ -237,10 +254,20 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         let looks_compound =
             prose.contains(';') || modal_hits > 1 || (and_joins >= 2 && !looks_enumeration);
         if looks_compound {
+            let reason = if prose.contains(';') {
+                "semicolon detected"
+            } else if modal_hits > 1 {
+                "repeated modal verb (`shall X and shall Y`)"
+            } else {
+                "multiple `and` joins (`A and B and C`)"
+            };
             out.push(Finding::warn(
                 "REQ-V-0010",
                 "statement",
-                "statement looks compound — split into atomic requirements",
+                format!(
+                    "compound statement — {} — try `req split <id>` to break it into atomic siblings",
+                    reason
+                ),
             ));
         }
         // REQ-0089 / REQ-V-0022: stacked uncertainty hedges. A single hedge in
@@ -250,18 +277,22 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
             .iter()
             .filter(|w| prose_lower.contains(*w))
             .count();
+        // REQ-0102: hedge-stacking message names the offending pattern.
         if hedge_hits >= 2 {
             out.push(Finding::warn(
                 "REQ-V-0022",
                 "statement",
-                "statement stacks uncertainty hedges — commit to a concrete behaviour",
+                format!(
+                    "{} uncertainty hedges stacked — commit to a concrete behaviour (drop `perhaps`/`maybe`/`possibly`/`might`/`probably` and state what the system actually does)",
+                    hedge_hits
+                ),
             ));
         }
         if stmt.contains('?') {
             out.push(Finding::err(
                 "REQ-V-0011",
                 "statement",
-                "statement must not be a question",
+                "statement contains `?` — a requirement is an obligation, not a question; rephrase as a positive `<actor> shall <verb>` clause",
             ));
         }
     }
@@ -270,21 +301,28 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         out.push(Finding::err(
             "REQ-V-0012",
             "rationale",
-            "rationale is required — explain WHY",
+            "rationale is required — explain WHY this requirement exists (which need it serves, which past mistake it prevents, which stakeholder asked)",
         ));
-    } else if r.rationale.split_whitespace().count() < 3 {
-        out.push(Finding::warn(
-            "REQ-V-0013",
-            "rationale",
-            "rationale is very short",
-        ));
+    } else {
+        let word_count = r.rationale.split_whitespace().count();
+        if word_count < 3 {
+            out.push(Finding::warn(
+                "REQ-V-0013",
+                "rationale",
+                format!(
+                    "rationale is only {} word(s) — a useful rationale names the cause or constraint, not just the consequence",
+                    word_count
+                ),
+            ));
+        }
     }
 
+    // REQ-0102: acceptance-missing message points at the fix command.
     if matches!(r.kind, Kind::Functional) && r.acceptance.is_empty() {
         out.push(Finding::err(
             "REQ-V-0014",
             "acceptance",
-            "functional requirements need at least one acceptance criterion",
+            "functional requirement has no acceptance criteria — add at least one observable behaviour a reviewer can check off (`req update <id> --add-acceptance \"...\"`)",
         ));
     }
     for (i, ac) in r.acceptance.iter().enumerate() {
@@ -292,7 +330,11 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
             out.push(Finding::warn(
                 "REQ-V-0015",
                 "acceptance",
-                format!("acceptance #{} is too vague to verify", i + 1),
+                format!(
+                    "acceptance #{} is only {} word(s) — name a concrete observable, e.g. `req validate exits 0 on a clean project`",
+                    i + 1,
+                    ac.split_whitespace().count()
+                ),
             ));
         }
     }

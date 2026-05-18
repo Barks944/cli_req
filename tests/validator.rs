@@ -172,7 +172,7 @@ fn req_0030_emoji_title_too_short_rejected() {
         "could",
     ]);
     assert!(!out.status.success());
-    assert!(stderr(&out).contains("min 5 characters"));
+    assert!(stderr(&out).contains("min 5"));
 }
 
 // ---------- REQ-0045: rule codes appear in validator output ----------

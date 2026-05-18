@@ -8,6 +8,38 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-05-18
+
+Quality pass. No breaking changes; the project now validates clean
+against its own ruleset.
+
+### Exemplar cleanup
+- Seven requirement statements rewritten to be atomic:
+  REQ-0039, REQ-0066, REQ-0067, REQ-0084, REQ-0085, REQ-0090,
+  REQ-0098. Detail moved into acceptance criteria where it belongs.
+  `req validate` on `project.req` now reports
+  `OK — 95 requirement(s), no findings.`
+
+### Validator wording (REQ-V-0001 .. REQ-V-0015, REQ-V-0022)
+- Every message now names the rule and tells you the fix. The
+  rule codes are unchanged; only the message text is sharper.
+  Examples:
+  - REQ-V-0010 names *why* it tripped (`semicolon`, `repeated
+    modal`, or `multiple "and" joins`) and suggests `req split`.
+  - REQ-V-0009 spells out what "measurable criterion" means.
+  - REQ-V-0013 reports the actual word count.
+  - REQ-V-0015 quotes the criterion length and shows an example.
+  - REQ-V-0008 lists the four normative modals with their meanings.
+
+### Added — `req lint` (REQ-0101)
+- New `req lint` command produces a project-wide quality audit
+  beyond `req validate`: marker coverage, rationale length,
+  acceptance count, test-record presence, verification-kind mix.
+- Output is markdown by default; `--json` for tooling. Exit code
+  reflects validator errors only — lint observations never gate.
+- Available as `req_lint` MCP tool and `Lint (quality audit)` TUI
+  menu entry, preserving cross-surface parity.
+
 ## [0.2.4] — 2026-05-18
 
 ### Added — strict pre-commit mode (REQ-0100)

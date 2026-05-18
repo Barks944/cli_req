@@ -72,5 +72,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Audit(args) => commands::audit::run(args, &cli.file),
         Command::Review(args) => commands::review::run(args, &cli.file),
         Command::Split(args) => commands::split::run(args, &cli.file),
+        // REQ-0101: project-wide quality audit beyond the validator.
+        Command::Lint(args) => commands::lint::run(args, &cli.file),
     }
 }
