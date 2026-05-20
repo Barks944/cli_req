@@ -4,7 +4,7 @@
 use anyhow::{anyhow, Result};
 
 use crate::cli::{InitArgs, LayoutArg};
-use crate::model::Project;
+use crate::model::{Project, PURPOSE_MAX_CHARS};
 use crate::storage;
 
 pub fn run(args: InitArgs) -> Result<()> {
@@ -14,7 +14,20 @@ pub fn run(args: InitArgs) -> Result<()> {
             args.output.display()
         ));
     }
-    let project = Project::new(args.name);
+    let mut project = Project::new(args.name);
+    if let Some(p) = args.purpose.as_ref() {
+        let trimmed = p.trim();
+        if trimmed.chars().count() > PURPOSE_MAX_CHARS {
+            return Err(anyhow!(
+                "--purpose is {} chars; max {}. Tighten it — `req brief` leads with this line.",
+                trimmed.chars().count(),
+                PURPOSE_MAX_CHARS
+            ));
+        }
+        if !trimmed.is_empty() {
+            project.purpose = Some(trimmed.to_string());
+        }
+    }
     match args.layout {
         LayoutArg::Single => storage::save(&args.output, &project)?,
         LayoutArg::Directory => storage::save_directory(&args.output, &project)?,

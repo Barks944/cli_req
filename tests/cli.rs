@@ -2,7 +2,7 @@
 // show, update, delete, link, export, validate. Each is named after the
 // requirement it most directly exercises.
 mod common;
-use common::{stdout, Sandbox};
+use common::{stderr, stdout, Sandbox};
 
 #[test]
 fn req_0037_version_short_flags_print_same_string() {
@@ -38,6 +38,56 @@ fn req_0001_help_lists_every_subcommand() {
     ] {
         assert!(body.contains(sub), "--help missing subcommand `{}`", sub);
     }
+}
+
+// ---------- REQ-0114: req precheck ----------
+
+#[test]
+fn req_0114_precheck_listed_in_help() {
+    let out = common::req(&["--help"]);
+    assert!(
+        stdout(&out).contains("precheck"),
+        "precheck should appear in --help"
+    );
+}
+
+#[test]
+fn req_0114_precheck_unknown_skip_step_rejected() {
+    let s = Sandbox::new();
+    s.init("p");
+    let out = s.run(&["precheck", "--skip", "polish-the-cat"]);
+    assert!(
+        !out.status.success(),
+        "unknown skip step should be rejected"
+    );
+    assert!(
+        stderr(&out).contains("unknown --skip step"),
+        "error should name the unknown step, got: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn req_0114_precheck_skip_all_steps_runs_clean() {
+    // Skipping every step is a way to verify the wiring without
+    // recursively launching cargo (which would infinite-loop from
+    // inside `cargo test`).
+    let s = Sandbox::new();
+    s.init("p");
+    let out = s.run(&[
+        "precheck", "--skip", "fmt", "--skip", "clippy", "--skip", "test", "--skip", "validate",
+        "--skip", "coverage", "--skip", "review",
+    ]);
+    assert!(
+        out.status.success(),
+        "all-skipped precheck should succeed; stderr={}",
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).contains("precheck OK"),
+        "expected success banner, stdout: {}",
+        stdout(&out)
+    );
 }
 
 #[test]

@@ -8,6 +8,135 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-20
+
+The schema-bump release. Adds two reserved top-level keys to
+`project.req` (`_purpose`, `_config`), a retrofit helper for bulk
+adoption (`req adopt`), a content-hashed staleness signal that
+stops flapping on unrelated commits, and a local CI gate to catch
+environment-skew failures before push.
+
+### Format change — req-v1 → req-v2
+
+- **`_format` is now `req-v2`.** Existing v1 files are not auto-loaded;
+  run `req migrate` to upgrade in place. The migration writes a sibling
+  `*.bak-req-v1` backup, preserves every ID, history entry, link, and
+  test record byte-for-byte, and re-signs the integrity hash.
+- **Older binaries** opening a v2 file produce a clear `unsupported
+  _format` error pointing at `upgrade the req binary` — never a silent
+  mis-read.
+- Regression fixture: `tests/fixtures/v1_project.req` is checked in and
+  exercised by CI to prevent silent breakage as new format versions
+  arrive.
+
+### Added — project purpose (REQ-0111)
+
+- **`_purpose` reserved top-level field** holds an optional one-paragraph
+  statement of what the project is FOR. Validator-capped at 500
+  characters so it stays scannable.
+- **`req init --purpose '...'`** sets it at project creation.
+- **`req purpose '...'` --reason '...'** edits it later. Print mode
+  (`req purpose` with no args) shows the current value.
+- **`req brief` leads with the purpose** when set, followed by the top
+  three Must-priority Verified requirements (the project's "spine").
+  Agents picking up a project cold learn what it's for in one read.
+
+### Added — per-project configuration (REQ-0110)
+
+- **`_config` reserved top-level field** holds per-project defaults
+  under the integrity hash. Precedence: CLI flag > `_config` >
+  built-in defaults.
+- **Exposed surface** (all optional):
+  - `coverage.extensions` — source extensions to scan
+  - `gate.marker_near_hunks` — strict-mode marker proximity
+  - `lint.short_rationale_words` — rationale length floor
+  - `lint.inspection_only_tags` — tags that exempt no-test findings
+- The SQL-extension case from real adoption (a project that wanted
+  `.sql` files scanned but couldn't pass `--ext sql` to the pre-commit
+  hook) is now solvable in-file.
+
+### Added — `req adopt` retroactive backfill (REQ-0109)
+
+- **`req adopt <id>... --to <status>`** advances one or more
+  requirements through the lifecycle in a single invocation. Walks
+  `Draft → Proposed → Approved → Implemented → Verified`, recording
+  one `adopt → <status>` history entry per hop so the trail is
+  auditable.
+- **`--all-drafts`** scopes to every requirement currently at Draft.
+- **`--dry-run`** prints what would change without writing.
+- **Functional requirements with no acceptance** being adopted to
+  Implemented or Verified get an auto-generated placeholder entry
+  (`implementation in source at adoption time`) plus a history entry
+  flagging the auto-add, so reviewers can spot placeholder acceptance
+  lines later. Decision recorded in REQ-0109 for the audit trail.
+- **Verified target** also records an inspection-evidence test record
+  so `req validate` sees the requirement as properly closed.
+
+### Added — `req precheck` local CI gate (REQ-0114)
+
+- **`req precheck`** runs the same six gates CI runs, in the same
+  order: `cargo fmt --check`, `cargo clippy`, `cargo test`,
+  `req validate`, `req coverage --strict`, `req review --gate`.
+  Exits non-zero on the first failure with a clear pointer at which
+  step blew up.
+- **`--skip <step>`** (repeatable) for tight inner loops.
+- **`--keep-going`** reports every failure, not just the first.
+- Wire into a pre-push hook or editor save action to catch rustfmt
+  drift and fixture-config flakiness in the same loop as the code,
+  not in CI five minutes after push.
+
+### Added — content-hashed staleness (REQ-0112)
+
+- **`TestRecord` carries an optional `content_hash`** (sha256 over
+  linked-file contents) and an optional `linked_files` override.
+- **`req stale` uses the hash when present**: STALE fires only on
+  actual content change of the linked files, not on every HEAD
+  movement. The previous SHA-based check was a false-positive
+  generator for projects with active commit traffic.
+- **Linked files** are auto-discovered by default via `// REQ-NNNN:`
+  markers; pass `linked_files` on the record for explicit override.
+- **Backwards compatible**: records without `content_hash` continue
+  to use the SHA-based check, so existing projects keep working
+  without re-recording.
+
+### Added — `req migrate` registry (REQ-0116)
+
+- **`src/migrations.rs`** carries a registered-steps list that
+  `req migrate` walks. The v1 → v2 step is the first entry; future
+  schema bumps register here.
+- **Backup-then-mutate-then-re-sign** contract: every migration
+  writes a sibling backup before any change, then walks the chain,
+  then re-computes the integrity hash. Integrity is verified BEFORE
+  migration so corrupt files get a `repair` hint instead of a
+  silent overwrite.
+
+### Added — priority-label strip in REQ-V-0010 (REQ-0113)
+
+- **Validator no longer counts `Must`/`Should`/`Could`/`Wont` as a
+  modal verb** when they appear immediately followed by `-priority`
+  or `-priorities`. The validator's own ruleset was biting our own
+  spec when we wrote phrases like "Must-priority Verified
+  requirements". Narrowest possible fix.
+
+### Changed
+- **`req coverage` excludes Drafts from the orphan check** by design.
+  A Draft has no implementation yet; expecting a marker is a category
+  error. Strict mode now fires only on Implemented/Verified
+  requirements that lack a code reference.
+
+### Fixed — worktree hooks path (REQ-0117)
+- **`req hooks install` and `req setup` work in git worktrees.** The
+  prior code joined `.git/hooks` onto the repo path, which inside a
+  worktree resolves to `.git/worktrees/<name>/hooks` — a directory
+  that doesn't exist. We now call `git rev-parse --git-common-dir`
+  so the hook lands in the shared `<main>/.git/hooks`. `req setup`
+  also gained a `--repo` flag for the edge case where cwd resolution
+  still picks the wrong tree.
+
+### Known limitations
+- `req adopt` is CLI-only for now; the MCP tool surface will follow.
+  Agents needing bulk adoption can shell out to `req adopt`.
+
 ## [0.3.2] — 2026-05-18
 
 The retrofit-friendly release. Driven by an honest one-session

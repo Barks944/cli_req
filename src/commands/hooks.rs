@@ -4,8 +4,55 @@
 use anyhow::{anyhow, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::cli::HooksArgs;
+
+/// REQ-0117: resolve `<repo>`'s shared hooks directory, honouring
+/// worktrees. Calls `git rev-parse --git-common-dir` and joins
+/// `hooks` onto it; this is the path git itself uses to find hooks
+/// regardless of whether the caller is in the main checkout or a
+/// linked worktree. Falls back to `<repo>/.git/hooks` if git is not
+/// available, so the error message is still useful.
+pub fn resolve_hooks_dir(repo: &Path) -> Result<PathBuf> {
+    if !repo.exists() {
+        return Err(anyhow!("{} does not exist", repo.display()));
+    }
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-parse", "--git-common-dir"])
+        .output();
+    let common_dir = match out {
+        Ok(o) if o.status.success() => {
+            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if s.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(s))
+            }
+        }
+        _ => None,
+    };
+    let common_dir = match common_dir {
+        Some(p) if p.is_absolute() => p,
+        Some(p) => repo.join(p),
+        None => {
+            // git not available or repo isn't a git tree: keep the
+            // old error message so existing callers see the same
+            // diagnostic.
+            let fallback = repo.join(".git");
+            if !fallback.exists() {
+                return Err(anyhow!(
+                    "{} is not a git repository (no .git directory)",
+                    repo.display()
+                ));
+            }
+            fallback
+        }
+    };
+    Ok(common_dir.join("hooks"))
+}
 
 const HOOK_MARKER: &str = "# managed-by: req-hooks";
 const HOOK_MODE_STRICT: &str = "# mode: strict";
@@ -105,14 +152,12 @@ pub fn run(args: HooksArgs) -> Result<()> {
         }
     };
     let repo = args.repo.unwrap_or_else(|| PathBuf::from("."));
-    let git_dir = repo.join(".git");
-    if !git_dir.exists() {
-        return Err(anyhow!(
-            "{} is not a git repository (no .git directory)",
-            repo.display()
-        ));
-    }
-    let hooks_dir = git_dir.join("hooks");
+    // REQ-0117: resolve the hooks directory via `git rev-parse
+    // --git-common-dir` so worktrees (where .git is a file pointing
+    // at .git/worktrees/<name>/) land on the shared hooks/ directory
+    // under the main repo's .git, not the per-worktree subdirectory
+    // that has no hooks/ in it.
+    let hooks_dir = resolve_hooks_dir(&repo)?;
     fs::create_dir_all(&hooks_dir).ok();
     let hook = hooks_dir.join("pre-commit");
 

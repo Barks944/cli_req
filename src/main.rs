@@ -5,6 +5,7 @@ mod commands;
 mod errors;
 mod help_text;
 mod mcp;
+mod migrations;
 mod model;
 mod storage;
 mod tui;
@@ -78,5 +79,11 @@ fn run(cli: Cli) -> Result<()> {
         Command::Brief(args) => commands::brief::run(args, &cli.file),
         // REQ-0105: one-shot project bootstrap.
         Command::Setup(args) => commands::setup::run(args),
+        // REQ-0114: local CI-equivalent gate suite.
+        Command::Precheck(args) => commands::precheck::run(args, &cli.file),
+        // REQ-0111: project purpose statement.
+        Command::Purpose(args) => commands::purpose::run(args, &cli.file),
+        // REQ-0109: retroactive backfill helper.
+        Command::Adopt(args) => commands::adopt::run(args, &cli.file),
     }
 }

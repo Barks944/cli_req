@@ -10,7 +10,12 @@ use crate::cli::SetupArgs;
 use crate::storage;
 
 pub fn run(args: SetupArgs) -> Result<()> {
-    let cwd = std::env::current_dir()?;
+    // REQ-0117: honour --repo when present so worktree users can
+    // point setup at the main checkout. Without it, default to cwd.
+    let cwd = match args.repo.clone() {
+        Some(p) => p,
+        None => std::env::current_dir()?,
+    };
     let project_file = cwd.join("project.req");
 
     println!("req setup — bootstrapping this project for managed requirements\n");
@@ -36,17 +41,20 @@ pub fn run(args: SetupArgs) -> Result<()> {
             output: project_file.clone(),
             force: false,
             layout: crate::cli::LayoutArg::Single,
+            purpose: None,
         };
         crate::commands::init::run(init_args)?;
         println!("  [done] req init -n \"{}\"", name);
     }
 
     // 2. Hooks (unless --no-hooks).
+    // REQ-0117: `.git` is a directory in the main checkout and a
+    // file in a worktree — both pass .exists(), so this catches both.
     let is_git = cwd.join(".git").exists();
     if args.no_hooks {
         println!("  [skip] hooks (--no-hooks)");
     } else if !is_git {
-        println!("  [skip] hooks (.git directory not found — run `git init` first)");
+        println!("  [skip] hooks (.git not found — run `git init` first)");
     } else {
         let hooks_args = crate::cli::HooksArgs {
             action: "install".into(),

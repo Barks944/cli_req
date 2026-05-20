@@ -489,6 +489,8 @@ fn apply_one(
                 outcome: TestOutcome::Pass,
                 notes: format!("{}{}", cites_prefix, notes),
                 kind,
+                content_hash: None,
+                linked_files: None,
             };
             let r = project
                 .requirements

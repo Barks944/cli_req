@@ -1,4 +1,5 @@
 pub mod add;
+pub mod adopt;
 pub mod audit;
 pub mod batch;
 pub mod brief;
@@ -17,6 +18,8 @@ pub mod lint;
 pub mod list;
 pub mod migrate;
 pub mod next;
+pub mod precheck;
+pub mod purpose;
 pub mod renumber;
 pub mod repair;
 pub mod review;

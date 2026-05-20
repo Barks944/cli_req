@@ -16,9 +16,27 @@ static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
 // REQ-0033: default extension list for source scanning. Schema-as-code
 // (SQL migrations, init scripts) is a first-class implementation surface
 // for most backends, so `sql` is here too.
-const DEFAULT_EXTS: &[&str] = &[
+pub const DEFAULT_EXTS: &[&str] = &[
     "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h", "sql",
 ];
+
+/// REQ-0110: resolve extension list with CLI > _config > built-in defaults.
+fn resolve_extensions(cli_exts: &[String], project: &crate::model::Project) -> Vec<String> {
+    if !cli_exts.is_empty() {
+        return cli_exts.to_vec();
+    }
+    if let Some(cfg) = project
+        .config
+        .as_ref()
+        .and_then(|c| c.coverage.as_ref())
+        .and_then(|c| c.extensions.as_ref())
+    {
+        if !cfg.is_empty() {
+            return cfg.clone();
+        }
+    }
+    DEFAULT_EXTS.iter().map(|s| s.to_string()).collect()
+}
 const SKIP_DIRS: &[&str] = &[
     ".git",
     "target",
@@ -48,11 +66,11 @@ struct Report {
 }
 
 pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
-    let exts: Vec<String> = if args.extensions.is_empty() {
-        DEFAULT_EXTS.iter().map(|s| s.to_string()).collect()
-    } else {
-        args.extensions.clone()
-    };
+    // REQ-0110: load the project up front so `_config.coverage.extensions`
+    // contributes to extension resolution even on branches (unlinked_files,
+    // by_file, remap) that didn't previously need the project.
+    let (_, project) = load_resolved(file)?;
+    let exts: Vec<String> = resolve_extensions(&args.extensions, &project);
 
     if args.unlinked_files {
         return run_unlinked_files(&args.path, &exts, args.json);
@@ -64,7 +82,6 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
         return run_remap(&args.path, &exts, &args.remap, args.apply);
     }
 
-    let (_, project) = load_resolved(file)?;
     let mut hits: BTreeMap<String, Vec<String>> = BTreeMap::new();
     walk(&args.path, &exts, &mut |path, line_no, line| {
         for m in REQ_RE.find_iter(line) {

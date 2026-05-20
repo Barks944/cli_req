@@ -32,7 +32,18 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
             }
             Some(t) => t,
         };
-        let s = test_cmd::staleness(&latest.commit, &r.id, &args.path);
+        // REQ-0112: prefer content-hash comparison when the record
+        // carries one. Falls back to SHA-based detection for older
+        // records without a hash.
+        let s = match latest.content_hash.as_deref() {
+            Some(stored_hash) => test_cmd::staleness_by_content(
+                stored_hash,
+                latest.linked_files.as_ref(),
+                &r.id,
+                &args.path,
+            ),
+            None => test_cmd::staleness(&latest.commit, &r.id, &args.path),
+        };
         let label = match &s {
             Staleness::Fresh => {
                 counts.0 += 1;

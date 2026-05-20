@@ -257,6 +257,19 @@ fn req_0026_coverage_reports_referenced_orphans_and_ghosts() {
         "--priority",
         "could",
     ]);
+    // Walk REQ-0002 past Draft — coverage excludes Drafts from the
+    // orphan check by design (a Draft has no implementation yet), so we
+    // need the fixture in a status where missing a marker is a real
+    // orphan.
+    let _ = s.run(&[
+        "update",
+        "REQ-0002",
+        "--status",
+        "implemented",
+        "--reason",
+        "coverage fixture: orphan candidate at implemented",
+        "--force",
+    ]);
     fs::create_dir_all(s.dir.path().join("src")).unwrap();
     // Construct the bogus marker via format! so the four-digit literal
     // never appears in this source (otherwise the project-wide coverage

@@ -13,7 +13,65 @@ pub struct Project {
     pub updated: DateTime<Utc>,
     pub next_id: u32,
     pub requirements: BTreeMap<String, Requirement>,
+    /// REQ-0111: optional one-paragraph statement of what this project
+    /// is FOR. Serialised as `_purpose` (reserved key under the
+    /// integrity hash, introduced in req-v2). 500-char cap enforced at
+    /// edit time.
+    #[serde(default, rename = "_purpose", skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    /// REQ-0110: per-project configuration. Serialised as `_config`
+    /// (reserved key under the integrity hash, introduced in req-v2).
+    /// Precedence: CLI flag overrides _config overrides built-in
+    /// defaults.
+    #[serde(default, rename = "_config", skip_serializing_if = "Option::is_none")]
+    pub config: Option<ProjectConfig>,
 }
+
+/// REQ-0110: the schema for the in-file `_config` map. Each section
+/// holds optional overrides; `None` means "use the binary's default".
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<CoverageConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<GateConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lint: Option<LintConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CoverageConfig {
+    /// Source-file extensions to scan for `// REQ-NNNN:` markers in
+    /// addition to (or instead of) the built-in defaults. When set,
+    /// the values REPLACE the defaults so adopters can scope tightly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GateConfig {
+    /// Strict-mode marker proximity in lines (default 50). Overrides
+    /// `req review --gate`'s `--marker-near-hunks` flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_near_hunks: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LintConfig {
+    /// Word-count threshold below which a rationale is flagged as too
+    /// short by `req lint`. Defaults to the binary's built-in value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_rationale_words: Option<u32>,
+    /// Tags that exempt a requirement from `req lint`'s no-test-record
+    /// finding (REQ-0107). Defaults to `["inspection-only"]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inspection_only_tags: Option<Vec<String>>,
+}
+
+/// REQ-0111: maximum length of the `_purpose` string. Enforced at edit
+/// time by `req init --purpose` and `req purpose`. Caps the field at
+/// one paragraph so `req brief` can lead with it without scrolling.
+pub const PURPOSE_MAX_CHARS: usize = 500;
 
 impl Project {
     pub fn new(name: String) -> Self {
@@ -24,6 +82,8 @@ impl Project {
             updated: now,
             next_id: 1,
             requirements: BTreeMap::new(),
+            purpose: None,
+            config: None,
         }
     }
 
@@ -68,6 +128,18 @@ pub struct TestRecord {
     /// older project.req files.
     #[serde(default = "EvidenceKind::automated")]
     pub kind: EvidenceKind,
+    /// REQ-0112: sha256 of the linked-file contents at record time.
+    /// When present, `req stale` compares this against a re-hash of
+    /// the current files; STALE fires only when content actually
+    /// changed, not on every HEAD move. Older records without this
+    /// field continue to use the SHA-based comparison.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    /// REQ-0112: optional explicit list of linked file paths. When
+    /// set, overrides the default auto-discovery via `// REQ-NNNN:`
+    /// markers. Use when the marker scan would be too blunt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_files: Option<Vec<String>>,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]

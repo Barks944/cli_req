@@ -45,6 +45,8 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         outcome: TestOutcome::Pass,
         notes: format!("{}{}", cites_prefix, args.notes),
         kind,
+        content_hash: None,
+        linked_files: None,
     };
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
@@ -125,6 +127,15 @@ fn record(mut args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
         TestResultArg::Pass => TestOutcome::Pass,
         TestResultArg::Fail => TestOutcome::Fail,
     };
+    // REQ-0112: content-hash the linked source files at record time
+    // so `req stale` can fire on actual content changes rather than
+    // any HEAD movement. Auto-discovered via `// REQ-NNNN:` markers.
+    let auto_linked = auto_linked_files(&args.id, std::path::Path::new("."));
+    let content_hash = if auto_linked.is_empty() {
+        None
+    } else {
+        Some(hash_files(&auto_linked))
+    };
     let record = TestRecord {
         at: Utc::now(),
         actor: super::current_actor(),
@@ -132,6 +143,17 @@ fn record(mut args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
         outcome,
         notes: args.notes,
         kind: EvidenceKind::Automated,
+        content_hash,
+        linked_files: if auto_linked.is_empty() {
+            None
+        } else {
+            Some(
+                auto_linked
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+            )
+        },
     };
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
@@ -226,6 +248,33 @@ impl Staleness {
 }
 
 /// Files under `root` that contain `REQ-NNNN` for the given id.
+/// REQ-0112: auto-discover linked files for a test record. Wraps
+/// `files_referencing` with a stable ordering so the content hash is
+/// reproducible across runs.
+pub fn auto_linked_files(req_id: &str, root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = files_referencing(req_id, root);
+    files.sort();
+    files
+}
+
+/// REQ-0112: hash a list of files (sha256 over each file's contents,
+/// concatenated with a path separator). Missing files produce an empty
+/// byte block; the path is always included so deletion vs same-content
+/// renames are distinguishable.
+pub fn hash_files(files: &[std::path::PathBuf]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for p in files {
+        hasher.update(p.to_string_lossy().as_bytes());
+        hasher.update(b"\0");
+        if let Ok(bytes) = std::fs::read(p) {
+            hasher.update(&bytes);
+        }
+        hasher.update(b"\n");
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path::PathBuf> {
     use once_cell::sync::Lazy;
     use regex::Regex;
@@ -298,6 +347,46 @@ fn git_changed_since(record_commit: &str) -> Option<std::collections::BTreeSet<S
             .filter(|l| !l.is_empty())
             .collect(),
     )
+}
+
+/// REQ-0112: staleness check using a stored content_hash. Compares
+/// the hash of the currently-linked files (auto-discovered, or the
+/// explicit `linked_files` override) against `stored_hash`. STALE
+/// when they differ; Fresh when they match. Always returns the count
+/// of linked files for diagnostics.
+pub fn staleness_by_content(
+    stored_hash: &str,
+    explicit_linked: Option<&Vec<String>>,
+    req_id: &str,
+    source_root: &std::path::Path,
+) -> Staleness {
+    let files: Vec<std::path::PathBuf> = match explicit_linked {
+        Some(list) => list.iter().map(std::path::PathBuf::from).collect(),
+        None => auto_linked_files(req_id, source_root),
+    };
+    let current_hash = hash_files(&files);
+    if current_hash == stored_hash {
+        Staleness::Fresh
+    } else {
+        // We don't have a per-file diff here — surface the linked set
+        // so the user knows where to look. The `changed` vec carries
+        // the linked files rather than just the deltas; this is more
+        // useful in practice (you re-check all of them) and avoids a
+        // second git invocation when content hashing already told us
+        // something moved.
+        let changed: Vec<String> = files
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        if changed.is_empty() {
+            Staleness::Drifted { linked: 0 }
+        } else {
+            Staleness::Stale {
+                linked: changed.len(),
+                changed,
+            }
+        }
+    }
 }
 
 pub fn staleness(record_commit: &str, req_id: &str, source_root: &std::path::Path) -> Staleness {
@@ -454,6 +543,13 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         if !exists || args.dry_run {
             continue;
         }
+        // REQ-0112: content-hash auto-discovered linked files.
+        let auto_linked = auto_linked_files(req_id, std::path::Path::new("."));
+        let content_hash = if auto_linked.is_empty() {
+            None
+        } else {
+            Some(hash_files(&auto_linked))
+        };
         let record = TestRecord {
             at: Utc::now(),
             actor: actor.clone(),
@@ -461,6 +557,17 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             outcome,
             notes,
             kind: EvidenceKind::Automated,
+            content_hash,
+            linked_files: if auto_linked.is_empty() {
+                None
+            } else {
+                Some(
+                    auto_linked
+                        .iter()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect(),
+                )
+            },
         };
         records_to_apply.push((req_id.clone(), record));
     }

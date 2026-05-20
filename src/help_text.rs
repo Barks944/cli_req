@@ -1,4 +1,8 @@
 // Implements REQ-0018 (structured, sectioned help browsable by name).
+// REQ-0115: all user-facing help text lives here; this file is the
+// source for the agents block written into AGENTS.md and the
+// `req help <section>` surface, so it is the canonical place to
+// document new commands and format changes.
 pub struct Section {
     pub name: &'static str,
     pub summary: &'static str,
@@ -140,6 +144,10 @@ START HERE
 
   req brief                    one-line summary of where the project is
                                right now. Run this first in any session.
+                               Now leads with the project's `_purpose`
+                               (REQ-0111) plus its top three Must/Verified
+                               requirements — the spine — so you learn
+                               what the project is FOR before what's queued.
   req list                     full list of requirements with status
   req show REQ-0007            details + history for one requirement
   req next                     suggests what to work on, dependency-aware
@@ -163,6 +171,29 @@ WHILE YOU WORK
   req coverage --path src      where are the markers? what's orphaned?
   req validate                 are the requirements well-formed?
   req lint                     softer audit (rationale length, etc.)
+  req precheck                 run the local CI gate suite (REQ-0114) —
+                               fmt + clippy + test + validate + coverage
+                               + review, in CI's order. Catches the
+                               environment-skew failures (rustfmt drift,
+                               fixture-config flakiness) that otherwise
+                               only show up after push.
+
+WORKING WITH AN EXISTING PROJECT (RETROFIT)
+
+  req adopt REQ-0001 REQ-0002  walk a list of requirements through the
+                               lifecycle to Verified in one invocation
+                               (REQ-0109). One history entry per hop,
+                               auto-placeholder acceptance for functional
+                               reqs that lack one, inspection evidence
+                               recorded when the target is Verified.
+  req adopt --all-drafts       same, scoped to every requirement at Draft.
+  req adopt --to implemented   stop short of Verified.
+  req adopt --dry-run          show the plan without writing.
+
+  The retrofit path matters because the lifecycle state machine exists
+  to make ongoing work disciplined — not to make loading existing state
+  painful. `req adopt` is the explicit acknowledgement that those are
+  two different modes.
 
 WHEN YOU FINISH SOMETHING
 
@@ -351,7 +382,32 @@ CODE REVIEW
 
   req diff origin/main..HEAD  # per-requirement changes since the base ref
   req check origin/main       # incremental validate + coverage scoped to
-                              # files changed since the ref",
+                              # files changed since the ref
+
+LOCAL CI EQUIVALENT (REQ-0114)
+
+  req precheck runs the exact gate suite CI runs, in CI's order, with
+  one invocation. Wire it into your editor's save action or a pre-push
+  hook to catch format/clippy/test drift in the same loop where the
+  code lives — before pushing.
+
+    req precheck                          # full suite, stops on first fail
+    req precheck --skip clippy            # repeat --skip for tight loops
+    req precheck --keep-going             # report every failure, not just first
+
+  Steps, in order:
+
+    1. cargo fmt --all -- --check
+    2. cargo clippy --all-targets -- -D warnings
+    3. cargo test --all
+    4. req validate
+    5. req coverage --strict
+    6. req review --gate
+
+  Exits non-zero on the first failure (or after running all when
+  --keep-going is set) and points to which step blew up. Three of the
+  0.3.2 CI failures were rustfmt or test-fixture drift that this would
+  have caught locally.",
     },
     Section {
         name: "version-control",
@@ -404,19 +460,27 @@ signed commits for the latter.",
         name: "format-policy",
         summary: "How `_format` versions evolve and what guarantees the CLI makes.",
         body: "`project.req` carries a `_format` tag at the top of the file
-(currently `req-v1`). This section pins down what changes that tag
+(currently `req-v2`). This section pins down what changes that tag
 and what to expect when it does.
 
 CURRENT VERSION
 
-  req-v1 — the only released format. All shipping binaries read and
+  req-v2 — the current released format. All 0.4.x binaries read and
   write it. The schema is:
     _warning / _instructions   informational, ignored by the loader
     _format                    schema tag (required)
     _integrity                 sha256 of canonical payload (required)
+    _purpose                   optional, project purpose statement (REQ-0111)
+    _config                    optional, per-project configuration (REQ-0110)
     name / created / updated   project metadata
     next_id                    monotonic ID counter
     requirements               map of REQ-NNNN to Requirement objects
+
+PRIOR VERSIONS
+
+  req-v1 — shipped in 0.1.0 through 0.3.2. Lacked `_purpose` and
+  `_config`. Files at v1 must be migrated with `req migrate`; the
+  CLI refuses to load them directly to avoid silently mis-reading.
 
 WHEN THE TAG BUMPS
 

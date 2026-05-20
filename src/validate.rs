@@ -134,12 +134,23 @@ static URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\b[a-z][a-z0-9+.-]*:/
 
 static BACKTICK_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"`[^`]*`").unwrap());
 
+// REQ-0113: priority-label tokens (Must/Should/Could/Wont) are reserved
+// terms in req's domain. When they appear as a noun-phrase reference to
+// the priority field (`Must-priority requirements`) they are not modal
+// verbs and must be stripped before the modal-verb count, or the
+// validator's own ruleset bites our own spec. Narrowest fix: strip the
+// token only when immediately followed by `-priority` or `-priorities`.
+static PRIORITY_LABEL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\b(must|should|could|wont)(-priorit(?:y|ies))\b").unwrap());
+
 /// Strip URLs and inline `code` so the modal-verb check doesn't match a
-/// `shall.example.com` host or a `should_run()` identifier.
+/// `shall.example.com` host or a `should_run()` identifier. Also strip
+/// priority-label tokens that sit next to priority-noun usage (REQ-0113).
 fn strip_non_prose(s: &str) -> String {
     let no_urls = URL_RE.replace_all(s, " ");
     let no_code = BACKTICK_RE.replace_all(&no_urls, " ");
-    no_code.into_owned()
+    let no_priority_labels = PRIORITY_LABEL_RE.replace_all(&no_code, " ");
+    no_priority_labels.into_owned()
 }
 
 // REQ-0102: validator findings name the cause and a suggested fix so

@@ -407,13 +407,16 @@ WHEN YOU FINISH SOMETHING
 
 HOW THE FILE IS PROTECTED
 
-  Never read or edit `project.req` directly. It has an integrity hash
-  that catches hand edits — your next `req` call will refuse to load
-  if you bypassed the CLI. If that happens, `req repair --confirm-
-  direct-edit` is the audited escape.
+  `project.req` is just JSON — there's nothing at the filesystem
+  level stopping you from opening it in an editor. The contract is
+  *post-hoc*: every change passes through an integrity hash, and
+  any edit that didn't go via the CLI will fail your next `req`
+  call until `req repair --confirm-direct-edit` re-signs it.
+  Agents that bypass the CLI don't break anything silently — they
+  just trigger a visible repair audit on the next operation.
 
-  This isn't about gatekeeping you — it's so the diff in any PR
-  reflects something the CLI was willing to record. That's the
+  This isn't about gatekeeping you. It's so the diff in any PR
+  reflects something the CLI was willing to record — the
   guarantee humans rely on when reviewing.
 
 RULES THAT MATTER (the short list)

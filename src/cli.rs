@@ -154,6 +154,51 @@ pub enum Command {
     Brief(BriefArgs),
     /// REQ-0105: one-shot project bootstrap (init + hooks + AGENTS.md).
     Setup(SetupArgs),
+    /// REQ-0114: run the local equivalent of the CI gate suite.
+    Precheck(PrecheckArgs),
+    /// REQ-0111: set or print the project's purpose statement.
+    Purpose(PurposeArgs),
+    /// REQ-0109: retroactive backfill — advance requirements through
+    /// the lifecycle to a target status in one invocation.
+    Adopt(AdoptArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct AdoptArgs {
+    /// Requirements to adopt. Provide IDs (REQ-0001 etc.) or use
+    /// --all-drafts to scope to every requirement currently at Draft.
+    pub ids: Vec<String>,
+    /// Adopt every requirement currently at Draft.
+    #[arg(long)]
+    pub all_drafts: bool,
+    /// Target lifecycle position. Default: verified.
+    #[arg(long, value_enum, ignore_case = true, default_value = "verified")]
+    pub to: AdoptTarget,
+    /// Reason recorded on every history entry written by adopt.
+    /// Defaults to "retroactive adoption from existing source state".
+    #[arg(short, long)]
+    pub reason: Option<String>,
+    /// Print what would change without writing.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+pub enum AdoptTarget {
+    Proposed,
+    Approved,
+    Implemented,
+    Verified,
+}
+
+#[derive(Args, Debug)]
+pub struct PurposeArgs {
+    /// New purpose statement. Omit to print the current value. Pass an
+    /// empty string to clear. Max 500 characters.
+    pub text: Option<String>,
+    /// Recorded reason for the change (required when setting/changing).
+    #[arg(short, long)]
+    pub reason: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -175,6 +220,24 @@ pub struct SetupArgs {
     /// Overwrite an existing non-managed pre-commit hook.
     #[arg(long)]
     pub force: bool,
+    /// REQ-0117: repo path to operate on. Defaults to the current
+    /// working directory. Useful when running inside a worktree
+    /// where the main repo's hooks/ live in a different tree.
+    #[arg(long)]
+    pub repo: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct PrecheckArgs {
+    /// Skip one or more steps (repeatable). Names: fmt, clippy, test,
+    /// validate, coverage, review. Use this only for tight inner loops —
+    /// the default is to run everything CI runs.
+    #[arg(long = "skip", value_name = "STEP")]
+    pub skip: Vec<String>,
+    /// Continue running remaining steps after a failure. Default: stop
+    /// on the first non-zero step so the failure is easy to read.
+    #[arg(long)]
+    pub keep_going: bool,
 }
 
 #[derive(Args, Debug)]
@@ -405,6 +468,10 @@ pub struct InitArgs {
     /// plus an index file. Both preserve the integrity guarantee.
     #[arg(long, value_enum, ignore_case = true, default_value = "single")]
     pub layout: LayoutArg,
+    /// REQ-0111: one-paragraph project purpose statement. Surfaced by
+    /// `req brief` at session start. Max 500 characters.
+    #[arg(long)]
+    pub purpose: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]

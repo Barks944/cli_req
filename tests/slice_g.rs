@@ -241,7 +241,7 @@ fn req_0078_schema_add_is_valid_json_with_format() {
     );
     assert!(v["properties"]["title"].is_object());
     assert!(v["properties"]["statement"].is_object());
-    assert_eq!(v["_format"].as_str().unwrap(), "req-v1");
+    assert_eq!(v["_format"].as_str().unwrap(), "req-v2");
 }
 
 #[test]

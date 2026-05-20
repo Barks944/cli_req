@@ -1861,6 +1861,13 @@ fn tool_test_record(args: &Value, file: &Path) -> Result<String> {
         .requirements
         .get_mut(&id)
         .ok_or_else(|| anyhow!("no such requirement: {}", id))?;
+    // REQ-0112: auto-discover linked files + content-hash them.
+    let auto_linked = super::commands::test_cmd::auto_linked_files(&id, std::path::Path::new("."));
+    let content_hash = if auto_linked.is_empty() {
+        None
+    } else {
+        Some(super::commands::test_cmd::hash_files(&auto_linked))
+    };
     let record = crate::model::TestRecord {
         at: Utc::now(),
         actor: super::commands::current_actor(),
@@ -1868,6 +1875,17 @@ fn tool_test_record(args: &Value, file: &Path) -> Result<String> {
         outcome,
         notes: notes.clone(),
         kind: crate::model::EvidenceKind::Automated,
+        content_hash,
+        linked_files: if auto_linked.is_empty() {
+            None
+        } else {
+            Some(
+                auto_linked
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+            )
+        },
     };
     r.tests.push(record);
     r.history.push(crate::commands::history(
@@ -1958,6 +1976,13 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
         }));
         if exists && !dry_run {
             let r = project.requirements.get_mut(id).unwrap();
+            let auto_linked =
+                super::commands::test_cmd::auto_linked_files(id, std::path::Path::new("."));
+            let content_hash = if auto_linked.is_empty() {
+                None
+            } else {
+                Some(super::commands::test_cmd::hash_files(&auto_linked))
+            };
             r.tests.push(crate::model::TestRecord {
                 at: Utc::now(),
                 actor: actor.clone(),
@@ -1965,6 +1990,17 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
                 outcome,
                 notes,
                 kind: crate::model::EvidenceKind::Automated,
+                content_hash,
+                linked_files: if auto_linked.is_empty() {
+                    None
+                } else {
+                    Some(
+                        auto_linked
+                            .iter()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect(),
+                    )
+                },
             });
             r.history.push(crate::commands::history(
                 format!("test {} recorded via MCP req_test_run", outcome.as_str()),
@@ -2046,6 +2082,8 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
         outcome: crate::model::TestOutcome::Pass,
         notes: format!("{}{}", prefix, notes),
         kind,
+        content_hash: None,
+        linked_files: None,
     });
     r.history.push(crate::commands::history(
         format!(

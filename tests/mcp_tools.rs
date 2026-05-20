@@ -64,7 +64,7 @@ fn text_of(response: &serde_json::Value) -> String {
 /// shell.
 const HUMANS_ONLY_TUI: &[&str] = &[
     "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "migrate", "schema", "batch",
-    "import", "test", "verify", "check", "help", "setup",
+    "import", "test", "verify", "check", "help", "setup", "precheck", "purpose", "adopt",
 ];
 
 #[test]
@@ -145,7 +145,8 @@ fn req_0083_tui_menu_covers_every_agent_relevant_cli_command() {
 /// command here is an opt-out; the test below ensures every other CLI
 /// command appears as a req_* MCP tool. See REQ-0083.
 const HUMANS_ONLY_CLI: &[&str] = &[
-    "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "setup",
+    "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "setup", "precheck", "purpose",
+    "adopt",
 ];
 
 #[test]

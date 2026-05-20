@@ -152,6 +152,62 @@ fn req_0029_compound_statement_warns_on_double_shall() {
     );
 }
 
+// ---------- REQ-0113: priority-label tokens are not modal verbs ----------
+
+#[test]
+fn req_0113_priority_label_does_not_trip_compound() {
+    let s = Sandbox::new();
+    s.init("v");
+    let out = add_minimal(
+        &s,
+        "The system shall surface Must-priority Verified requirements at session start.",
+        "constraint",
+        &[],
+    );
+    assert!(out.status.success(), "stderr={}", stderr(&out));
+    assert!(
+        !stderr(&out).contains("compound"),
+        "Must-priority should not trip REQ-V-0010, stderr={}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn req_0113_real_repeated_modal_still_trips_compound() {
+    let s = Sandbox::new();
+    s.init("v");
+    let out = add_minimal(
+        &s,
+        "The system shall do alpha and must do beta as two separate things.",
+        "constraint",
+        &[],
+    );
+    assert!(out.status.success(), "compound is a warning, not an error");
+    assert!(
+        stderr(&out).contains("compound"),
+        "shall+must should still be flagged, stderr={}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn req_0113_should_priorities_plural_also_stripped() {
+    let s = Sandbox::new();
+    s.init("v");
+    let out = add_minimal(
+        &s,
+        "The system shall rank Should-priorities below Must-priorities in the brief output.",
+        "constraint",
+        &[],
+    );
+    assert!(out.status.success(), "stderr={}", stderr(&out));
+    assert!(
+        !stderr(&out).contains("compound"),
+        "priority-noun usage with -priorities suffix should not trip REQ-V-0010, stderr={}",
+        stderr(&out)
+    );
+}
+
 // ---------- REQ-0030: Unicode-char title length ----------
 
 #[test]

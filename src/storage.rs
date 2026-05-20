@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::Project;
 
-pub const FORMAT_TAG: &str = "req-v1";
+pub const FORMAT_TAG: &str = "req-v2";
 pub const FORMAT_TAG_DIR: &str = "req-v1-dir";
 
 /// REQ-0075: the on-disk shape. `Single` is one JSON file at `path`.
@@ -397,6 +397,12 @@ pub fn load_directory(root: &Path, force: bool) -> Result<Project> {
             .and_then(|v| v.as_u64())
             .unwrap_or(1) as u32,
         requirements,
+        purpose: root_obj
+            .remove("_purpose")
+            .and_then(|v| serde_json::from_value(v).ok()),
+        config: root_obj
+            .remove("_config")
+            .and_then(|v| serde_json::from_value(v).ok()),
     };
 
     if !force {
@@ -430,7 +436,7 @@ fn directory_integrity(project: &Project) -> Result<String> {
     Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
 }
 
-fn integrity_hash(payload: &Value) -> String {
+pub fn integrity_hash(payload: &Value) -> String {
     let canonical = canonical_json(payload);
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());

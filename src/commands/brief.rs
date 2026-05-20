@@ -31,12 +31,14 @@ pub fn run(args: BriefArgs, file: &Option<PathBuf>) -> Result<()> {
 
 struct Snapshot {
     name: String,
+    purpose: Option<String>,
     total: usize,
     by_status: [usize; 6],
     delivery_pct: f64,
     next_pick: Option<(String, String, String, String)>, // (id, title, status, priority)
     implemented_unverified: Vec<String>,
     drafts: Vec<String>,
+    top_verified_must: Vec<(String, String)>,
     hook_mode: Option<String>,
     last_change: Option<String>,
 }
@@ -118,14 +120,31 @@ fn snapshot(project: &Project) -> Snapshot {
     let hook_mode = detect_hook_mode();
     let last_change = detect_last_spec_change();
 
+    // REQ-0111: top three Must-priority Verified requirements by title.
+    // These are the load-bearing pieces an agent should know about
+    // when they wake up — the project's spine.
+    use crate::model::Priority;
+    let mut top_verified_must: Vec<(String, String)> = project
+        .requirements
+        .iter()
+        .filter(|(_, r)| {
+            matches!(r.status, Status::Verified) && matches!(r.priority, Priority::Must)
+        })
+        .map(|(id, r)| (id.clone(), r.title.clone()))
+        .collect();
+    top_verified_must.sort_by(|a, b| a.0.cmp(&b.0));
+    top_verified_must.truncate(3);
+
     Snapshot {
         name: project.name.clone(),
+        purpose: project.purpose.clone(),
         total,
         by_status,
         delivery_pct,
         next_pick,
         implemented_unverified,
         drafts,
+        top_verified_must,
         hook_mode,
         last_change,
     }
@@ -163,6 +182,20 @@ fn detect_last_spec_change() -> Option<String> {
 impl Snapshot {
     fn to_short(&self, _project: &Project) -> String {
         let mut out = String::new();
+        // REQ-0111: lead with purpose if set — that's the most
+        // load-bearing line for an agent starting cold.
+        if let Some(p) = &self.purpose {
+            out.push_str(p);
+            out.push_str("\n\n");
+        }
+        // Top three Must-priority Verified — the project's spine.
+        if !self.top_verified_must.is_empty() {
+            out.push_str("spine:\n");
+            for (id, title) in &self.top_verified_must {
+                let title_short: String = title.chars().take(60).collect();
+                out.push_str(&format!("  - {} — {}\n", id, title_short));
+            }
+        }
         // Headline
         out.push_str(&format!(
             "req brief: {} — {} req(s), {:.0}% delivered",
@@ -214,6 +247,11 @@ impl Snapshot {
     fn to_full(&self, project: &Project) -> String {
         let mut out = String::new();
         out.push_str(&format!("# req brief — {}\n\n", self.name));
+        if let Some(p) = &self.purpose {
+            out.push_str("## Purpose\n\n");
+            out.push_str(p);
+            out.push_str("\n\n");
+        }
         out.push_str(&format!(
             "**{} requirements · {:.1}% delivered**\n\n",
             self.total, self.delivery_pct
@@ -285,6 +323,8 @@ impl Snapshot {
     fn to_json(&self) -> serde_json::Value {
         json!({
             "project": self.name,
+            "purpose": self.purpose,
+            "spine": self.top_verified_must.iter().map(|(id, t)| json!({ "id": id, "title": t })).collect::<Vec<_>>(),
             "total": self.total,
             "by_status": {
                 "draft":       self.by_status[0],
