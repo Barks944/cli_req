@@ -8,7 +8,7 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
-## [0.4.0] — 2026-05-20
+## [0.4.0-rc.1] — 2026-05-20
 
 The schema-bump release. Adds two reserved top-level keys to
 `project.req` (`_purpose`, `_config`), a retrofit helper for bulk
