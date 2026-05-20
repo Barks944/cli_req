@@ -372,8 +372,12 @@ START HERE
 
   req brief                    one-line summary of where the project is
                                right now. Run this first in any session.
+                               Now leads with the project's `_purpose`
+                               (REQ-NNNN) plus its top three Must/Verified
+                               requirements — the spine — so you learn
+                               what the project is FOR before what's queued.
   req list                     full list of requirements with status
-  req show REQ-0007            details + history for one requirement
+  req show REQ-NNNN            details + history for one requirement
   req next                     suggests what to work on, dependency-aware
 
 WHEN THE USER ASKS FOR SOMETHING NEW
@@ -395,6 +399,29 @@ WHILE YOU WORK
   req coverage --path src      where are the markers? what's orphaned?
   req validate                 are the requirements well-formed?
   req lint                     softer audit (rationale length, etc.)
+  req precheck                 run the local CI gate suite (REQ-NNNN) —
+                               fmt + clippy + test + validate + coverage
+                               + review, in CI's order. Catches the
+                               environment-skew failures (rustfmt drift,
+                               fixture-config flakiness) that otherwise
+                               only show up after push.
+
+WORKING WITH AN EXISTING PROJECT (RETROFIT)
+
+  req adopt REQ-NNNN REQ-NNNN  walk a list of requirements through the
+                               lifecycle to Verified in one invocation
+                               (REQ-NNNN). One history entry per hop,
+                               auto-placeholder acceptance for functional
+                               reqs that lack one, inspection evidence
+                               recorded when the target is Verified.
+  req adopt --all-drafts       same, scoped to every requirement at Draft.
+  req adopt --to implemented   stop short of Verified.
+  req adopt --dry-run          show the plan without writing.
+
+  The retrofit path matters because the lifecycle state machine exists
+  to make ongoing work disciplined — not to make loading existing state
+  painful. `req adopt` is the explicit acknowledgement that those are
+  two different modes.
 
 WHEN YOU FINISH SOMETHING
 

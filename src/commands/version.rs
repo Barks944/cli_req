@@ -11,6 +11,11 @@ pub fn run(args: VersionArgs) -> Result<()> {
     let bin_name = "req";
     let version = env!("CARGO_PKG_VERSION");
     let package = env!("CARGO_PKG_NAME");
+    // SemVer pre-release identifier sits after a `-`. Surface it as
+    // a separate field in the JSON form for tooling; the human-readable
+    // line stays exactly `req <version>` so it matches clap's
+    // --version / -v / -V output (REQ-0037 parity guarantee).
+    let is_prerelease = version.contains('-');
     if args.json {
         println!(
             "{}",
@@ -18,6 +23,7 @@ pub fn run(args: VersionArgs) -> Result<()> {
                 "name": bin_name,
                 "package": package,
                 "version": version,
+                "prerelease": is_prerelease,
                 "file_format": crate::storage::FORMAT_TAG,
                 "mcp_protocol": "2024-11-05",
             }))?

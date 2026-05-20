@@ -96,3 +96,95 @@ fn req_0117_hooks_install_lands_shared_dir_in_worktree() {
         per_wt.display()
     );
 }
+
+// ---------- REQ-0123: req doctor inside a worktree ----------
+
+#[test]
+fn req_0123_doctor_finds_shared_hook_from_inside_worktree() {
+    if run(
+        &["git", "--version"],
+        std::env::current_dir().unwrap().as_path(),
+    )
+    .status
+    .code()
+        != Some(0)
+    {
+        eprintln!("git not on PATH, skipping");
+        return;
+    }
+
+    let s = Sandbox::new();
+    let main = s.dir.path().join("main");
+    let wt = s.dir.path().join("wt");
+    fs::create_dir_all(&main).unwrap();
+
+    // Seed + worktree, same as the install test.
+    assert!(run(&["git", "init", "-q"], &main).status.success());
+    let _ = run(&["git", "config", "user.email", "t@e"], &main);
+    let _ = run(&["git", "config", "user.name", "t"], &main);
+    let _ = run(&["git", "config", "commit.gpgsign", "false"], &main);
+    fs::write(main.join("README.md"), "seed\n").unwrap();
+    let _ = run(&["git", "add", "-A"], &main);
+    assert!(run(&["git", "commit", "-q", "-m", "seed"], &main)
+        .status
+        .success());
+    assert!(run(
+        &["git", "worktree", "add", "-q", wt.to_str().unwrap()],
+        &main,
+    )
+    .status
+    .success());
+
+    // Install hooks via --repo <worktree> — lands them in the shared dir.
+    let install = Command::new(env!("CARGO_BIN_EXE_req"))
+        .args([
+            "hooks",
+            "install",
+            "--repo",
+            wt.to_str().unwrap(),
+            "--force",
+        ])
+        .output()
+        .expect("invoke req");
+    assert!(
+        install.status.success(),
+        "install: {}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+
+    // Initialise a project.req inside the worktree so doctor has
+    // something to load. Use --output so we don't depend on cwd.
+    let proj = wt.join("project.req");
+    let init = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(&wt)
+        .args(["init", "-n", "wt", "-o", proj.to_str().unwrap()])
+        .output()
+        .expect("init");
+    assert!(
+        init.status.success(),
+        "init: {}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+
+    // Now run `req doctor` FROM INSIDE the worktree. The fix is that
+    // resolve_hooks_dir uses --git-common-dir, so doctor should find
+    // the shared pre-commit hook and report OK on the hook check.
+    let doctor = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(&wt)
+        .arg("doctor")
+        .output()
+        .expect("doctor");
+    let stdout = String::from_utf8_lossy(&doctor.stdout);
+    // The doctor output uses [OK] / [FAIL] tags; the pre-commit row
+    // must NOT be FAIL.
+    let hook_line = stdout
+        .lines()
+        .find(|l| l.contains("pre-commit hook"))
+        .unwrap_or("(no pre-commit line)");
+    assert!(
+        !hook_line.contains("FAIL"),
+        "doctor inside worktree should find the shared hook, got: {}\nfull output:\n{}",
+        hook_line,
+        stdout
+    );
+}

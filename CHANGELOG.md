@@ -8,6 +8,50 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.4.0-rc.2] — 2026-05-20
+
+Bugfix pass on rc.1 driven by external E2E testing.
+
+### Fixed
+- **REQ-0123 (doctor worktree):** `req doctor` now resolves the
+  hooks directory via `git rev-parse --git-common-dir`, so it finds
+  the shared `pre-commit` hook from inside a linked worktree
+  instead of falsely reporting it missing. Same root-cause fix as
+  REQ-0117 on the install side.
+- **REQ-0119 (import schema):** the `req schema import` JSON
+  schema now lists `rationale` in `required`, matching the
+  validator's REQ-V-0012 rule. The schema no longer lies about
+  what the validator will accept.
+- **REQ-0120 (AGENTS.md placeholder IDs):** `req help <section>
+  --install` rewrites literal `REQ-NNNN` identifiers in the
+  installed text to the placeholder `REQ-NNNN` (non-digits).
+  Adopters' coverage scanners no longer pick up cli_req's own
+  example IDs (REQ-0001 etc.) as ghost references in their
+  projects.
+
+### Changed
+- **REQ-0121 (coverage report):** `req coverage` now splits the
+  unmarked-requirements view into two buckets — `orphans`
+  (non-Draft, non-Obsolete; strict-gated) and `drafts_unmarked`
+  (Draft; informational only). The human output labels each
+  bucket with its semantics. Strict-mode gating behaviour is
+  unchanged.
+
+### Added
+- **REQ-0122 (auto-migrate on stale _format):** loading a
+  project.req at an older `_format` now performs the migration
+  in-process on first encounter — writes a sibling backup,
+  applies the registered migration chain, re-signs the integrity
+  hash, then re-reads the file. Opt out with
+  `REQ_NO_AUTO_MIGRATE=1` to keep the prior manual-migrate
+  error. Removes the post-upgrade ritual of typing `req migrate`
+  on every project.
+- **`req version` JSON now carries a `prerelease` boolean** so
+  tooling can detect pre-release binaries (`0.4.0-rc.2` etc.)
+  without parsing the version string. The human-readable line
+  stays exactly `req <version>` to preserve REQ-0037 parity with
+  clap's `-v` / `--version`.
+
 ## [0.4.0-rc.1] — 2026-05-20
 
 The schema-bump release. Adds two reserved top-level keys to

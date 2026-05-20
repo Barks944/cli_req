@@ -244,6 +244,120 @@ fn req_0078_schema_add_is_valid_json_with_format() {
     assert_eq!(v["_format"].as_str().unwrap(), "req-v2");
 }
 
+// REQ-0121: coverage surfaces both `orphans` (strict-gated) and
+// `drafts_unmarked` (informational) so adopters see the full picture
+// of which requirements lack source markers.
+#[test]
+fn req_0121_coverage_reports_drafts_unmarked_separately() {
+    let s = Sandbox::new();
+    s.init("p");
+    // One Draft (default status), no marker → should land in drafts_unmarked.
+    s.run(&[
+        "add",
+        "--title",
+        "Draft with no marker yet",
+        "--statement",
+        "The system shall implement this once we get to it.",
+        "--rationale",
+        "Fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    // One Implemented, no marker → should land in orphans.
+    s.run(&[
+        "add",
+        "--title",
+        "Implemented but missing marker",
+        "--statement",
+        "The system shall carry this real obligation right now.",
+        "--rationale",
+        "Fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let _ = s.run(&[
+        "update",
+        "REQ-0002",
+        "--status",
+        "implemented",
+        "--reason",
+        "fixture: forced past Draft to test orphans bucket",
+        "--force",
+    ]);
+    let out = s.run(&[
+        "coverage",
+        "--path",
+        s.dir.path().to_str().unwrap(),
+        "--json",
+    ]);
+    let v: serde_json::Value = serde_json::from_str(&common::stdout(&out)).expect("JSON");
+    let orphans = v["orphans"].as_array().expect("orphans array");
+    let drafts = v["drafts_unmarked"]
+        .as_array()
+        .expect("drafts_unmarked array");
+    assert!(
+        orphans.iter().any(|x| x == "REQ-0002"),
+        "REQ-0002 (Implemented, no marker) should be an orphan; got: {:?}",
+        orphans
+    );
+    assert!(
+        drafts.iter().any(|x| x == "REQ-0001"),
+        "REQ-0001 (Draft, no marker) should be in drafts_unmarked; got: {:?}",
+        drafts
+    );
+}
+
+// REQ-0120: installed AGENTS.md must not carry literal cli_req REQ-IDs.
+#[test]
+fn req_0120_installed_agents_uses_placeholder_req_ids() {
+    let s = Sandbox::new();
+    s.init("p");
+    let agents = s.dir.path().join("AGENTS.md");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args(["help", "agents", "--install"])
+        .output()
+        .expect("install agents");
+    assert!(
+        out.status.success(),
+        "install: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let body = std::fs::read_to_string(&agents).expect("read AGENTS.md");
+    let re = regex::Regex::new(r"REQ-\d{4}").unwrap();
+    let leaked: Vec<&str> = re.find_iter(&body).map(|m| m.as_str()).collect();
+    assert!(
+        leaked.is_empty(),
+        "installed AGENTS.md must not carry literal REQ-NNNN; found: {:?}",
+        leaked
+    );
+    assert!(
+        body.contains("REQ-NNNN"),
+        "expected placeholder REQ-NNNN to appear in the installed text"
+    );
+}
+
+// REQ-0119: import schema must agree with the validator on what's required.
+#[test]
+fn req_0119_import_schema_requires_rationale() {
+    let out = common::req(&["schema", "import"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("schema import is JSON");
+    let required = v["items"]["required"]
+        .as_array()
+        .expect("items.required is an array");
+    let required_strs: Vec<&str> = required.iter().filter_map(|x| x.as_str()).collect();
+    assert!(
+        required_strs.contains(&"rationale"),
+        "import schema must list rationale as required (the validator does); got: {:?}",
+        required_strs
+    );
+}
+
 #[test]
 fn req_0078_schema_batch_describes_oneof_mutations() {
     let out = common::req(&["schema", "batch"]);

@@ -132,6 +132,10 @@ fn batch_schema() -> Value {
 }
 
 fn import_schema() -> Value {
+    // REQ-0119: rationale is required by the validator (REQ-V-0012), so
+    // it MUST appear in the import schema's `required` list. Without
+    // this, the schema accepts a document that the validator then
+    // rejects — confusing for adopters writing import payloads.
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": id_url("import"),
@@ -140,7 +144,7 @@ fn import_schema() -> Value {
         "type": "array",
         "items": {
             "type": "object",
-            "required": ["title", "statement"],
+            "required": ["title", "statement", "rationale"],
             "additionalProperties": false,
             "properties": requirement_props()
         },

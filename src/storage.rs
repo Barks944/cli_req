@@ -140,17 +140,41 @@ pub fn load_with_options(path: &Path, force: bool) -> Result<Project> {
             // Order matters for the hint: legacy "req-v0" etc would be older;
             // anything else we don't know is treated as newer.
             let is_older = other < FORMAT_TAG;
-            let hint = if is_older {
-                "run `req migrate` to upgrade the file in place (a backup is written)"
+            // REQ-0122: auto-migrate older formats on first encounter when
+            // a migration chain is registered. Opt out with
+            // REQ_NO_AUTO_MIGRATE=1. Newer-than-current files always error
+            // (no downgrade path).
+            if is_older
+                && std::env::var("REQ_NO_AUTO_MIGRATE").is_err()
+                && has_migration_path(other, FORMAT_TAG)
+            {
+                eprintln!(
+                    "req: auto-migrating {} from {} to {} (set REQ_NO_AUTO_MIGRATE=1 to opt out)",
+                    path.display(),
+                    other,
+                    FORMAT_TAG
+                );
+                auto_migrate_in_place(path, &s)?;
+                // Re-read after migration. The migration writes a sibling
+                // backup and re-signs the file before we get here.
+                let s2 = fs::read_to_string(path)
+                    .with_context(|| format!("re-open {} after auto-migrate", path.display()))?;
+                root = serde_json::from_str(&s2).with_context(|| {
+                    format!("{} not valid JSON after auto-migrate", path.display())
+                })?;
             } else {
-                "upgrade the `req` binary — this file uses a newer format than this binary understands"
-            };
-            return Err(anyhow!(
-                "unsupported _format: {} (this binary speaks {}). {}",
-                other,
-                FORMAT_TAG,
-                hint
-            ));
+                let hint = if is_older {
+                    "run `req migrate` to upgrade the file in place (a backup is written)"
+                } else {
+                    "upgrade the `req` binary — this file uses a newer format than this binary understands"
+                };
+                return Err(anyhow!(
+                    "unsupported _format: {} (this binary speaks {}). {}",
+                    other,
+                    FORMAT_TAG,
+                    hint
+                ));
+            }
         }
         None => return Err(anyhow!("not a .req file: missing _format field")),
     }
@@ -434,6 +458,80 @@ fn directory_integrity(project: &Project) -> Result<String> {
         hasher.update(canonical_json(&v).as_bytes());
     }
     Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
+}
+
+/// REQ-0122: probe whether the migration registry can walk from
+/// `from` to `to`. We don't apply the migration here — just answer
+/// "is the path representable". Used by load() to decide whether to
+/// auto-migrate or surface the manual-migrate hint.
+fn has_migration_path(from: &str, to: &str) -> bool {
+    use crate::migrations;
+    let steps = migrations::registered_steps();
+    let mut current = from.to_string();
+    let mut seen = std::collections::HashSet::new();
+    while current != to {
+        if !seen.insert(current.clone()) {
+            return false; // cycle
+        }
+        match steps.iter().find(|s| s.from == current) {
+            Some(step) => current = step.to.to_string(),
+            None => return false,
+        }
+    }
+    true
+}
+
+/// REQ-0122: do the same work `req migrate` would do, in-process,
+/// from a load() context. Writes a sibling backup, applies the
+/// migration chain, re-signs the integrity hash, writes the file.
+/// Errors propagate so an integrity-mismatch or missing-chain case
+/// still surfaces to the user with a clear message.
+fn auto_migrate_in_place(path: &Path, raw_before: &str) -> Result<()> {
+    use crate::migrations;
+    let mut root: Map<String, Value> = serde_json::from_str(raw_before)?;
+    let detected: String = root
+        .get("_format")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("not a .req file: missing _format"))?
+        .to_string();
+    let backup = path.with_extension(format!("req.bak-{}", detected));
+    fs::copy(path, &backup).with_context(|| format!("write backup {}", backup.display()))?;
+
+    let stored_hash = root
+        .remove("_integrity")
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .ok_or_else(|| anyhow!("missing _integrity field"))?;
+    root.remove("_warning");
+    root.remove("_instructions");
+    root.remove("_format");
+    let payload_before = Value::Object(root.clone());
+    let computed = integrity_hash(&payload_before);
+    if computed != stored_hash {
+        return Err(anyhow!(
+            "integrity check failed for {} before auto-migrate — run \
+             `req repair --confirm-direct-edit` first, then re-run the \
+             original command. Backup at {}.",
+            path.display(),
+            backup.display()
+        ));
+    }
+    let (migrated, ended_at) = migrations::walk_chain(root, &detected, FORMAT_TAG)?;
+    let final_payload = Value::Object(migrated);
+    let new_hash = integrity_hash(&final_payload);
+    let mut final_root: Map<String, Value> = match final_payload {
+        Value::Object(m) => m,
+        _ => unreachable!("walk_chain returns Object root"),
+    };
+    final_root.insert("_format".into(), Value::String(ended_at.clone()));
+    final_root.insert("_integrity".into(), Value::String(new_hash));
+    let serialised = serde_json::to_string_pretty(&Value::Object(final_root))?;
+    fs::write(path, serialised).with_context(|| format!("write {}", path.display()))?;
+    eprintln!(
+        "req: auto-migrated → {} (backup at {})",
+        ended_at,
+        backup.display()
+    );
+    Ok(())
 }
 
 pub fn integrity_hash(payload: &Value) -> String {

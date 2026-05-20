@@ -10,19 +10,91 @@ use std::fs;
 const V1_FIXTURE: &str = "tests/fixtures/v1_project.req";
 
 #[test]
-fn req_0116_v1_fixture_errors_with_migrate_hint() {
-    // The binary speaks req-v2; opening a v1 file directly must error
-    // with a clear pointer to `req migrate`, never silently mis-read.
-    let out = common::req(&["--file", V1_FIXTURE, "validate"]);
+fn req_0116_v1_fixture_errors_with_migrate_hint_when_opted_out() {
+    // The binary speaks req-v2; with auto-migrate disabled, opening a
+    // v1 file must error with a clear pointer to `req migrate`, never
+    // silently mis-read. Sandbox-copy the fixture so this test does
+    // not mutate the regression anchor.
+    let s = Sandbox::new();
+    let target = s.dir.path().join("project.req");
+    fs::copy(V1_FIXTURE, &target).expect("copy v1 fixture");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_req"))
+        .env("REQ_NO_AUTO_MIGRATE", "1")
+        .env_remove("REQ_FILE")
+        .args(["--file", target.to_str().unwrap(), "validate"])
+        .output()
+        .expect("invoke req");
     assert!(
         !out.status.success(),
-        "v1 fixture should be rejected by a v2 binary (got success)"
+        "with REQ_NO_AUTO_MIGRATE=1, v1 file must be rejected"
     );
-    let err = stderr(&out);
+    let err = String::from_utf8_lossy(&out.stderr);
     assert!(
         err.contains("req migrate"),
         "error must hint at `req migrate`, got: {}",
         err
+    );
+}
+
+// REQ-0122: auto-migrate on first load.
+#[test]
+fn req_0122_auto_migrate_on_first_load() {
+    let s = Sandbox::new();
+    let target = s.dir.path().join("project.req");
+    fs::copy(V1_FIXTURE, &target).expect("copy v1 fixture");
+
+    // First command on the v1 file should auto-migrate and succeed.
+    let out = common::req(&["--file", target.to_str().unwrap(), "validate"]);
+    assert!(
+        out.status.success(),
+        "auto-migrate should succeed on the v1 fixture; stderr={}",
+        stderr(&out)
+    );
+    let err = stderr(&out);
+    assert!(
+        err.contains("auto-migrating"),
+        "expected the auto-migrate banner on stderr, got: {}",
+        err
+    );
+
+    // The on-disk file should now be v2.
+    let migrated = fs::read_to_string(&target).unwrap();
+    assert!(
+        migrated.contains("\"_format\": \"req-v2\""),
+        "_format should be req-v2 after auto-migrate"
+    );
+
+    // A sibling backup of the v1 file should exist.
+    let backup = target.with_extension("req.bak-req-v1");
+    assert!(
+        backup.exists(),
+        "expected backup at {} after auto-migrate",
+        backup.display()
+    );
+}
+
+#[test]
+fn req_0122_auto_migrate_opt_out_still_errors() {
+    let s = Sandbox::new();
+    let target = s.dir.path().join("project.req");
+    fs::copy(V1_FIXTURE, &target).expect("copy v1 fixture");
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_req"))
+        .env("REQ_NO_AUTO_MIGRATE", "1")
+        .env_remove("REQ_FILE")
+        .args(["--file", target.to_str().unwrap(), "validate"])
+        .output()
+        .expect("invoke req");
+    assert!(
+        !out.status.success(),
+        "REQ_NO_AUTO_MIGRATE=1 must preserve the manual-migrate error"
+    );
+
+    // Crucially, the file must NOT have been migrated.
+    let on_disk = fs::read_to_string(&target).unwrap();
+    assert!(
+        on_disk.contains("\"_format\": \"req-v1\""),
+        "opt-out path must leave the file at the original _format"
     );
 }
 

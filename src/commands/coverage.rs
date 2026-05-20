@@ -60,7 +60,15 @@ struct Report {
     /// markers absent. Distinct from `referenced` so a test-only marker
     /// does not falsely claim impl coverage.
     test_only: BTreeMap<String, Vec<String>>,
+    /// Non-Draft, non-Obsolete requirements with no source marker. This
+    /// is the strict-mode gating set: things the spec promises but the
+    /// code doesn't cite.
     orphans: Vec<String>,
+    /// REQ-0121: Draft requirements that also have no source marker.
+    /// Reported separately so `req coverage` surfaces the full picture
+    /// (and adopters running coverage on a fresh project see why the
+    /// orphan count is zero) without breaking strict-mode gating.
+    drafts_unmarked: Vec<String>,
     ghosts: BTreeMap<String, Vec<String>>,
     obsolete_referenced: BTreeMap<String, Vec<String>>,
 }
@@ -97,6 +105,7 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
         referenced: BTreeMap::new(),
         test_only: BTreeMap::new(),
         orphans: Vec::new(),
+        drafts_unmarked: Vec::new(),
         ghosts: BTreeMap::new(),
         obsolete_referenced: BTreeMap::new(),
     };
@@ -128,8 +137,10 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     for id in known {
         if !hits.contains_key(id) {
             let r = &project.requirements[id];
-            if !matches!(r.status, Status::Obsolete | Status::Draft) {
-                report.orphans.push(id.clone());
+            match r.status {
+                Status::Obsolete => {}
+                Status::Draft => report.drafts_unmarked.push(id.clone()),
+                _ => report.orphans.push(id.clone()),
             }
         }
     }
@@ -160,12 +171,25 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
         "  test-only        : {}  (test marker but no impl marker)",
         report.test_only.len()
     );
-    println!("  orphans          : {}", report.orphans.len());
+    println!(
+        "  orphans          : {}  (non-Draft non-Obsolete reqs with no marker — gated by --strict)",
+        report.orphans.len()
+    );
+    println!(
+        "  drafts unmarked  : {}  (Draft reqs with no marker — informational, not gated)",
+        report.drafts_unmarked.len()
+    );
     println!("  ghosts           : {}", report.ghosts.len());
     println!("  obsolete-in-code : {}", report.obsolete_referenced.len());
     if !report.orphans.is_empty() {
         println!("\nORPHANS (requirement exists but is not mentioned in code):");
         for id in &report.orphans {
+            println!("  {}", id);
+        }
+    }
+    if !report.drafts_unmarked.is_empty() {
+        println!("\nDRAFTS UNMARKED (Draft reqs with no code marker yet — advance with `req update <id> --status implemented` once you add the marker):");
+        for id in &report.drafts_unmarked {
             println!("  {}", id);
         }
     }

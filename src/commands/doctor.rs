@@ -25,7 +25,12 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     // 1. pre-commit hook present + managed by req
     // REQ-0099: surface the gate mode (strict vs default) so reviewers
     // know whether hunk-level enforcement is on in this clone.
-    let pre_commit = PathBuf::from(".git/hooks/pre-commit");
+    // REQ-0123: resolve the hooks directory via git-common-dir so we
+    // find the shared hook from inside a worktree (per-worktree
+    // .git/worktrees/<name>/ has no hooks/ subdir of its own).
+    let pre_commit = crate::commands::hooks::resolve_hooks_dir(std::path::Path::new("."))
+        .map(|d| d.join("pre-commit"))
+        .unwrap_or_else(|_| PathBuf::from(".git/hooks/pre-commit"));
     if pre_commit.exists() {
         let body = std::fs::read_to_string(&pre_commit).unwrap_or_default();
         let managed = body.contains("# managed-by: req-hooks");

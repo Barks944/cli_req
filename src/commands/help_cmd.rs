@@ -2,10 +2,22 @@
 // install of any section into AGENTS.md), and REQ-0042 (--json with a
 // structured agents-crib payload).
 use anyhow::{anyhow, Context, Result};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::fs;
 
 use crate::cli::HelpArgs;
 use crate::help_text::{self, Section};
+
+// REQ-0120: regex matching the same four-digit REQ-ID pattern used by
+// the coverage scanner. Anything that matches this in user-installed
+// AGENTS.md text would be picked up as a code reference in the
+// adopter's project — so the install path rewrites them.
+static LITERAL_REQ_ID: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
+
+fn sanitize_req_ids_for_agents_md(body: &str) -> String {
+    LITERAL_REQ_ID.replace_all(body, "REQ-NNNN").into_owned()
+}
 
 pub fn run(args: HelpArgs) -> Result<()> {
     if args.list || args.section.is_none() {
@@ -137,6 +149,14 @@ fn agents_crib() -> serde_json::Value {
 fn install_section(section: &Section, path: &std::path::Path) -> Result<()> {
     let begin = format!("<!-- req:help:{}:begin -->", section.name);
     let end = format!("<!-- req:help:{}:end -->", section.name);
+    // REQ-0120: replace literal REQ-NNNN identifiers with a placeholder
+    // when writing into AGENTS.md. The help text cites cli_req's own
+    // requirement IDs (REQ-0001, REQ-0117 etc.) as examples; left
+    // literal, those become source-tree references in any adopter's
+    // project and trip their coverage scanner with ghosts. The
+    // coverage regex matches `REQ-\d{4}`, so a non-digit placeholder
+    // (REQ-NNNN) is safe.
+    let body = sanitize_req_ids_for_agents_md(section.body);
     let block = format!(
         "{begin}\n\n\
          <!-- Managed by `req help {} --install`. Re-run to refresh; edit OUTSIDE the markers to add your own notes. -->\n\n\
@@ -144,7 +164,7 @@ fn install_section(section: &Section, path: &std::path::Path) -> Result<()> {
          _{}_\n\n\
          ```\n{}\n```\n\n\
          {end}",
-        section.name, section.name, section.summary, section.body
+        section.name, section.name, section.summary, body
     );
 
     let existing = fs::read_to_string(path).unwrap_or_default();
