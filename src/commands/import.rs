@@ -80,6 +80,9 @@ pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
             }
             continue;
         }
+        // REQ-0118: dry-run must be a no-op for the file. Only allocate
+        // and insert when the flag is absent; the dry-run branch produces
+        // report-only output and never touches `project`.
         if !args.dry_run {
             let id = project.allocate_id();
             let mut r = req;

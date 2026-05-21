@@ -27,13 +27,20 @@ fn req_0124_coverage_skips_gitignored_paths() {
     init_git(s.dir.path());
     s.init("p");
 
+    // Construct the marker tokens at runtime so the four-digit literals
+    // never appear in this test file — otherwise the project-wide
+    // coverage scan would flag THIS file as a ghost source. Same pattern
+    // as tests/coverage_boost.rs (REQ-0026).
+    let stray = format!("REQ-{:04}", 9998);
+    let real = format!("REQ-{:04}", 1);
+
     // Ignored directory with a stray REQ-marker that would otherwise
     // become a ghost in the coverage report.
     fs::write(s.dir.path().join(".gitignore"), "tmp/\n").unwrap();
     fs::create_dir_all(s.dir.path().join("tmp")).unwrap();
     fs::write(
         s.dir.path().join("tmp/scratch.rs"),
-        "// REQ-9999: scratch\nfn nope() {}\n",
+        format!("// {}: scratch\nfn nope() {{}}\n", stray),
     )
     .unwrap();
 
@@ -41,7 +48,7 @@ fn req_0124_coverage_skips_gitignored_paths() {
     fs::create_dir_all(s.dir.path().join("src")).unwrap();
     fs::write(
         s.dir.path().join("src/lib.rs"),
-        "// REQ-0001: real reference\nfn ok() {}\n",
+        format!("// {}: real reference\nfn ok() {{}}\n", real),
     )
     .unwrap();
 
@@ -55,8 +62,9 @@ fn req_0124_coverage_skips_gitignored_paths() {
     let v: serde_json::Value = serde_json::from_str(&body).expect("JSON");
     let ghosts = v["ghosts"].as_object().expect("ghosts object");
     assert!(
-        !ghosts.contains_key("REQ-9999"),
-        ".gitignored REQ-9999 must not appear as a ghost; got: {}",
+        !ghosts.contains_key(&stray),
+        ".gitignored {} must not appear as a ghost; got: {}",
+        stray,
         body
     );
 }
