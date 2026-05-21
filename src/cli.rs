@@ -50,6 +50,7 @@ impl Command {
             Command::Status(a) => a.json,
             Command::Test(TestCmd::Record(a)) => a.json,
             Command::Test(TestCmd::Run(a)) => a.json,
+            Command::Test(TestCmd::List(a)) => a.json,
             Command::Verify(a) => a.json,
             Command::Stale(a) => a.json,
             Command::Batch(a) => a.json,
@@ -312,6 +313,12 @@ pub struct ReviewArgs {
     /// Use in CI to gate PRs on spec hygiene.
     #[arg(long)]
     pub gate: bool,
+    /// REQ-0126: when used with --gate, also fail if any Verified
+    /// requirement carries a failing latest test record. The defect
+    /// log lives next to the spec; this lets CI block merges that
+    /// would ship known-broken behaviour.
+    #[arg(long, requires = "gate")]
+    pub no_defects: bool,
     /// Emit the report as JSON instead of markdown.
     #[arg(long)]
     pub json: bool,
@@ -385,12 +392,16 @@ pub struct CoverageArgs {
     pub extensions: Vec<String>,
     /// Flip the report: list source files that contain NO REQ-NNNN markers
     /// (i.e. code with no traceability link to any requirement).
-    #[arg(long, conflicts_with_all = ["by_file", "remap"])]
+    #[arg(long, conflicts_with_all = ["by_file", "by_req", "remap"])]
     pub unlinked_files: bool,
     /// Per-file report: for every file with at least one marker, list the
     /// REQ IDs it references. Closes the bidirectional view.
-    #[arg(long, conflicts_with_all = ["unlinked_files", "remap"])]
+    #[arg(long, conflicts_with_all = ["unlinked_files", "by_req", "remap"])]
     pub by_file: bool,
+    /// REQ-0127: inverse of --by-file. For every REQ-NNNN with at least
+    /// one marker in source, list the files referencing it.
+    #[arg(long, conflicts_with_all = ["unlinked_files", "by_file", "remap"])]
+    pub by_req: bool,
     /// Rewrite REQ-NNNN markers in source files. Pass repeatedly:
     ///   --remap REQ-OLD=REQ-NEW --remap REQ-AAA=REQ-BBB
     /// Dry-run by default; pass --apply to write.
@@ -686,6 +697,8 @@ pub enum SchemaWhich {
     Batch,
     /// Schema for `req import --format json` (array form).
     Import,
+    /// REQ-0128: schema for the `req test run --map` JSON file.
+    TestMap,
 }
 
 #[derive(Args, Debug)]
@@ -763,6 +776,17 @@ pub enum TestCmd {
     /// Run `cargo test` (or a custom command) and attach pass/fail records
     /// to each requirement whose test name follows the `req_NNNN_*` convention.
     Run(TestRunArgs),
+    /// REQ-0129: list the test record history attached to one requirement.
+    List(TestListArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TestListArgs {
+    /// Requirement to inspect.
+    pub id: String,
+    /// Machine-readable JSON instead of human-formatted lines.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -828,6 +852,13 @@ pub struct TestRunArgs {
     /// or for tests of the recorder itself.
     #[arg(long = "from-file", conflicts_with = "cmd")]
     pub from_file: Option<PathBuf>,
+    /// REQ-0128: ecosystems without the `req_NNNN_*` test-name
+    /// convention (Node, Python) supply a JSON map of test name →
+    /// REQ-ID(s). The recorder reads this in addition to (or instead
+    /// of) the regex-based name match. Schema published by
+    /// `req schema test-map`.
+    #[arg(long = "map", value_name = "MAP_FILE")]
+    pub map_file: Option<PathBuf>,
     /// Show what would be recorded without writing.
     #[arg(long)]
     pub dry_run: bool,

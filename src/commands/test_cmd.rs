@@ -14,7 +14,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::cli::{TestCmd, TestRecordArgs, TestResultArg, TestRunArgs, VerifyArgs, VerifyKindArg};
+use crate::cli::{
+    TestCmd, TestListArgs, TestRecordArgs, TestResultArg, TestRunArgs, VerifyArgs, VerifyKindArg,
+};
 use crate::model::{EvidenceKind, Status, TestOutcome, TestRecord};
 use crate::storage::{self, load_for_mutation};
 
@@ -22,7 +24,41 @@ pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
     match cmd {
         TestCmd::Record(args) => record(args, file),
         TestCmd::Run(args) => run_suite(args, file),
+        TestCmd::List(args) => list(args, file),
     }
+}
+
+/// REQ-0129: dedicated subcommand to inspect a requirement's test
+/// record history without parsing `req show --json`. Mirrors the
+/// TestRecord shape with one record per line.
+fn list(mut args: TestListArgs, file: &Option<PathBuf>) -> Result<()> {
+    use crate::storage::load_resolved;
+    let (_, project) = load_resolved(file)?;
+    args.id = super::resolve_id(&project, &args.id)?;
+    let r = project
+        .requirements
+        .get(&args.id)
+        .ok_or_else(|| anyhow!("no such requirement: {}", args.id))?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&r.tests)?);
+        return Ok(());
+    }
+    if r.tests.is_empty() {
+        println!("(no test records)");
+        return Ok(());
+    }
+    for t in &r.tests {
+        println!(
+            "{}  {}  {}  {}  {}",
+            t.at.format("%Y-%m-%d %H:%M UTC"),
+            short(&t.commit),
+            t.outcome.as_str(),
+            t.kind.as_str(),
+            t.notes
+        );
+    }
+    Ok(())
 }
 
 pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
@@ -279,55 +315,22 @@ pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path:
     use once_cell::sync::Lazy;
     use regex::Regex;
     static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
-    const DEFAULTS: &[&str] = &[
+    let exts: Vec<String> = [
         "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h",
-    ];
-    const SKIP: &[&str] = &[
-        ".git",
-        "target",
-        "node_modules",
-        "dist",
-        "build",
-        ".venv",
-        ".idea",
-        ".vscode",
-    ];
-
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
     let mut hits = Vec::new();
-    fn walk(
-        root: &std::path::Path,
-        exts: &[&str],
-        skip: &[&str],
-        req_id: &str,
-        req_re: &regex::Regex,
-        hits: &mut Vec<std::path::PathBuf>,
-    ) {
-        let entries = match std::fs::read_dir(root) {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name_s = name.to_string_lossy();
-            if path.is_dir() {
-                if skip.iter().any(|s| *s == name_s.as_ref()) {
-                    continue;
-                }
-                walk(&path, exts, skip, req_id, req_re, hits);
-            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if !exts.contains(&ext) {
-                    continue;
-                }
-                if let Ok(text) = std::fs::read_to_string(&path) {
-                    if req_re.find_iter(&text).any(|m| m.as_str() == req_id) {
-                        hits.push(path);
-                    }
-                }
+    // REQ-0124: source_walk honours .gitignore so test-record linked-file
+    // discovery doesn't pick up artefacts in tmp/, dist/, etc.
+    crate::source_walk::walk_source_tree(root, &exts, |path| {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if REQ_RE.find_iter(&text).any(|m| m.as_str() == req_id) {
+                hits.push(path.to_path_buf());
             }
         }
-    }
-    walk(root, DEFAULTS, SKIP, req_id, &REQ_RE, &mut hits);
+    });
     hits
 }
 
@@ -479,6 +482,51 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             "FAILED" => bucket.failed.push(test_name),
             "ignored" => bucket.ignored.push(test_name),
             _ => {}
+        }
+    }
+
+    // REQ-0128: load an external test-name → REQ-ID map and walk a
+    // generic verdict regex over the same combined output. This is
+    // the Node/Python/etc. path: tests don't follow `req_NNNN_*` so
+    // the mapping is explicit. Format: `{ "<test name>": ["REQ-NNNN", ...] }`.
+    if let Some(map_path) = &args.map_file {
+        let body = std::fs::read_to_string(map_path)
+            .with_context(|| format!("read --map {}", map_path.display()))?;
+        let map: BTreeMap<String, Vec<String>> = serde_json::from_str(&body)
+            .with_context(|| format!("parse --map {} as JSON", map_path.display()))?;
+        // Generic verdict line: "<test name> ... ok|FAILED|ignored". We
+        // anchor on the exact test name (as a substring of any line) and
+        // look for one of the verdict tokens on the same line. This is a
+        // forgiving match that works for mocha/pytest/jest in default
+        // reporters.
+        for (test_name, ids) in &map {
+            for line in combined.lines() {
+                if !line.contains(test_name) {
+                    continue;
+                }
+                let verdict = if line.contains("FAILED") || line.contains("FAIL") {
+                    Some("FAILED")
+                } else if line.contains(" ok") || line.contains("PASS") || line.contains("pass") {
+                    Some("ok")
+                } else if line.contains("ignored") || line.contains("SKIP") || line.contains("skip")
+                {
+                    Some("ignored")
+                } else {
+                    None
+                };
+                if let Some(v) = verdict {
+                    for id in ids {
+                        let bucket = by_req.entry(id.clone()).or_default();
+                        match v {
+                            "ok" => bucket.passed.push(test_name.clone()),
+                            "FAILED" => bucket.failed.push(test_name.clone()),
+                            "ignored" => bucket.ignored.push(test_name.clone()),
+                            _ => {}
+                        }
+                    }
+                    break; // one verdict per test name
+                }
+            }
         }
     }
 

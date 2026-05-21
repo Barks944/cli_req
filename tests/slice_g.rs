@@ -244,6 +244,51 @@ fn req_0078_schema_add_is_valid_json_with_format() {
     assert_eq!(v["_format"].as_str().unwrap(), "req-v2");
 }
 
+// REQ-0127: --by-req is the inverse of --by-file.
+#[test]
+fn req_0127_coverage_by_req_groups_files_under_each_req() {
+    let s = Sandbox::new();
+    s.init("p");
+    std::fs::create_dir_all(s.dir.path().join("src")).unwrap();
+    std::fs::write(
+        s.dir.path().join("src/a.rs"),
+        "// REQ-0001: first\nfn a() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        s.dir.path().join("src/b.rs"),
+        "// REQ-0001: also here\nfn b() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        s.dir.path().join("src/c.rs"),
+        "// REQ-0002: somewhere else\nfn c() {}\n",
+    )
+    .unwrap();
+    let out = s.run(&[
+        "coverage",
+        "--by-req",
+        "--path",
+        s.dir.path().to_str().unwrap(),
+        "--json",
+    ]);
+    let v: serde_json::Value = serde_json::from_str(&common::stdout(&out)).expect("JSON");
+    let r1 = v["REQ-0001"].as_array().expect("REQ-0001 array");
+    assert_eq!(
+        r1.len(),
+        2,
+        "REQ-0001 should reference two files; got {:?}",
+        r1
+    );
+    let r2 = v["REQ-0002"].as_array().expect("REQ-0002 array");
+    assert_eq!(
+        r2.len(),
+        1,
+        "REQ-0002 should reference one file; got {:?}",
+        r2
+    );
+}
+
 // REQ-0121: coverage surfaces both `orphans` (strict-gated) and
 // `drafts_unmarked` (informational) so adopters see the full picture
 // of which requirements lack source markers.

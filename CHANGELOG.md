@@ -8,6 +8,46 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.4.0-rc.3] — 2026-05-21
+
+Driven by external rc.1 user feedback after a real 64-req migration.
+
+### Fixed
+- **REQ-0124 (coverage respects .gitignore):** the source-tree walk
+  now goes through a shared `source_walk` module that wraps the
+  `ignore` crate (ripgrep's walker). `req coverage`, `req lint`, and
+  test-record linked-file discovery all honour `.gitignore`,
+  `.ignore`, `.git/info/exclude`, and the user's global git
+  excludes. The hard-coded SKIP_DIRS lists are gone — adopters'
+  actual ignore patterns are what counts. Closes the bug where
+  `tmp/` artefacts appeared as ghost references.
+
+### Added
+- **REQ-0125 (defects in status / brief / lint):** a new
+  `verified-but-defective` count surfaces Verified requirements
+  whose latest test record is a Fail. Appears in `req status`,
+  `req brief`, and `req lint`. Shared definition in
+  `status::verified_but_defective()` so all three surfaces agree.
+- **REQ-0126 (review --gate --no-defects):** opt-in CI gate that
+  exits non-zero when any requirement carries a failing latest test
+  record. Off by default so existing pipelines stay unchanged.
+  Defects also surfaced in the markdown report and JSON output
+  regardless of `--gate`.
+- **REQ-0127 (coverage --by-req):** symmetric inverse of
+  `--by-file`. For each REQ-NNNN with markers, lists the files
+  referencing it. JSON emits a flat REQ → [paths] map.
+- **REQ-0128 (test run --map):** ecosystems without the
+  `req_NNNN_*` naming convention (Node, Python) can pass a JSON
+  map of test name → REQ-ID(s). The recorder uses a forgiving
+  verdict matcher (ok/PASS, FAILED/FAIL, ignored/SKIP) on lines
+  containing the test name. Schema published via
+  `req schema test-map`.
+- **REQ-0129 (req test list <id>):** dedicated subcommand to
+  inspect a requirement's test records without parsing
+  `req show --json`. Human format prints
+  `<timestamp> <commit> <outcome> <kind> <notes>` per record;
+  `--json` emits the records array.
+
 ## [0.4.0-rc.2] — 2026-05-20
 
 Bugfix pass on rc.1 driven by external E2E testing.

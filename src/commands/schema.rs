@@ -12,6 +12,7 @@ pub fn run(args: SchemaArgs) -> Result<()> {
         SchemaWhich::Add => add_schema(),
         SchemaWhich::Batch => batch_schema(),
         SchemaWhich::Import => import_schema(),
+        SchemaWhich::TestMap => test_map_schema(),
     };
     println!("{}", serde_json::to_string_pretty(&schema)?);
     Ok(())
@@ -126,6 +127,24 @@ fn batch_schema() -> Value {
                     ]
                 }
             }
+        },
+        "_format": FORMAT_TAG
+    })
+}
+
+// REQ-0128: schema for the test-name → REQ-ID map consumed by
+// `req test run --map`. Ecosystems without the `req_NNNN_*` naming
+// convention (Node, Python) use this to attach pass/fail records.
+fn test_map_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": id_url("test-map"),
+        "title": "req test run --map input",
+        "description": "Map from test name (substring matched against a verdict line) to one or more REQ-IDs.",
+        "type": "object",
+        "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^REQ-\\d{4}$" }
         },
         "_format": FORMAT_TAG
     })

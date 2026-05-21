@@ -20,6 +20,10 @@ use crate::validate;
 pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
     let current = storage::load(&path).context("load project.req")?;
+    // REQ-0126: defects are Verified requirements whose latest test
+    // record outcome is Fail. With --gate --no-defects, any defect
+    // flips the exit code.
+    let defects = crate::commands::status::verified_but_defective(&current);
     // --staged forces the base ref to HEAD and switches the
     // changed-files source from `git diff <base>...HEAD --name-only`
     // to `git diff --cached --name-only`. Used by the pre-commit hook.
@@ -374,11 +378,14 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                     "stale": stale_count,
                     "drifted": drifted_count,
                 },
+                "defects": defects,
                 "audit": audit_summary,
             }))?
         );
-        let gate_fail =
-            val_errors > 0 || !coverage_ghosts.is_empty() || !markerless_changed_source.is_empty();
+        let gate_fail = val_errors > 0
+            || !coverage_ghosts.is_empty()
+            || !markerless_changed_source.is_empty()
+            || (args.no_defects && !defects.is_empty());
         if val_errors > 0 || (args.gate && gate_fail) {
             std::process::exit(1);
         }
@@ -507,12 +514,28 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         ));
     }
 
+    // REQ-0126: surface defects in the markdown report when present.
+    if !defects.is_empty() {
+        let mut block = String::from("\n## Verified-but-defective\n\n");
+        block.push_str(&format!(
+            "{} verified req(s) carry a failing latest test record. Inspect with `req test list <id>`.\n\n",
+            defects.len()
+        ));
+        for id in &defects {
+            block.push_str(&format!("- **{}**\n", id));
+        }
+        // Insert before printing the final out.
+        out.push_str(&block);
+    }
     print!("{}", out);
-    let gate_fail =
-        val_errors > 0 || !coverage_ghosts.is_empty() || !markerless_changed_source.is_empty();
+    let gate_fail = val_errors > 0
+        || !coverage_ghosts.is_empty()
+        || !markerless_changed_source.is_empty()
+        || (args.no_defects && !defects.is_empty());
     // Validate errors are always fatal. The wider gate (coverage
-    // ghosts, markerless changed source) only flips the exit code in
-    // --gate mode, so the default `req review` stays advisory.
+    // ghosts, markerless changed source, defects when --no-defects)
+    // only flips the exit code in --gate mode, so the default
+    // `req review` stays advisory.
     if val_errors > 0 || (args.gate && gate_fail) {
         std::process::exit(1);
     }

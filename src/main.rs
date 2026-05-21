@@ -7,6 +7,7 @@ mod help_text;
 mod mcp;
 mod migrations;
 mod model;
+mod source_walk;
 mod storage;
 mod tui;
 mod validate;

@@ -37,21 +37,9 @@ fn resolve_extensions(cli_exts: &[String], project: &crate::model::Project) -> V
     }
     DEFAULT_EXTS.iter().map(|s| s.to_string()).collect()
 }
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    "target",
-    "node_modules",
-    "dist",
-    "build",
-    ".venv",
-    ".idea",
-    ".vscode",
-    // Local sandboxes for ad-hoc testing and the workflow's own
-    // bot-comment scratch dir. Gitignored, but a coverage scan
-    // shouldn't dredge their REQ tokens into the ghost report.
-    ".agent-sandbox",
-    ".review-out",
-];
+// REQ-0124: directory skip-list moved into source_walk via the
+// `ignore` crate, which honours .gitignore + .ignore + global git
+// excludes. Hard-coded SKIP_DIRS removed.
 
 #[derive(serde::Serialize)]
 struct Report {
@@ -85,6 +73,10 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     }
     if args.by_file {
         return run_by_file(&args.path, &exts, args.json);
+    }
+    // REQ-0127: inverse view — REQ-NNNN → list of files referencing it.
+    if args.by_req {
+        return run_by_req(&args.path, &exts, args.json);
     }
     if !args.remap.is_empty() {
         return run_remap(&args.path, &exts, &args.remap, args.apply);
@@ -290,36 +282,62 @@ fn run_unlinked_files(root: &Path, exts: &[String], json: bool) -> Result<()> {
     Ok(())
 }
 
+// REQ-0124: gitignore-aware variant for the --unlinked-files / per-file
+// reports. Yields each in-scope file with a bool indicating whether any
+// REQ-marker is present.
 fn walk_files(root: &Path, exts: &[String], visit: &mut impl FnMut(&Path, bool)) {
-    let entries = match fs::read_dir(root) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name();
-        let name_s = name.to_string_lossy();
-        if path.is_dir() {
-            if SKIP_DIRS.iter().any(|s| *s == name_s.as_ref()) {
-                continue;
-            }
-            walk_files(&path, exts, visit);
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if !exts.iter().any(|x| x == ext) {
-                continue;
-            }
-            let has = fs::read_to_string(&path)
-                .map(|t| REQ_RE.is_match(&t))
-                .unwrap_or(false);
-            visit(&path, has);
-        }
-    }
+    crate::source_walk::walk_source_tree(root, exts, |path| {
+        let has = fs::read_to_string(path)
+            .map(|t| REQ_RE.is_match(&t))
+            .unwrap_or(false);
+        visit(path, has);
+    });
 }
 
 #[derive(serde::Serialize)]
 struct ByFileEntry {
     file: String,
     req_ids: Vec<String>,
+}
+
+/// REQ-0127: inverse of run_by_file — per-requirement list of files
+/// referencing it.
+fn run_by_req(root: &Path, exts: &[String], json: bool) -> Result<()> {
+    let mut per_req: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    walk(root, exts, &mut |path, _line_no, line| {
+        for m in REQ_RE.find_iter(line) {
+            per_req
+                .entry(m.as_str().to_string())
+                .or_default()
+                .insert(path.display().to_string());
+        }
+    });
+
+    if json {
+        // Flat REQ → [paths] map.
+        let map: BTreeMap<&String, Vec<&String>> = per_req
+            .iter()
+            .map(|(id, files)| (id, files.iter().collect()))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&map)?);
+        return Ok(());
+    }
+
+    if per_req.is_empty() {
+        println!(
+            "No files under {} contain REQ-NNNN markers.",
+            root.display()
+        );
+        return Ok(());
+    }
+    println!("Per-requirement coverage (root: {}):\n", root.display());
+    for (id, files) in &per_req {
+        println!("  {}", id);
+        for f in files {
+            println!("    {}", f);
+        }
+    }
+    Ok(())
 }
 
 fn run_by_file(root: &Path, exts: &[String], json: bool) -> Result<()> {
@@ -458,31 +476,17 @@ pub fn is_test_path(file_ref: &str) -> bool {
     suffixes.iter().any(|s| path_only.ends_with(s))
 }
 
+// REQ-0124: delegate the directory walk to source_walk, which honours
+// .gitignore + .ignore + global excludes. The line-level marker scan
+// stays per-file here.
 fn walk(root: &Path, exts: &[String], visit: &mut impl FnMut(&Path, usize, &str)) {
-    let entries = match fs::read_dir(root) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name();
-        let name_s = name.to_string_lossy();
-        if path.is_dir() {
-            if SKIP_DIRS.iter().any(|s| *s == name_s.as_ref()) {
-                continue;
-            }
-            walk(&path, exts, visit);
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if !exts.iter().any(|x| x == ext) {
-                continue;
-            }
-            if let Ok(text) = fs::read_to_string(&path) {
-                for (i, line) in text.lines().enumerate() {
-                    if REQ_RE.is_match(line) {
-                        visit(&path, i + 1, line);
-                    }
+    crate::source_walk::walk_source_tree(root, exts, |path| {
+        if let Ok(text) = fs::read_to_string(path) {
+            for (i, line) in text.lines().enumerate() {
+                if REQ_RE.is_match(line) {
+                    visit(path, i + 1, line);
                 }
             }
         }
-    }
+    });
 }

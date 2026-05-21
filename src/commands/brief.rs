@@ -39,6 +39,9 @@ struct Snapshot {
     implemented_unverified: Vec<String>,
     drafts: Vec<String>,
     top_verified_must: Vec<(String, String)>,
+    /// REQ-0125: Verified requirements whose latest test record is a
+    /// Fail. Surfaced so "100% delivered" never overstates readiness.
+    verified_but_defective: Vec<String>,
     hook_mode: Option<String>,
     last_change: Option<String>,
 }
@@ -135,6 +138,8 @@ fn snapshot(project: &Project) -> Snapshot {
     top_verified_must.sort_by(|a, b| a.0.cmp(&b.0));
     top_verified_must.truncate(3);
 
+    let verified_but_defective = crate::commands::status::verified_but_defective(project);
+
     Snapshot {
         name: project.name.clone(),
         purpose: project.purpose.clone(),
@@ -145,6 +150,7 @@ fn snapshot(project: &Project) -> Snapshot {
         implemented_unverified,
         drafts,
         top_verified_must,
+        verified_but_defective,
         hook_mode,
         last_change,
     }
@@ -216,6 +222,30 @@ impl Snapshot {
                 ));
             }
             None => out.push_str("  next : nothing queued. Add one with `req add` or relax filters with `req next`.\n"),
+        }
+
+        // REQ-0125: defects on Verified reqs are an actual ship blocker.
+        // Surface them before loose ends because "100% verified" with N
+        // failing latest records is the worst kind of misleading signal.
+        if !self.verified_but_defective.is_empty() {
+            let preview = self
+                .verified_but_defective
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            let more = if self.verified_but_defective.len() > 3 {
+                format!(" +{} more", self.verified_but_defective.len() - 3)
+            } else {
+                String::new()
+            };
+            out.push_str(&format!(
+                "  DEFECT: {} verified req(s) have a failing latest test record — {}{}\n",
+                self.verified_but_defective.len(),
+                preview,
+                more
+            ));
         }
 
         // Loose ends
@@ -340,6 +370,7 @@ impl Snapshot {
             }),
             "implemented_unverified": self.implemented_unverified,
             "drafts": self.drafts,
+            "verified_but_defective": self.verified_but_defective,
             "hook_mode": self.hook_mode,
             "last_spec_change": self.last_change,
         })

@@ -41,6 +41,9 @@ struct LintReport {
     short_rationale: Vec<(String, usize)>,
     single_acceptance_functional: Vec<String>,
     no_test_record: Vec<String>,
+    /// REQ-0125: Verified requirements whose latest test record is a Fail.
+    /// Lint surface for the defect log; same definition as status/brief.
+    verified_but_defective: Vec<String>,
     verification_kinds: [usize; 3], // automated, composition, inspection
 }
 
@@ -158,6 +161,8 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         }
     }
 
+    let verified_but_defective = crate::commands::status::verified_but_defective(project);
+
     LintReport {
         project_name: project.name.clone(),
         total,
@@ -169,6 +174,7 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         short_rationale,
         single_acceptance_functional,
         no_test_record,
+        verified_but_defective,
         verification_kinds,
     }
 }
@@ -177,55 +183,24 @@ fn scan_markers(root: &Path) -> BTreeSet<String> {
     use regex::Regex;
     let re = Regex::new(r"REQ-\d{4}").unwrap();
     let mut found: BTreeSet<String> = BTreeSet::new();
-    let skip_dirs = [
-        ".git",
-        "target",
-        "node_modules",
-        ".agent-sandbox",
-        ".venv",
-        "dist",
-        "build",
-    ];
     // REQ-0101: include `sql` so schema/migration files are scanned.
-    let exts = [
+    // REQ-0124: directory walk now goes through source_walk which honours
+    // .gitignore + .ignore + global excludes; the hard-coded skip list
+    // is no longer needed.
+    let exts: Vec<String> = [
         "rs", "py", "js", "ts", "tsx", "go", "java", "kt", "scala", "swift", "cs", "rb", "php",
         "lua", "c", "cpp", "h", "hh", "hpp", "hxx", "m", "mm", "sql",
-    ];
-    fn walk(
-        dir: &Path,
-        skip: &[&str],
-        exts: &[&str],
-        re: &regex::Regex,
-        out: &mut BTreeSet<String>,
-    ) {
-        let entries = match std::fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-        for ent in entries.flatten() {
-            let path = ent.path();
-            let name = path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            if path.is_dir() {
-                if skip.contains(&name.as_str()) {
-                    continue;
-                }
-                walk(&path, skip, exts, re, out);
-            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if exts.contains(&ext) {
-                    if let Ok(text) = std::fs::read_to_string(&path) {
-                        for cap in re.find_iter(&text) {
-                            out.insert(cap.as_str().to_string());
-                        }
-                    }
-                }
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    crate::source_walk::walk_source_tree(root, &exts, |path| {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            for cap in re.find_iter(&text) {
+                found.insert(cap.as_str().to_string());
             }
         }
-    }
-    walk(root, &skip_dirs, &exts, &re, &mut found);
+    });
     found
 }
 
@@ -268,6 +243,7 @@ impl LintReport {
                 }).collect::<Vec<_>>(),
                 "single_acceptance_functional": self.single_acceptance_functional,
                 "no_test_record": self.no_test_record,
+                "verified_but_defective": self.verified_but_defective,
                 "verification_kinds": {
                     "automated":   self.verification_kinds[0],
                     "composition": self.verification_kinds[1],
@@ -290,7 +266,8 @@ impl LintReport {
         let quality_count = self.markerless_active.len()
             + self.short_rationale.len()
             + self.single_acceptance_functional.len()
-            + self.no_test_record.len();
+            + self.no_test_record.len()
+            + self.verified_but_defective.len();
         out.push_str(&format!(
             "**Status:** {} — {} requirement(s); validate {} error(s), {} warning(s); {} quality observation(s).\n\n",
             headline_emoji, self.total, self.validator_errors, self.validator_warnings, quality_count
@@ -373,6 +350,16 @@ impl LintReport {
                     self.no_test_record.len()
                 ));
                 for id in &self.no_test_record {
+                    out.push_str(&format!("- **{}**\n", id));
+                }
+                out.push('\n');
+            }
+            if !self.verified_but_defective.is_empty() {
+                out.push_str(&format!(
+                    "### Verified-but-defective ({})\n\nThese requirements are at Verified but their latest test record is a Fail. Inspect with `req test list <id>`; either fix and re-record, or move the requirement back to Implemented and reopen the work.\n\n",
+                    self.verified_but_defective.len()
+                ));
+                for id in &self.verified_but_defective {
                     out.push_str(&format!("- **{}**\n", id));
                 }
                 out.push('\n');

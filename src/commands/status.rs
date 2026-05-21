@@ -5,8 +5,28 @@ use serde_json::json;
 use std::path::PathBuf;
 
 use crate::cli::StatusArgs;
-use crate::model::Status;
+use crate::model::{Status, TestOutcome};
 use crate::storage::load_resolved;
+
+/// REQ-0125: list IDs of Verified requirements whose latest TestRecord
+/// outcome is Fail. Shared between status, brief, and lint so the
+/// definition stays in one place.
+pub fn verified_but_defective(project: &crate::model::Project) -> Vec<String> {
+    let mut out: Vec<String> = project
+        .requirements
+        .iter()
+        .filter(|(_, r)| matches!(r.status, Status::Verified))
+        .filter(|(_, r)| {
+            r.tests
+                .last()
+                .map(|t| matches!(t.outcome, TestOutcome::Fail))
+                .unwrap_or(false)
+        })
+        .map(|(id, _)| id.clone())
+        .collect();
+    out.sort();
+    out
+}
 
 pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_, project) = load_resolved(file)?;
@@ -44,6 +64,16 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
     } else {
         100.0 * done as f64 / non_obsolete as f64
     };
+    // REQ-0125: defects are Verified reqs whose latest test record is a Fail.
+    // Filtered through the same tag scope as the rest of the report.
+    let defective: Vec<String> = verified_but_defective(&project)
+        .into_iter()
+        .filter(|id| {
+            args.tag
+                .iter()
+                .all(|t| project.requirements[id].tags.iter().any(|rt| rt == t))
+        })
+        .collect();
 
     if args.json {
         println!(
@@ -63,6 +93,7 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
                 "delivery_progress_pct": (delivery_pct * 10.0).round() / 10.0,
                 "non_obsolete": non_obsolete,
                 "done": done,
+                "verified_but_defective": defective,
             }))?
         );
         return Ok(());
@@ -109,5 +140,15 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
         "Delivery progress: {:.1}%  ({} of {} non-obsolete are implemented or verified)",
         delivery_pct, done, non_obsolete
     );
+    if !defective.is_empty() {
+        println!();
+        println!(
+            "verified-but-defective: {} (latest test record is a Fail — inspect with `req test list <id>`)",
+            defective.len()
+        );
+        for id in &defective {
+            println!("  - {}", id);
+        }
+    }
     Ok(())
 }
