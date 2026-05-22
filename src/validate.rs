@@ -91,6 +91,10 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0023",
         "external statement-quality hook flagged this requirement (opt-in via REQ_VALIDATE_LLM_CMD)",
     ),
+    (
+        "REQ-V-0024",
+        "verified status but latest test record outcome is Fail — structural contradiction (warn)",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -487,6 +491,23 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
                 "status",
                 "cannot be approved/implemented/verified without acceptance criteria",
             ));
+        }
+        // REQ-V-0024 (REQ-0130): Verified status with a failing latest
+        // test record is a structural contradiction — the spec claims
+        // the behaviour works while the most recent evidence says it
+        // does not. Warning, not error: pre-commit and active dev are
+        // both fine with a known-failing record in flight; CI hard
+        // gates via `req review --gate --no-defects` (REQ-0126).
+        if matches!(r.status, Status::Verified) {
+            if let Some(latest) = r.tests.last() {
+                if matches!(latest.outcome, crate::model::TestOutcome::Fail) {
+                    findings.push(Finding::warn(
+                        "REQ-V-0024",
+                        "status",
+                        "verified status but latest test record is Fail — re-record on a fix, or move status back with `req update <id> --status implemented --reason \"...\"`",
+                    ));
+                }
+            }
         }
         if !findings.is_empty() {
             out.push((id.clone(), findings));

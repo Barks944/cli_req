@@ -200,6 +200,113 @@ fn req_0129_test_list_empty_records_clear_message() {
     );
 }
 
+// REQ-0130: `req validate` emits a REQ-V-0024 warning on Verified
+// requirements whose latest test record is a Fail.
+#[test]
+fn req_0130_validate_warns_on_verified_with_failing_latest() {
+    let s = Sandbox::new();
+    init_with_one_failing_verified(&s);
+    let out = s.run(&["validate", "--json"]);
+    let body = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&body).expect("validate JSON");
+    // findings is the per-req findings array
+    let findings = v["findings"].as_array().expect("findings array");
+    let any_0024 = findings
+        .iter()
+        .any(|f| f["rule_code"].as_str() == Some("REQ-V-0024"));
+    assert!(
+        any_0024,
+        "expected REQ-V-0024 warning on the verified-but-failing fixture; findings={}",
+        body
+    );
+}
+
+#[test]
+fn req_0130_validate_does_not_fail_on_warning_only() {
+    let s = Sandbox::new();
+    init_with_one_failing_verified(&s);
+    let out = s.run(&["validate"]);
+    assert!(
+        out.status.success(),
+        "REQ-V-0024 is a warning; exit code must remain zero. stderr={}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn req_0130_verified_with_pass_latest_clean() {
+    // Walk a req to Verified with a passing latest record; expect no warning.
+    let s = Sandbox::new();
+    s.init("p");
+    s.run(&[
+        "add",
+        "--title",
+        "Verified and passing baseline",
+        "--statement",
+        "The system shall expose this passing baseline behaviour reliably.",
+        "--rationale",
+        "Fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    for status in ["proposed", "approved", "implemented", "verified"] {
+        let _ = s.run(&[
+            "update", "REQ-0001", "--status", status, "--reason", "fixture", "--force",
+        ]);
+    }
+    // Init git so test record can attach a commit.
+    let _ = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(s.dir.path())
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "user.email", "t@e"])
+        .current_dir(s.dir.path())
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "user.name", "t"])
+        .current_dir(s.dir.path())
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "commit.gpgsign", "false"])
+        .current_dir(s.dir.path())
+        .output();
+    std::fs::write(s.dir.path().join("seed"), "x").unwrap();
+    let _ = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(s.dir.path())
+        .output();
+    let _ = Command::new("git")
+        .args(["commit", "-q", "-m", "seed"])
+        .current_dir(s.dir.path())
+        .output();
+    let _ = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "test",
+            "record",
+            "REQ-0001",
+            "--result",
+            "pass",
+            "--notes",
+            "ok",
+        ])
+        .output()
+        .expect("record");
+
+    let out = s.run(&["validate", "--json"]);
+    let body = stdout(&out);
+    assert!(
+        !body.contains("REQ-V-0024"),
+        "Verified + passing latest must not trip REQ-V-0024; got: {}",
+        body
+    );
+}
+
 #[test]
 fn req_0125_lint_flags_defects_as_quality_finding() {
     let s = Sandbox::new();

@@ -8,6 +8,16 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.4.0-rc.4] — 2026-05-22
+
+### Added
+- **REQ-0130 / REQ-V-0024:** validator warning on Verified
+  requirements whose latest test record is a Fail. Surfaces the
+  contradiction in every `req validate` call (CI logs, pre-commit
+  output, MCP responses) without flipping the exit code. The hard
+  block stays in `req review --gate --no-defects` (REQ-0126); this
+  is the soft, ever-present signal.
+
 ## [0.4.0-rc.3] — 2026-05-21
 
 Driven by external rc.1 user feedback after a real 64-req migration.
