@@ -4,7 +4,7 @@
 mod common;
 use common::{stderr, stdout, Sandbox};
 use std::fs;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
 // ---------- REQ-0004: in-file warning + instructions ----------
 
@@ -1219,7 +1219,7 @@ fn review_staged_does_not_need_existing_head() {
         "--priority",
         "could",
     ]);
-    let out = s.run(&["review", "--staged", "--gate"]);
+    let out = review_in(&s, &["--staged", "--gate"]);
     assert!(
         out.status.success(),
         "--staged with no HEAD should not fail-closed; stderr: {}",
@@ -2661,4 +2661,211 @@ fn req_0082_project_self_validates_cleanly() {
 // Tiny regex-lite helper so we don't pull in the regex crate as a dev-dep.
 fn regex_lite(_prefix: &str) -> bool {
     true
+}
+
+// ---------- REQ-0131 / REQ-0132 / REQ-0133: per-commit review ----------
+
+// Init a git repo in `dir`, commit the current project.req so HEAD carries
+// the spec (so `review --staged` can diff working-tree against HEAD and
+// compute a real added/changed set — without this, every requirement reads
+// as "added").
+fn git_baseline(dir: &std::path::Path) {
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["init", "-q", "-b", "main"])
+        .output();
+    for cfg in [["user.email", "t@t.t"], ["user.name", "t"]] {
+        let _ = Command::new("git")
+            .current_dir(dir)
+            .args(["config", cfg[0], cfg[1]])
+            .output();
+    }
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["add", "project.req"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "baseline",
+        ])
+        .output();
+}
+
+fn git_add(dir: &std::path::Path, rel: &str) {
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["add", rel])
+        .output();
+}
+
+// Invoke `req review` with cwd set to the sandbox so its git commands
+// (diff --cached, show HEAD:project.req) resolve against the sandbox repo
+// rather than the real one the test process runs in. `common::req` does
+// not set current_dir, so it cannot be used for git-aware subcommands.
+fn review_in(s: &Sandbox, extra: &[&str]) -> Output {
+    let path = s.path();
+    let mut args: Vec<&str> = vec!["--file", path.to_str().unwrap(), "review"];
+    args.extend_from_slice(extra);
+    Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args(&args)
+        .output()
+        .expect("review")
+}
+
+#[test]
+fn req_0131_new_scopes_findings_to_changed_reqs() {
+    // A pre-existing requirement carries a weasel-word warning (REQ-V-0009).
+    // A commit that touches only source code must NOT reprint that warning
+    // under the per-commit (--staged implies --new) view, but --all must
+    // still surface it as the deliberate hygiene sweep.
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Weasel backlog fixture title",
+        "--statement",
+        "The system shall be fast under typical load conditions.",
+        "--rationale",
+        "Pre-existing backlog warning the per-commit gate should ignore.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    git_baseline(s.dir.path());
+    // Touch source only; project.req is unchanged vs HEAD.
+    let src = s.dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("clean.rs"), "// REQ-0001: cited\nfn a() {}\n").unwrap();
+    git_add(s.dir.path(), "src/clean.rs");
+
+    let new_out = review_in(&s, &["--staged", "--json"]);
+    let nbody = stdout(&new_out);
+    let nv: serde_json::Value = serde_json::from_str(&nbody)
+        .unwrap_or_else(|e| panic!("--new json parse: {} on {}", e, nbody));
+    assert!(
+        !nv["validate"].to_string().contains("REQ-V-0009"),
+        "per-commit (--new) view must suppress findings on untouched reqs: {}",
+        nv["validate"]
+    );
+
+    let all_out = review_in(&s, &["--staged", "--all", "--json"]);
+    let abody = stdout(&all_out);
+    let av: serde_json::Value = serde_json::from_str(&abody)
+        .unwrap_or_else(|e| panic!("--all json parse: {} on {}", e, abody));
+    assert!(
+        av["validate"].to_string().contains("REQ-V-0009"),
+        "--all view must still surface the backlog warning: {}",
+        av["validate"]
+    );
+}
+
+#[test]
+fn req_0132_req_none_with_reason_passes_gate() {
+    let s = Sandbox::new();
+    s.init("p");
+    git_baseline(s.dir.path());
+    let src = s.dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("probe.rs"),
+        "// REQ-NONE: one-off flash-timing diagnostic, not shipped\nfn probe() {}\n",
+    )
+    .unwrap();
+    git_add(s.dir.path(), "src/probe.rs");
+
+    let gated = review_in(&s, &["--staged", "--gate"]);
+    assert!(
+        gated.status.success(),
+        "a REQ-NONE with a reason should satisfy the gate: {}{}",
+        stdout(&gated),
+        stderr(&gated)
+    );
+    // The opt-out is auditable in the full report.
+    let all = review_in(&s, &["--staged", "--all"]);
+    let abody = stdout(&all);
+    assert!(
+        abody.contains("Gate opt-outs") && abody.contains("flash-timing diagnostic"),
+        "review --all should list the opt-out and its reason:\n{}",
+        abody
+    );
+}
+
+#[test]
+fn req_0132_req_none_without_reason_blocks() {
+    let s = Sandbox::new();
+    s.init("p");
+    git_baseline(s.dir.path());
+    let src = s.dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("probe.rs"), "// REQ-NONE\nfn probe() {}\n").unwrap();
+    git_add(s.dir.path(), "src/probe.rs");
+
+    let gated = review_in(&s, &["--staged", "--gate"]);
+    let body = format!("{}{}", stdout(&gated), stderr(&gated));
+    assert!(
+        !gated.status.success(),
+        "a reasonless REQ-NONE must NOT pass the gate: {}",
+        body
+    );
+    assert!(
+        body.contains("without a reason"),
+        "the report should explain the missing reason:\n{}",
+        body
+    );
+}
+
+#[test]
+fn req_0133_multiple_ids_on_comment_line_all_referenced() {
+    let s = Sandbox::new();
+    s.init("p");
+    for n in 1..=2 {
+        let _ = s.run(&[
+            "add",
+            "--title",
+            &format!("Header fixture requirement {}", n),
+            "--statement",
+            "The system shall be referenced from a multi-id header.",
+            "--rationale",
+            "Multi-id header coverage.",
+            "--kind",
+            "constraint",
+            "--priority",
+            "could",
+        ]);
+    }
+    git_baseline(s.dir.path());
+    let src = s.dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("broad.rs"),
+        "// REQs: REQ-0001, REQ-0002\nfn broad() {}\n",
+    )
+    .unwrap();
+    git_add(s.dir.path(), "src/broad.rs");
+
+    let out = review_in(&s, &["--staged", "--json"]);
+    let body = stdout(&out);
+    let v: serde_json::Value =
+        serde_json::from_str(&body).unwrap_or_else(|e| panic!("json parse: {} on {}", e, body));
+    let referenced = v["coverage"]["referenced"].to_string();
+    assert!(
+        referenced.contains("REQ-0001") && referenced.contains("REQ-0002"),
+        "both ids on the header line should be credited as referenced: {}",
+        referenced
+    );
+    let markerless = v["coverage"]["markerless_changed_source"].to_string();
+    assert!(
+        !markerless.contains("broad.rs"),
+        "a multi-id header should mark the file as covered: {}",
+        markerless
+    );
 }

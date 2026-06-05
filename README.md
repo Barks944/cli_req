@@ -32,6 +32,14 @@
 
 It exists because **conversational coding loses track of requirements.** The agent and the user have a session, they build something, the conversation ends. Without something that survives the conversation, the next session starts blind. `req` is what survives: a tool both humans and agents reach for, with hooks that nudge at commit time and a session-start brief that says "where are we right now?"
 
+### The mental model: where spec-memory and validation-memory meet
+
+`req` is your project's **spec-memory** — what the system is *supposed* to do, surviving between conversations. A test/validation tool (your test runner, a validation-statement harness, your CI evidence trail) is your project's **validation-memory** — what the system was *observed* to do, and when.
+
+They are two different memories, and they meet at one join key: **`(commit_sha, req_id)`**. A requirement (`req_id`) describes intent; a validation record pins that intent to a concrete state of the code (`commit_sha`) where it was checked. That join is why the hooks, the `// REQ-NNNN:` markers, and `req verify --cites` exist — each one is a thread tying a requirement to the commit where it was implemented or validated. `req test record` and `req stale` live on this same join: a record is *fresh* when its `commit_sha` still matches the code behind its `req_id`, and *stale* when the code moved on.
+
+Once that clicks, the hooks stop feeling like friction and start reading as what keeps the two memories from drifting apart. If you only take one idea from this README, take the join key.
+
 ---
 
 ## TL;DR for agents

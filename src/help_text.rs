@@ -318,6 +318,45 @@ shell history rather than being silent. Re-running
 `req hooks install` (with or without `--strict`) swaps modes
 deterministically.
 
+PER-COMMIT vs WHOLE-PROJECT FINDINGS (REQ-0131)
+
+  The pre-commit gate runs `req review --staged`, which implies
+  `--new`: the validator section is scoped to requirements ADDED or
+  CHANGED by this commit. You are NOT shown — and not blocked by —
+  compound-statement warnings on requirements you never touched. A
+  linter that reprints the same six backlog warnings every commit
+  trains you to stop reading; `--new` keeps the per-commit signal
+  about THIS change.
+
+  Whole-project error enforcement is unaffected. Step 1 above runs
+  the full `req validate` whenever a `.req` file is staged, and CI
+  runs it on the whole project — a structurally broken spec still
+  cannot be committed or merged. `--new` only quiets the advisory
+  backlog at the per-commit boundary.
+
+    req review              # whole project (advisory, default)
+    req review --all        # whole project, explicit name
+    req review --new        # only findings this range introduced
+    req review --staged     # staged diff; implies --new
+
+  Run `req review --all` when you want the deliberate hygiene sweep
+  over the existing spec — a chosen action, not a per-commit tax.
+
+HONEST OPT-OUT FOR NON-SPEC FILES (REQ-0132)
+
+  Some source files legitimately implement no requirement — a 50-line
+  diagnostic script, a throwaway harness. Citing a tangentially
+  related REQ is dishonest, and `REQ_SKIP_GATE=1` bypasses the whole
+  gate. Instead, declare the exemption in the file:
+
+    // REQ-NONE: one-off flash-timing probe, not shipped
+
+  A `REQ-NONE` comment with a NON-EMPTY reason satisfies the marker
+  gate for that file. The reason stays in the diff and is surfaced
+  under \"Gate opt-outs (REQ-NONE)\" in `req review --all`, so you can
+  later audit where — and why — people opted out. A bare `REQ-NONE`
+  with no reason does NOT pass: the honesty is the point.
+
 `req hooks install` also adds these `.gitattributes` lines:
 
   *.req merge=req-merge        # merge driver for ID collisions
@@ -431,7 +470,22 @@ cleanly in code review. The merge story has three moving parts:
 
   3. Content conflicts (same requirement edited on both sides). These
      are real conflicts — resolve in your editor, then run
-     `req repair --confirm-direct-edit` to re-sign.",
+     `req repair --confirm-direct-edit` to re-sign.
+
+CROSS-REPO ID NAMESPACING (convention, not enforced)
+
+  REQ IDs are allocated per repo, so REQ-0008 means one thing here and
+  something unrelated in another component's `project.req`. The tool
+  deliberately does NOT impose a global namespace — repo-local scoping
+  is the right granularity, and each component owns its own spec.
+
+  When you reference a requirement that lives in ANOTHER repo (a commit
+  message, a cross-cutting note, an issue), qualify it:
+
+        at_test_runner#REQ-0008      not just REQ-0008
+
+  This is a writing convention to keep humans unambiguous across a
+  multi-repo workspace; `req` does not parse or validate the prefix.",
     },
     Section {
         name: "audit",

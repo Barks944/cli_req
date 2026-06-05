@@ -61,8 +61,29 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     // --- changed requirements diff -----------------------------------
     let (added, removed, changed) = diff_buckets(base.as_ref(), &current);
 
-    // --- validate (full project) -------------------------------------
-    let val_findings = validate::validate_project(&current);
+    // --- validate ----------------------------------------------------
+    // REQ-0131: in --new mode (implied by --staged unless --all is set)
+    // the validator section is scoped to requirements added or changed
+    // in this range. Findings on untouched requirements are suppressed
+    // so the per-commit gate stays sharp instead of reprinting the
+    // project-wide backlog every commit — the desensitisation failure
+    // mode of any linter. Full-project ERROR enforcement is unaffected:
+    // the pre-commit hook runs the dedicated `req validate` on staged
+    // .req files, and CI runs it on the whole project, so a structurally
+    // broken spec still cannot be committed or merged.
+    let new_scope = (args.new || args.staged) && !args.all;
+    let val_findings: Vec<(String, Vec<validate::Finding>)> = {
+        let all_findings = validate::validate_project(&current);
+        if new_scope {
+            let touched: BTreeSet<&String> = added.iter().chain(changed.iter()).collect();
+            all_findings
+                .into_iter()
+                .filter(|(id, _)| touched.contains(id))
+                .collect()
+        } else {
+            all_findings
+        }
+    };
     let val_errors: usize = val_findings
         .iter()
         .flat_map(|(_, fs)| fs.iter())
@@ -147,6 +168,22 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         regex::Regex::new(r#"(?m)^\s*(?:(?://|#|--|;|/\*|\*)|.*?(?://|#))\s*.*?(REQ-\d{4})"#)
             .unwrap();
     let any_req_re = regex::Regex::new(r"REQ-\d{4}").unwrap();
+    // REQ-0132: an honest opt-out for files that legitimately implement
+    // no requirement (diagnostic scripts, throwaway harnesses). A
+    // comment line `// REQ-NONE: <reason>` with a NON-EMPTY reason
+    // exempts the file from the markerless gate; the reason is recorded
+    // and surfaced in the report so opt-outs stay auditable. A bare
+    // `REQ-NONE` with no reason does NOT exempt — the honesty is the
+    // whole point, and it still blocks the gate.
+    // Blank-only classes ([ \t], not \s) so the reason capture stays on
+    // the SAME line — otherwise \s would swallow the newline and capture
+    // the next line of code as a bogus reason.
+    let req_none_re =
+        regex::Regex::new(r"(?m)^[ \t]*(?://|#|--|;|/\*|\*)[ \t]*REQ-NONE\b[ \t:]*(.*)$").unwrap();
+    // (file, reason) for valid opt-outs; files that wrote REQ-NONE with
+    // no reason are tracked separately and still fail the gate.
+    let mut opt_outs: Vec<(String, String)> = Vec::new();
+    let mut optout_missing_reason: Vec<String> = Vec::new();
     for f in &changed_files {
         let rel_normalised = f.replace('\\', "/");
         let full = args.path.join(f);
@@ -171,8 +208,12 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         match std::fs::read_to_string(&full) {
             Ok(text) => {
                 let mut saw_marker_in_comment = false;
-                // Ghost scan stays broad on non-ignored files: a ghost
-                // in a string literal is still worth knowing about.
+                // REQ-0133: the ghost scan is a broad global match, so it
+                // credits EVERY REQ-NNNN id in the file as referenced —
+                // including several on one line, e.g. a file-header
+                // `// REQs: REQ-0008, REQ-0015`. Ghosts in string
+                // literals are still worth knowing about, so this stays
+                // broad rather than comment-context-only.
                 for cap in any_req_re.find_iter(&text) {
                     let id = cap.as_str().to_string();
                     if !current.requirements.contains_key(&id) {
@@ -231,8 +272,24 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                         }
                     }
                 }
+                // REQ-0132: a source file with no real marker may opt out
+                // honestly with `// REQ-NONE: <reason>`. Checked HERE, only
+                // when otherwise markerless: a file that genuinely cites a
+                // requirement is covered normally, and a doc/help file that
+                // merely *mentions* the REQ-NONE syntax in an example is not
+                // mistaken for an opt-out. A non-empty reason exempts; a
+                // reasonless REQ-NONE still blocks.
                 if is_source && !saw_marker_in_comment {
-                    markerless_changed_source.push(rel_normalised);
+                    if let Some(cap) = req_none_re.captures(&text) {
+                        let reason = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+                        if reason.is_empty() {
+                            optout_missing_reason.push(rel_normalised);
+                        } else {
+                            opt_outs.push((rel_normalised, reason.to_string()));
+                        }
+                    } else {
+                        markerless_changed_source.push(rel_normalised);
+                    }
                 }
             }
             Err(_) => {
@@ -345,6 +402,9 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     // --- audit headline ----------------------------------------------
     let audit_summary = audit_summary_for_file(&path);
 
+    // REQ-0131 / REQ-0132: the JSON report mirrors the markdown — scoped
+    // validator findings plus the REQ-NONE opt-out lists — so tooling and
+    // the gate agree.
     if args.json {
         println!(
             "{}",
@@ -373,6 +433,10 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                     "referenced": coverage_referenced,
                     "changed_files": changed_files,
                     "markerless_changed_source": markerless_changed_source,
+                    "opt_outs": opt_outs.iter()
+                        .map(|(f, r)| json!({"file": f, "reason": r}))
+                        .collect::<Vec<_>>(),
+                    "optout_missing_reason": optout_missing_reason,
                 },
                 "stale": {
                     "stale": stale_count,
@@ -385,6 +449,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         let gate_fail = val_errors > 0
             || !coverage_ghosts.is_empty()
             || !markerless_changed_source.is_empty()
+            || !optout_missing_reason.is_empty()
             || (args.no_defects && !defects.is_empty());
         if val_errors > 0 || (args.gate && gate_fail) {
             std::process::exit(1);
@@ -397,11 +462,14 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     out.push_str(&format!("# req review: {}..HEAD\n\n", base_ref));
 
     // Headline
+    // REQ-0132: a reasonless REQ-NONE counts toward the WARN headline
+    // (and blocks under --gate); a valid opt-out does not.
     let gate_emoji = if val_errors > 0 {
         "FAIL"
     } else if val_warnings > 0
         || !coverage_ghosts.is_empty()
         || !markerless_changed_source.is_empty()
+        || !optout_missing_reason.is_empty()
     {
         "WARN"
     } else {
@@ -486,6 +554,35 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         out.push('\n');
     }
+    // REQ-0132: surface honest opt-outs so `req review --all` is the
+    // place to audit "where did people opt out, and why?".
+    if !opt_outs.is_empty() {
+        out.push_str("## Gate opt-outs (REQ-NONE)\n\n");
+        out.push_str(
+            "These files declared `// REQ-NONE: <reason>` — an explicit, logged \
+            exemption from the marker gate. They are not failures; audit the \
+            reasons here.\n\n",
+        );
+        for (f, r) in &opt_outs {
+            out.push_str(&format!("- {} — {}\n", f, r));
+        }
+        out.push('\n');
+    }
+    // REQ-0132: a REQ-NONE with no reason is not an opt-out — it blocks,
+    // and we say why rather than letting it read as a generic markerless
+    // file.
+    if !optout_missing_reason.is_empty() {
+        out.push_str("## REQ-NONE without a reason\n\n");
+        out.push_str(
+            "These files declared `// REQ-NONE` but gave no reason. An opt-out \
+            MUST state why (e.g. `// REQ-NONE: one-off diagnostic, not shipped`). \
+            Add a reason or cite a real REQ.\n\n",
+        );
+        for f in &optout_missing_reason {
+            out.push_str(&format!("- {}\n", f));
+        }
+        out.push('\n');
+    }
     if !coverage_referenced.is_empty() {
         out.push_str("## Requirements referenced from changed files\n\n");
         for id in &coverage_referenced {
@@ -531,6 +628,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     let gate_fail = val_errors > 0
         || !coverage_ghosts.is_empty()
         || !markerless_changed_source.is_empty()
+        || !optout_missing_reason.is_empty()
         || (args.no_defects && !defects.is_empty());
     // Validate errors are always fatal. The wider gate (coverage
     // ghosts, markerless changed source, defects when --no-defects)

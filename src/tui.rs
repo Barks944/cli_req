@@ -136,6 +136,8 @@ fn dispatch(
                 gate: false,
                 no_defects: false,
                 summary: false,
+                new: false,
+                all: false,
                 json: false,
             },
             file,

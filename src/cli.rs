@@ -319,6 +319,20 @@ pub struct ReviewArgs {
     /// would ship known-broken behaviour.
     #[arg(long, requires = "gate")]
     pub no_defects: bool,
+    /// REQ-0131: scope validator findings to requirements ADDED or
+    /// CHANGED in this range, suppressing findings on requirements the
+    /// commit did not touch. `--staged` implies this. The per-commit
+    /// gate stays sharp instead of reprinting the whole project's
+    /// backlog every commit; full-project error enforcement still lives
+    /// in the dedicated `req validate` (staged-.req hook) and CI.
+    #[arg(long, conflicts_with = "all")]
+    pub new: bool,
+    /// REQ-0131: force the full-project validator sweep even under
+    /// `--staged`. This is the deliberate hygiene view — the name for
+    /// the default, advisory `req review` behaviour, made explicit so
+    /// it composes in scripts.
+    #[arg(long)]
+    pub all: bool,
     /// Emit the report as JSON instead of markdown.
     #[arg(long)]
     pub json: bool,

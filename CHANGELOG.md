@@ -8,6 +8,42 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.4.0-rc.5] — 2026-06-05
+
+Driven by field feedback after a heavy multi-repo week of use: the
+review gate desensitised the reader, and there was no honest home for
+files that implement no requirement.
+
+### Added
+- **REQ-0131 (per-commit review scope):** `req review --new` scopes
+  validator findings to requirements *added or changed* in the range;
+  `--staged` (the pre-commit hook path) implies it. The gate no longer
+  reprints the whole project's compound-statement backlog on every
+  commit — the desensitisation failure mode of any linter.
+  `req review --all` is the explicit name for the full hygiene sweep.
+  Whole-project error enforcement is unchanged: the staged-`.req`
+  `req validate` step and CI still validate the entire spec, so a
+  structurally broken spec still cannot be committed or merged.
+  Exposed on MCP `req_review` as `new` / `all`.
+- **REQ-0132 (honest gate opt-out):** a `// REQ-NONE: <reason>` comment
+  carrying a non-empty reason exempts a source file from the marker
+  gate. Diagnostic and throwaway scripts can opt out truthfully instead
+  of citing an unrelated REQ or bypassing the whole gate with
+  `REQ_SKIP_GATE=1`. Opt-outs are listed under "Gate opt-outs
+  (REQ-NONE)" in `req review --all` (and in `--json`) so they stay
+  auditable; a reasonless `REQ-NONE` still blocks the gate.
+- **REQ-0133 (multi-id comment lines):** every `REQ-NNNN` id on a
+  recognised comment line is credited as referenced, so a file-header
+  `// REQs: REQ-0008, REQ-0015` composes for broad-scope files.
+
+### Docs
+- README now states the mental model the structure pays off on: `req`
+  is **spec-memory**, a test/validation tool is **validation-memory**,
+  and the two meet at the `(commit_sha, req_id)` join key.
+- `req help version-control` documents the cross-repo ID convention
+  (`repo#REQ-NNNN` in commit messages) — a writing convention to keep
+  multi-repo references unambiguous, deliberately not enforced.
+
 ## [0.4.0-rc.4] — 2026-05-22
 
 ### Added
