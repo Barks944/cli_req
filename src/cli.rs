@@ -68,6 +68,23 @@ impl Command {
             Command::Doctor(a) => a.json,
             Command::Diff(a) => a.json,
             Command::Help(a) => a.json,
+            Command::Hazard(HazardCmd::Add(a)) => a.json,
+            Command::Hazard(HazardCmd::List(a)) => a.json,
+            Command::Hazard(HazardCmd::Show(a)) => a.json,
+            Command::Hazard(HazardCmd::Assess(a)) => a.json,
+            Command::Hazard(HazardCmd::Update(a)) => a.json,
+            Command::Sf(SfCmd::Add(a)) => a.json,
+            Command::Sf(SfCmd::List(a)) => a.json,
+            Command::Sf(SfCmd::Show(a)) => a.json,
+            Command::Sf(SfCmd::Update(a)) => a.json,
+            Command::Sf(SfCmd::Mitigate(a)) => a.json,
+            Command::Sreq(SreqCmd::Add(a)) => a.json,
+            Command::Sreq(SreqCmd::List(a)) => a.json,
+            Command::Sreq(SreqCmd::Show(a)) => a.json,
+            Command::Sreq(SreqCmd::Update(a)) => a.json,
+            Command::Sreq(SreqCmd::Realize(a)) => a.json,
+            Command::Sreq(SreqCmd::Verify(a)) => a.json,
+            Command::Trace(a) => a.json,
             _ => false,
         }
     }
@@ -162,6 +179,411 @@ pub enum Command {
     /// REQ-0109: retroactive backfill — advance requirements through
     /// the lifecycle to a target status in one invocation.
     Adopt(AdoptArgs),
+    /// REQ-0132: manage hazards (HAZ-NNNN) — the functional-safety
+    /// entry point. Risk-assess via the IEC 61508 risk graph.
+    #[command(subcommand)]
+    Hazard(HazardCmd),
+    /// REQ-0132: manage safety functions (SF-NNNN) that mitigate hazards.
+    #[command(subcommand)]
+    Sf(SfCmd),
+    /// REQ-0132: manage safety requirements (SR-NNNN) that realize
+    /// safety functions.
+    #[command(subcommand)]
+    Sreq(SreqCmd),
+    /// REQ-0132: print the end-to-end safety case for a HAZ/SF/SR id —
+    /// hazard → safety function → safety requirements → verification.
+    Trace(TraceArgs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HazardCmd {
+    /// Log a hazard. Risk parameters are optional at this stage — a
+    /// hazard starts `Identified` and is risk-assessed later.
+    Add(HazardAddArgs),
+    /// List hazards with optional SIL / status filters.
+    List(HazardListArgs),
+    /// Show one hazard in full, including its derived SIL.
+    Show(HazardShowArgs),
+    /// Set the C/F/P/W risk parameters; derives the required SIL and
+    /// advances the hazard to `Assessed`.
+    Assess(HazardAssessArgs),
+    /// Update title/description/context/harm/status with a reason.
+    Update(HazardUpdateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct HazardAddArgs {
+    #[arg(short, long)]
+    pub title: String,
+    #[arg(short, long, default_value = "")]
+    pub description: String,
+    /// The operational situation / mode in which the hazard arises.
+    #[arg(long = "context", default_value = "")]
+    pub context: String,
+    /// Free-text narrative of the potential harm, in your own words —
+    /// e.g. "an operator's hand could be severed".
+    #[arg(long)]
+    pub harm: String,
+    /// Optional risk parameters. Supply all four to assess on creation;
+    /// omit them to log the hazard as `Identified` and assess later.
+    #[arg(short = 'C', long, value_enum, ignore_case = true)]
+    pub consequence: Option<ConsequenceArg>,
+    #[arg(short = 'F', long, value_enum, ignore_case = true)]
+    pub frequency: Option<FrequencyArg>,
+    #[arg(short = 'P', long, value_enum, ignore_case = true)]
+    pub avoidance: Option<AvoidanceArg>,
+    #[arg(short = 'W', long, value_enum, ignore_case = true)]
+    pub probability: Option<ProbabilityArg>,
+    #[arg(long)]
+    pub tag: Vec<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazardListArgs {
+    /// Filter by derived SIL (e.g. SIL3). Hazards not yet assessed are
+    /// excluded by any SIL filter.
+    #[arg(long)]
+    pub sil: Option<String>,
+    /// Filter by status.
+    #[arg(long, value_enum, ignore_case = true)]
+    pub status: Option<HazardStatusArg>,
+    /// Only hazards with no mitigating safety function.
+    #[arg(long)]
+    pub unmitigated: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazardShowArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazardAssessArgs {
+    pub id: String,
+    #[arg(short = 'C', long, value_enum, ignore_case = true)]
+    pub consequence: ConsequenceArg,
+    #[arg(short = 'F', long, value_enum, ignore_case = true)]
+    pub frequency: FrequencyArg,
+    #[arg(short = 'P', long, value_enum, ignore_case = true)]
+    pub avoidance: AvoidanceArg,
+    #[arg(short = 'W', long, value_enum, ignore_case = true)]
+    pub probability: ProbabilityArg,
+    #[arg(long)]
+    pub reason: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazardUpdateArgs {
+    pub id: String,
+    #[arg(short, long)]
+    pub title: Option<String>,
+    #[arg(short, long)]
+    pub description: Option<String>,
+    #[arg(long = "context")]
+    pub context: Option<String>,
+    #[arg(long)]
+    pub harm: Option<String>,
+    #[arg(long, value_enum, ignore_case = true)]
+    pub status: Option<HazardStatusArg>,
+    #[arg(long)]
+    pub add_tag: Vec<String>,
+    #[arg(long)]
+    pub remove_tag: Vec<String>,
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// Skip lifecycle guards (e.g. jump straight to Verified).
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SfCmd {
+    /// Define a safety function.
+    Add(SfAddArgs),
+    /// List safety functions with their allocated SIL.
+    List(SfListArgs),
+    /// Show one safety function in full.
+    Show(SfShowArgs),
+    /// Update fields with a reason.
+    Update(SfUpdateArgs),
+    /// Record that this safety function mitigates a hazard (SF → HAZ).
+    Mitigate(SfMitigateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SfAddArgs {
+    #[arg(short, long)]
+    pub title: String,
+    #[arg(short, long, default_value = "")]
+    pub description: String,
+    /// The safe state this function achieves or maintains.
+    #[arg(long = "safe-state", default_value = "")]
+    pub safe_state: String,
+    /// Hazard(s) this function mitigates (repeatable). Records the
+    /// mitigates links immediately.
+    #[arg(long = "mitigates")]
+    pub mitigates: Vec<String>,
+    #[arg(long)]
+    pub tag: Vec<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SfListArgs {
+    #[arg(long)]
+    pub sil: Option<String>,
+    #[arg(long, value_enum, ignore_case = true)]
+    pub status: Option<SafetyFunctionStatusArg>,
+    /// Only safety functions with no realizing safety requirement.
+    #[arg(long)]
+    pub unrealized: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SfShowArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SfUpdateArgs {
+    pub id: String,
+    #[arg(short, long)]
+    pub title: Option<String>,
+    #[arg(short, long)]
+    pub description: Option<String>,
+    #[arg(long = "safe-state")]
+    pub safe_state: Option<String>,
+    #[arg(long, value_enum, ignore_case = true)]
+    pub status: Option<SafetyFunctionStatusArg>,
+    #[arg(long)]
+    pub add_tag: Vec<String>,
+    #[arg(long)]
+    pub remove_tag: Vec<String>,
+    #[arg(long)]
+    pub reason: Option<String>,
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SfMitigateArgs {
+    /// The safety function (SF-NNNN).
+    pub sf: String,
+    /// The hazard it mitigates (HAZ-NNNN).
+    pub hazard: String,
+    /// Remove the mitigates link instead of adding it.
+    #[arg(long)]
+    pub remove: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SreqCmd {
+    /// Add a safety requirement.
+    Add(SreqAddArgs),
+    /// List safety requirements with their inherited SIL.
+    List(SreqListArgs),
+    /// Show one safety requirement in full.
+    Show(SreqShowArgs),
+    /// Update fields / lifecycle status with a reason.
+    Update(SreqUpdateArgs),
+    /// Record that this safety requirement realizes a safety function
+    /// (SR → SF).
+    Realize(SreqRealizeArgs),
+    /// Attach verification evidence, optionally promoting to Verified.
+    /// The evidence rigour must meet the requirement's inherited SIL.
+    Verify(SreqVerifyArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SreqAddArgs {
+    #[arg(short, long)]
+    pub title: String,
+    #[arg(short, long)]
+    pub statement: String,
+    #[arg(short, long)]
+    pub rationale: String,
+    #[arg(short = 'a', long = "accept")]
+    pub acceptance: Vec<String>,
+    /// Priority. Safety requirements default to `must`.
+    #[arg(short, long, value_enum, ignore_case = true, default_value = "must")]
+    pub priority: PriorityArg,
+    /// Safety function(s) this requirement realizes (repeatable).
+    #[arg(long = "realizes")]
+    pub realizes: Vec<String>,
+    #[arg(long)]
+    pub tag: Vec<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SreqListArgs {
+    #[arg(long)]
+    pub sil: Option<String>,
+    #[arg(long, value_enum, ignore_case = true)]
+    pub status: Option<StatusArg>,
+    /// Only safety requirements not yet Verified.
+    #[arg(long)]
+    pub unverified: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SreqShowArgs {
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SreqUpdateArgs {
+    pub id: String,
+    #[arg(short, long)]
+    pub title: Option<String>,
+    #[arg(short, long)]
+    pub statement: Option<String>,
+    #[arg(short, long)]
+    pub rationale: Option<String>,
+    #[arg(short = 'a', long = "accept")]
+    pub acceptance: Option<Vec<String>>,
+    #[arg(long = "add-acceptance")]
+    pub add_acceptance: Vec<String>,
+    #[arg(short, long, value_enum, ignore_case = true)]
+    pub priority: Option<PriorityArg>,
+    #[arg(long, value_enum, ignore_case = true)]
+    pub status: Option<StatusArg>,
+    #[arg(long)]
+    pub add_tag: Vec<String>,
+    #[arg(long)]
+    pub remove_tag: Vec<String>,
+    #[arg(long)]
+    pub reason: Option<String>,
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SreqRealizeArgs {
+    /// The safety requirement (SR-NNNN).
+    pub sreq: String,
+    /// The safety function it realizes (SF-NNNN).
+    pub sf: String,
+    #[arg(long)]
+    pub remove: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SreqVerifyArgs {
+    pub id: String,
+    /// Evidence kind: automated, composition, or inspection. The
+    /// SIL-gate rejects inspection-only evidence for SIL 3/4.
+    #[arg(long = "by", value_enum, ignore_case = true)]
+    pub by: EvidenceArg,
+    #[arg(long, default_value = "")]
+    pub notes: String,
+    #[arg(long = "cites")]
+    pub cites: Vec<String>,
+    /// Promote to Verified after recording.
+    #[arg(long)]
+    pub promote: bool,
+    /// Override the SIL-rigour gate (records an explicit exception).
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TraceArgs {
+    /// A HAZ-NNNN, SF-NNNN, or SR-NNNN id. Tracing from a hazard shows
+    /// the whole case; from an SF or SR shows the slice rooted there.
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum ConsequenceArg {
+    #[value(name = "C_A")]
+    Ca,
+    #[value(name = "C_B")]
+    Cb,
+    #[value(name = "C_C")]
+    Cc,
+    #[value(name = "C_D")]
+    Cd,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum FrequencyArg {
+    #[value(name = "F_A")]
+    Fa,
+    #[value(name = "F_B")]
+    Fb,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum AvoidanceArg {
+    #[value(name = "P_A")]
+    Pa,
+    #[value(name = "P_B")]
+    Pb,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum ProbabilityArg {
+    W1,
+    W2,
+    W3,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum HazardStatusArg {
+    Identified,
+    Assessed,
+    Mitigated,
+    Verified,
+    Obsolete,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum SafetyFunctionStatusArg {
+    Proposed,
+    Allocated,
+    Implemented,
+    Verified,
+    Obsolete,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum EvidenceArg {
+    Automated,
+    Composition,
+    Inspection,
 }
 
 #[derive(Args, Debug)]

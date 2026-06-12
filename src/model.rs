@@ -4,7 +4,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::cli::{KindArg, LinkKindArg, PriorityArg, StatusArg};
+use crate::cli::{
+    AvoidanceArg, ConsequenceArg, EvidenceArg, FrequencyArg, HazardStatusArg, KindArg,
+    LinkKindArg, PriorityArg, ProbabilityArg, SafetyFunctionStatusArg, StatusArg,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
@@ -428,6 +431,79 @@ impl From<LinkKindArg> for LinkKind {
     }
 }
 
+impl From<ConsequenceArg> for Consequence {
+    fn from(c: ConsequenceArg) -> Self {
+        match c {
+            ConsequenceArg::Ca => Consequence::Ca,
+            ConsequenceArg::Cb => Consequence::Cb,
+            ConsequenceArg::Cc => Consequence::Cc,
+            ConsequenceArg::Cd => Consequence::Cd,
+        }
+    }
+}
+
+impl From<FrequencyArg> for Frequency {
+    fn from(f: FrequencyArg) -> Self {
+        match f {
+            FrequencyArg::Fa => Frequency::Fa,
+            FrequencyArg::Fb => Frequency::Fb,
+        }
+    }
+}
+
+impl From<AvoidanceArg> for Avoidance {
+    fn from(a: AvoidanceArg) -> Self {
+        match a {
+            AvoidanceArg::Pa => Avoidance::Pa,
+            AvoidanceArg::Pb => Avoidance::Pb,
+        }
+    }
+}
+
+impl From<ProbabilityArg> for Probability {
+    fn from(p: ProbabilityArg) -> Self {
+        match p {
+            ProbabilityArg::W1 => Probability::W1,
+            ProbabilityArg::W2 => Probability::W2,
+            ProbabilityArg::W3 => Probability::W3,
+        }
+    }
+}
+
+impl From<HazardStatusArg> for HazardStatus {
+    fn from(s: HazardStatusArg) -> Self {
+        match s {
+            HazardStatusArg::Identified => HazardStatus::Identified,
+            HazardStatusArg::Assessed => HazardStatus::Assessed,
+            HazardStatusArg::Mitigated => HazardStatus::Mitigated,
+            HazardStatusArg::Verified => HazardStatus::Verified,
+            HazardStatusArg::Obsolete => HazardStatus::Obsolete,
+        }
+    }
+}
+
+impl From<SafetyFunctionStatusArg> for SafetyFunctionStatus {
+    fn from(s: SafetyFunctionStatusArg) -> Self {
+        match s {
+            SafetyFunctionStatusArg::Proposed => SafetyFunctionStatus::Proposed,
+            SafetyFunctionStatusArg::Allocated => SafetyFunctionStatus::Allocated,
+            SafetyFunctionStatusArg::Implemented => SafetyFunctionStatus::Implemented,
+            SafetyFunctionStatusArg::Verified => SafetyFunctionStatus::Verified,
+            SafetyFunctionStatusArg::Obsolete => SafetyFunctionStatus::Obsolete,
+        }
+    }
+}
+
+impl From<EvidenceArg> for EvidenceKind {
+    fn from(e: EvidenceArg) -> Self {
+        match e {
+            EvidenceArg::Automated => EvidenceKind::Automated,
+            EvidenceArg::Composition => EvidenceKind::Composition,
+            EvidenceArg::Inspection => EvidenceKind::Inspection,
+        }
+    }
+}
+
 impl Kind {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -580,6 +656,45 @@ pub enum Sil {
     /// `b` — a single E/E/PE safety-related system is not sufficient.
     #[serde(rename = "b")]
     B,
+}
+
+impl Consequence {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Consequence::Ca => "C_A",
+            Consequence::Cb => "C_B",
+            Consequence::Cc => "C_C",
+            Consequence::Cd => "C_D",
+        }
+    }
+}
+
+impl Frequency {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Frequency::Fa => "F_A",
+            Frequency::Fb => "F_B",
+        }
+    }
+}
+
+impl Avoidance {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Avoidance::Pa => "P_A",
+            Avoidance::Pb => "P_B",
+        }
+    }
+}
+
+impl Probability {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Probability::W1 => "W1",
+            Probability::W2 => "W2",
+            Probability::W3 => "W3",
+        }
+    }
 }
 
 impl Sil {

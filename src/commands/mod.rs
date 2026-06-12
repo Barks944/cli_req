@@ -23,6 +23,7 @@ pub mod purpose;
 pub mod renumber;
 pub mod repair;
 pub mod review;
+pub mod safety;
 pub mod schema;
 pub mod setup;
 pub mod show;
