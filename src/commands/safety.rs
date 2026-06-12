@@ -853,21 +853,42 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     let id = resolve_sr(&project, &args.id)?;
     let kind: EvidenceKind = args.by.into();
     let inherited = project.inherited_sil(&project.safety_requirements[&id]);
+    let status = project.safety_requirements[&id].status;
 
-    // REQ-0135: the SIL-rigour gate. A SIL 3/4 safety requirement cannot
-    // reach Verified on inspection alone — it needs automated or
-    // composition evidence. Block by default; --force records an
-    // explicit, audited exception in the notes.
-    if let Some(sil) = inherited {
-        let needs_strong = sil.rank() >= Sil::Sil3.rank();
-        if needs_strong && matches!(kind, EvidenceKind::Inspection) && !args.force {
+    // REQ-0135: the gates only bite on PROMOTION — recording evidence
+    // for context is always allowed. `--force` (which requires --reason)
+    // overrides them and records a structured, audited exception.
+    let mut gate_exception = false;
+    if args.promote {
+        // Status-ladder guard, mirroring ordinary `req verify`: promote
+        // only from Implemented (or re-affirming Verified); never resurrect
+        // an Obsolete requirement, except under an explicit --force.
+        let ladder_ok = matches!(status, Status::Implemented | Status::Verified);
+        if !ladder_ok && !args.force {
             return Err(anyhow!(
-                "SIL-rigour gate: {} inherits {} — inspection-only evidence is not \
-                 sufficient. Provide automated or composition evidence, or pass \
-                 --force to record an explicit exception.",
+                "{} is {} — promoting straight to Verified is irregular. Advance it to \
+                 Implemented first, or pass --force --reason \"...\" to record the override.",
                 id,
-                sil.as_str()
+                status.as_str()
             ));
+        }
+        // SIL-rigour gate: a SIL 3/4 requirement cannot be VERIFIED on
+        // inspection-only evidence.
+        if let Some(sil) = inherited {
+            if sil.rank() >= Sil::Sil3.rank() && matches!(kind, EvidenceKind::Inspection) {
+                if args.force {
+                    gate_exception = true;
+                } else {
+                    return Err(anyhow!(
+                        "SIL-rigour gate: {} inherits {} — it cannot be verified on \
+                         inspection-only evidence. Provide automated or composition \
+                         evidence, or pass --force --reason \"...\" to record an audited \
+                         exception.",
+                        id,
+                        sil.as_str()
+                    ));
+                }
+            }
         }
     }
 
@@ -876,8 +897,8 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     if !args.cites.is_empty() {
         notes = format!("cites {} — {}", args.cites.join(", "), notes);
     }
-    if args.force && matches!(kind, EvidenceKind::Inspection) {
-        notes = format!("[SIL-gate exception] {}", notes);
+    if let Some(reason) = args.reason.as_deref().filter(|_| args.force) {
+        notes = format!("[override: {}] {}", reason, notes);
     }
     let record = TestRecord {
         at: now,
@@ -888,6 +909,7 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         kind,
         content_hash: None,
         linked_files: None,
+        sil_gate_exception: gate_exception,
     };
     {
         let sr = project.safety_requirements.get_mut(&id).unwrap();
@@ -902,7 +924,7 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
             } else {
                 "evidence recorded"
             },
-            None,
+            args.reason.clone(),
         ));
     }
     project.updated = now;
@@ -1105,17 +1127,28 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     }
 
     println!();
+    // REQ-0135: this is a TRACEABILITY roll-up, not a safety-adequacy
+    // verdict. "Complete" means every link in the chain is present and
+    // every realizing requirement is verified to the rigour its SIL
+    // demands — NOT that the residual risk is acceptable. The SIL
+    // comparison below is an *allocation* check (allocated ≥ required),
+    // which says nothing about whether the function *achieves* that
+    // integrity. The wording is deliberately modest; see the disclaimer.
     let verdict = if v.complete {
-        "✓ COMPLETE"
+        "✓ traceability complete"
     } else {
-        "⚠ INCOMPLETE"
+        "⚠ traceability incomplete"
     };
-    println!("  SAFETY CASE:  {}", verdict);
+    println!("  TRACE STATUS:  {}", verdict);
     println!(
-        "    required {} — allocated {}    {}",
+        "    SIL allocation: required {} — allocated {}    {}",
         sil_str(v.required),
         sil_str(v.allocated),
-        if v.adequate { "✓ adequate" } else { "✗ inadequate" }
+        if v.adequate {
+            "✓ allocation ≥ required"
+        } else {
+            "✗ allocation below required"
+        }
     );
     println!(
         "    safety requirements: {} verified of {}",
@@ -1124,8 +1157,19 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     if !v.blocking.is_empty() {
         println!("    blocking: {}", v.blocking.join("; "));
     }
+    println!();
+    println!("{}", SAFETY_DISCLAIMER_LINE);
     Ok(())
 }
+
+/// REQ-0135: a one-line honesty footer shown under every `req trace` and
+/// HARA export. req computes a *candidate* classification and checks
+/// *traceability*; it is not a qualified safety tool and does not
+/// discharge the user's assessment responsibility.
+pub const SAFETY_DISCLAIMER_LINE: &str =
+    "  ⚠ req computes a candidate SIL from your inputs and checks traceability only. \
+It is not qualified per IEC 61508-3 §7.4.4 and does not assure risk reduction — \
+the safety determination remains yours. See `req help safety`.";
 
 fn trace_from_sf(project: &Project, sf_id: &str, json: bool) -> Result<()> {
     let sf = &project.safety_functions[sf_id];

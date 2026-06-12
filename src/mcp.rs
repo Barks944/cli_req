@@ -914,7 +914,8 @@ fn sreq_verify_schema() -> Value {
             "notes": { "type": "string" },
             "cites": { "type": "array", "items": { "type": "string" } },
             "promote": { "type": "boolean" },
-            "force": { "type": "boolean" }
+            "force": { "type": "boolean", "description": "override the promotion guards; requires reason" },
+            "reason": { "type": "string", "description": "justification, required when force is true" }
         },
         "required": ["id", "by"]
     })
@@ -2192,6 +2193,7 @@ fn tool_test_record(args: &Value, file: &Path) -> Result<String> {
                     .collect(),
             )
         },
+        sil_gate_exception: false,
     };
     r.tests.push(record);
     r.history.push(crate::commands::history(
@@ -2307,6 +2309,7 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
                             .collect(),
                     )
                 },
+                sil_gate_exception: false,
             });
             r.history.push(crate::commands::history(
                 format!("test {} recorded via MCP req_test_run", outcome.as_str()),
@@ -2390,6 +2393,7 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
         kind,
         content_hash: None,
         linked_files: None,
+        sil_gate_exception: false,
     });
     r.history.push(crate::commands::history(
         format!(
@@ -2863,6 +2867,7 @@ mod safety_mcp {
     // ----- hazards -----
 
     pub fn hazard_add(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let now = Utc::now();
         let consequence = s(a, "consequence").map(|x| parse_c(&x)).transpose()?;
@@ -2947,6 +2952,7 @@ mod safety_mcp {
     }
 
     pub fn hazard_assess(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let id = norm("HAZ", &req_s(a, "id")?);
         if !p.hazards.contains_key(&id) {
@@ -2976,6 +2982,7 @@ mod safety_mcp {
     }
 
     pub fn hazard_update(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let id = norm("HAZ", &req_s(a, "id")?);
         if !p.hazards.contains_key(&id) {
@@ -3011,6 +3018,7 @@ mod safety_mcp {
     // ----- safety functions -----
 
     pub fn sf_add(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let now = Utc::now();
         let mut links = Vec::new();
@@ -3104,6 +3112,7 @@ mod safety_mcp {
     }
 
     pub fn sf_update(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let id = norm("SF", &req_s(a, "id")?);
         if !p.safety_functions.contains_key(&id) {
@@ -3134,6 +3143,7 @@ mod safety_mcp {
     }
 
     pub fn sf_mitigate(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let sf_id = norm("SF", &req_s(a, "sf")?);
         let haz_id = norm("HAZ", &req_s(a, "hazard")?);
@@ -3189,6 +3199,7 @@ mod safety_mcp {
     // ----- safety requirements -----
 
     pub fn sreq_add(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let now = Utc::now();
         let mut links = Vec::new();
@@ -3272,6 +3283,7 @@ mod safety_mcp {
     }
 
     pub fn sreq_update(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let id = norm("SR", &req_s(a, "id")?);
         if !p.safety_requirements.contains_key(&id) {
@@ -3312,6 +3324,7 @@ mod safety_mcp {
     }
 
     pub fn sreq_realize(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let sr_id = norm("SR", &req_s(a, "sreq")?);
         let sf_id = norm("SF", &req_s(a, "sf")?);
@@ -3352,6 +3365,7 @@ mod safety_mcp {
     }
 
     pub fn sreq_verify(a: &Value, file: &Path) -> Result<String> {
+        let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
         let id = norm("SR", &req_s(a, "id")?);
         if !p.safety_requirements.contains_key(&id) {
@@ -3364,17 +3378,39 @@ mod safety_mcp {
             o => return Err(anyhow!("bad evidence kind {} (automated|composition|inspection)", o)),
         };
         let force = b(a, "force");
+        let reason = s(a, "reason");
+        if force && reason.as_deref().map(|r| r.trim().is_empty()).unwrap_or(true) {
+            return Err(anyhow!("force=true requires a non-empty reason explaining the override"));
+        }
+        let promote = b(a, "promote");
         let inherited = p.inherited_sil(&p.safety_requirements[&id]);
-        if let Some(sil) = inherited {
-            if sil.rank() >= Sil::Sil3.rank()
-                && matches!(kind, EvidenceKind::Inspection)
-                && !force
-            {
+        let status = p.safety_requirements[&id].status;
+
+        // REQ-0135: gates bite only on promotion; force (with a reason)
+        // overrides them and records a structured audited exception.
+        let mut gate_exception = false;
+        if promote {
+            let ladder_ok = matches!(status, Status::Implemented | Status::Verified);
+            if !ladder_ok && !force {
                 return Err(anyhow!(
-                    "SIL-rigour gate: {} inherits {} — inspection-only evidence is not sufficient. \
-                     Provide automated or composition evidence, or pass force=true for an audited exception.",
-                    id, sil.as_str()
+                    "{} is {} — promoting straight to Verified is irregular. Advance it to \
+                     Implemented first, or pass force=true with a reason.",
+                    id, status.as_str()
                 ));
+            }
+            if let Some(sil) = inherited {
+                if sil.rank() >= Sil::Sil3.rank() && matches!(kind, EvidenceKind::Inspection) {
+                    if force {
+                        gate_exception = true;
+                    } else {
+                        return Err(anyhow!(
+                            "SIL-rigour gate: {} inherits {} — it cannot be verified on \
+                             inspection-only evidence. Provide automated or composition \
+                             evidence, or pass force=true with a reason for an audited exception.",
+                            id, sil.as_str()
+                        ));
+                    }
+                }
             }
         }
         let now = Utc::now();
@@ -3383,10 +3419,9 @@ mod safety_mcp {
         if !cites.is_empty() {
             notes = format!("cites {} — {}", cites.join(", "), notes);
         }
-        if force && matches!(kind, EvidenceKind::Inspection) {
-            notes = format!("[SIL-gate exception] {}", notes);
+        if let (true, Some(r)) = (force, reason.as_deref()) {
+            notes = format!("[override: {}] {}", r, notes);
         }
-        let promote = b(a, "promote");
         {
             let sr = p.safety_requirements.get_mut(&id).unwrap();
             sr.tests.push(TestRecord {
@@ -3398,6 +3433,7 @@ mod safety_mcp {
                 kind,
                 content_hash: None,
                 linked_files: None,
+                sil_gate_exception: gate_exception,
             });
             if promote {
                 sr.status = Status::Verified;
@@ -3405,7 +3441,7 @@ mod safety_mcp {
             sr.updated = now;
             sr.history.push(commands::history(
                 if promote { "verified (promoted)" } else { "evidence recorded" },
-                None,
+                reason,
             ));
         }
         p.updated = now;

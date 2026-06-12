@@ -56,6 +56,33 @@ features keeps a byte-identical file.
   point at an upgrade; `req migrate` / auto-migrate carry v1 and v2 files
   forward.
 
+### Hardened (pre-publish code review)
+- **Honesty over assurance.** `req` does not pretend to be a qualified
+  safety tool. `req trace` now reports a *traceability* roll-up
+  (`TRACE STATUS`, allocation vs required) rather than a "safety case
+  COMPLETE/adequate" verdict, and carries a one-line disclaimer; the
+  HARA export and `req help safety` gained a "what req does NOT do"
+  section (no tool qualification per IEC 61508-3 §7.4.4; no achieved-
+  integrity / PFD / diagnostic-coverage / decomposition modelling). The
+  README has a functional-safety scope & disclaimer section. The dogfood
+  hazard is relabelled an illustrative tool-confidence example.
+- **Directory-layout data loss fixed (blocker).** A `--layout directory`
+  project now persists hazards/safety-functions/safety-requirements in
+  its index (covered by the directory integrity hash) instead of
+  silently dropping them on save.
+- **`--force` SIL-gate exception hardened.** It now requires `--reason`
+  and is recorded as a structured, non-forgeable `sil_gate_exception`
+  flag on the evidence record (the validator no longer trusts a notes
+  substring). The gate bites only on *promotion* to Verified, so logging
+  inspection evidence for context is allowed without manufacturing an
+  exception.
+- **Promotion guard + obsolete filtering.** `req sreq verify --promote`
+  only promotes from Implemented (like ordinary `req verify`) unless
+  `--force`. Retired (Obsolete) hazards/functions no longer feed their
+  SIL into a live allocation, matching the validator.
+- **MCP safety mutators hold the advisory lock**, closing the REQ-0062
+  lost-update race that the new tools had skipped.
+
 ## [0.4.0-rc.5] — 2026-06-05
 
 Driven by field feedback after a heavy multi-repo week of use: the

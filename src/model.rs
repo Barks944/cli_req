@@ -155,6 +155,10 @@ impl Project {
             .iter()
             .filter(|l| l.kind == LinkKind::Mitigates)
             .filter_map(|l| self.hazards.get(&l.target))
+            // REQ-0135: a retired hazard must not keep feeding its SIL
+            // into a live function's allocation — that would disagree
+            // with the validator, which only counts live mitigations.
+            .filter(|h| !matches!(h.status, HazardStatus::Obsolete))
             .filter_map(|h| h.required_sil())
             .max_by_key(|s| s.rank())
     }
@@ -167,6 +171,7 @@ impl Project {
             .iter()
             .filter(|l| l.kind == LinkKind::Realizes)
             .filter_map(|l| self.safety_functions.get(&l.target))
+            .filter(|sf| !matches!(sf.status, SafetyFunctionStatus::Obsolete))
             .filter_map(|sf| self.allocated_sil(sf))
             .max_by_key(|s| s.rank())
     }
@@ -226,6 +231,19 @@ pub struct TestRecord {
     /// markers. Use when the marker scan would be too blunt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_files: Option<Vec<String>>,
+    /// REQ-0135: set true ONLY by `req sreq verify --force` when it
+    /// deliberately overrode the SIL-rigour gate (a SIL 3/4 safety
+    /// requirement verified on inspection-only evidence). This is the
+    /// structured, non-forgeable record of an audited exception — the
+    /// validator keys REQ-V-0031 off this field, not off a substring in
+    /// `notes`, so the exception cannot be faked by hand-writing notes.
+    /// The justifying `--reason` is recorded in `notes`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sil_gate_exception: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]

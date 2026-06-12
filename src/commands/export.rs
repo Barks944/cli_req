@@ -61,6 +61,16 @@ fn safety_markdown(p: &Project) -> String {
         p.safety_functions.len(),
         p.safety_requirements.len()
     ));
+    // REQ-0135: honesty disclaimer — this document traces a candidate
+    // classification, it is not an assurance argument.
+    s.push_str(
+        "> **Disclaimer.** `req` computes a *candidate* SIL from the inputs below and \
+checks *traceability* only. It is **not** a qualified safety tool (IEC 61508-3 §7.4.4), \
+does not model achieved integrity (PFD/PFH, diagnostic coverage, SIL decomposition), and \
+does not assure that residual risk is acceptable. \"Complete\" means the chain is linked \
+and verified — not that the design is safe. The safety determination remains the \
+engineer's responsibility.\n\n",
+    );
 
     // HARA overview table.
     s.push_str("## Hazard analysis & risk assessment\n\n");

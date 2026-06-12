@@ -366,6 +366,11 @@ pub fn save_directory(root: &Path, project: &Project) -> Result<()> {
                 .collect(),
         ),
     );
+    // REQ-0135: persist the functional-safety artifacts in the index so a
+    // directory-layout project does not silently drop them. Written only
+    // when non-empty / non-default, so a project with no safety data keeps
+    // a byte-identical index (and integrity hash) to before the feature.
+    insert_safety_fields(&mut root_obj, project)?;
 
     let index_path = root.join("index.req");
     let body = serde_json::to_string_pretty(&Value::Object(root_obj))?;
@@ -421,16 +426,24 @@ pub fn load_directory(root: &Path, force: bool) -> Result<Project> {
             .and_then(|v| v.as_u64())
             .unwrap_or(1) as u32,
         requirements,
-        // REQ-0134: the directory layout does not yet shard the
-        // functional-safety artifacts to their own files. They round-trip
-        // through the single-file layout; a directory-backed project keeps
-        // them empty until that sharding lands.
-        hazards: std::collections::BTreeMap::new(),
-        safety_functions: std::collections::BTreeMap::new(),
-        safety_requirements: std::collections::BTreeMap::new(),
-        next_haz_id: 1,
-        next_sf_id: 1,
-        next_sr_id: 1,
+        // REQ-0135: the functional-safety artifacts round-trip through the
+        // index file (omitted when empty). Reading them here is what stops
+        // a directory-layout project from silently dropping them on save.
+        hazards: root_obj
+            .remove("hazards")
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default(),
+        safety_functions: root_obj
+            .remove("safety_functions")
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default(),
+        safety_requirements: root_obj
+            .remove("safety_requirements")
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default(),
+        next_haz_id: root_obj.get("next_haz_id").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+        next_sf_id: root_obj.get("next_sf_id").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+        next_sr_id: root_obj.get("next_sr_id").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
         purpose: root_obj
             .remove("_purpose")
             .and_then(|v| serde_json::from_value(v).ok()),
@@ -453,21 +466,52 @@ pub fn load_directory(root: &Path, force: bool) -> Result<Project> {
 }
 
 fn directory_integrity(project: &Project) -> Result<String> {
-    // Hash: canonical JSON of (next_id, name, created, updated) followed
-    // by canonical JSON of each requirement in sorted-ID order.
+    // Hash: canonical JSON of the header (name, next_id, created,
+    // updated, plus any non-empty safety artifacts) followed by canonical
+    // JSON of each requirement in sorted-ID order.
     let mut hasher = Sha256::new();
-    let header = serde_json::json!({
-        "name": project.name,
-        "next_id": project.next_id,
-        "created": project.created,
-        "updated": project.updated,
-    });
-    hasher.update(canonical_json(&header).as_bytes());
+    let mut header = serde_json::Map::new();
+    header.insert("name".into(), Value::String(project.name.clone()));
+    header.insert("next_id".into(), Value::Number(project.next_id.into()));
+    header.insert("created".into(), serde_json::to_value(project.created)?);
+    header.insert("updated".into(), serde_json::to_value(project.updated)?);
+    // REQ-0135: cover the safety artifacts in the directory hash, using
+    // the same omit-when-empty rule as the index so the hash matches what
+    // is persisted and existing safety-free projects are unaffected.
+    insert_safety_fields(&mut header, project)?;
+    hasher.update(canonical_json(&Value::Object(header)).as_bytes());
     for req in project.requirements.values() {
         let v = serde_json::to_value(req)?;
         hasher.update(canonical_json(&v).as_bytes());
     }
     Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
+}
+
+/// REQ-0135: serialise the functional-safety artifacts into a JSON map,
+/// omitting empty maps and default (1) counters so a project with no
+/// safety data is byte-identical to one written before the feature
+/// existed. Shared by the directory index writer and the integrity hash
+/// so the two never disagree.
+fn insert_safety_fields(map: &mut Map<String, Value>, project: &Project) -> Result<()> {
+    if !project.hazards.is_empty() {
+        map.insert("hazards".into(), serde_json::to_value(&project.hazards)?);
+        map.insert("next_haz_id".into(), Value::Number(project.next_haz_id.into()));
+    }
+    if !project.safety_functions.is_empty() {
+        map.insert(
+            "safety_functions".into(),
+            serde_json::to_value(&project.safety_functions)?,
+        );
+        map.insert("next_sf_id".into(), Value::Number(project.next_sf_id.into()));
+    }
+    if !project.safety_requirements.is_empty() {
+        map.insert(
+            "safety_requirements".into(),
+            serde_json::to_value(&project.safety_requirements)?,
+        );
+        map.insert("next_sr_id".into(), Value::Number(project.next_sr_id.into()));
+    }
+    Ok(())
 }
 
 /// REQ-0122: probe whether the migration registry can walk from

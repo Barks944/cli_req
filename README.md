@@ -395,6 +395,19 @@ Issues and contributions: <https://github.com/Barks944/cli_req/issues>
 
 ---
 
+## Functional safety — scope & disclaimer
+
+`req` can manage hazards, safety functions, and safety requirements on the IEC 61508 model (`req help safety`). Read this before using it for safety-related work:
+
+- **`req` is NOT a qualified safety tool.** Under IEC 61508-3 §7.4.4 (and ISO 26262-8), a tool whose output you rely on without independent verification needs a tool-confidence/qualification argument. `req` provides none. If you work to a functional-safety standard, qualifying it — or independently verifying every classification it computes — is **your** responsibility.
+- **The SIL is a *candidate*.** It is derived from the qualitative risk parameters you enter. The "derive, never type" design prevents casual fudging; it does **not** make the result objective or remove the need for competent review.
+- **`req` tracks the *required* integrity target, not *achieved* integrity.** It does not model PFD/PFH, diagnostic coverage, safe-failure-fraction, systematic capability, hardware fault tolerance, or SIL decomposition/independence. A "complete" trace means the chain is **linked and verified**, not that the residual risk is acceptable.
+- **It is a place to *record and trace* a safety analysis, not to perform one.** Do your HARA/HAZOP, FMEA, FTA, and quantification with the proper methods and tools; use `req` to keep the results reviewable, versioned, and linked to code.
+
+The software is provided "as is" without warranty of any kind (see [LICENSE](LICENSE)); nothing here constitutes safety assurance or fitness for any safety-related purpose. The safety determination remains the responsibility of a competent assessor.
+
+---
+
 ## License
 
 [MIT](LICENSE).

@@ -148,6 +148,7 @@ pub fn run(args: AdoptArgs, file: &Option<PathBuf>) -> Result<()> {
                 kind: EvidenceKind::Inspection,
                 content_hash: None,
                 linked_files: None,
+                sil_gate_exception: false,
             });
         }
         println!("adopted {} → {}", id, target_status.as_str());

@@ -491,6 +491,7 @@ fn apply_one(
                 kind,
                 content_hash: None,
                 linked_files: None,
+                sil_gate_exception: false,
             };
             let r = project
                 .requirements

@@ -855,7 +855,11 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     let sil = p.inherited_sil(sr);
                     let needs_strong = sil.map(|s| s.rank() >= Sil::Sil3.rank()).unwrap_or(false);
                     if needs_strong && matches!(t.kind, EvidenceKind::Inspection) {
-                        let audited = t.notes.contains("[SIL-gate exception]");
+                        // REQ-0135: authenticate the exception via the
+                        // structured TestRecord flag set only by
+                        // `req sreq verify --force`, never a substring in
+                        // user-controlled notes (which could be forged).
+                        let audited = t.sil_gate_exception;
                         if audited {
                             push(
                                 id,

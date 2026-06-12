@@ -929,9 +929,11 @@ artifacts, each with its own id space:
   SR-NNNN   Safety requirement  a normative obligation realizing a function
   REQ-NNNN  Requirement       ordinary requirements, unchanged
 
-THE GOLDEN RULE: you never type a SIL. It is DERIVED — from the hazard's
-risk parameters, then aggregated up the chain. Do not look for a
-`--sil` flag; there isn't one, by design.
+THE WORKING RULE: you never type a SIL. It is DERIVED — from the hazard's
+risk parameters, then aggregated up the chain. There is no `--sil` flag,
+by design. This stops casual fudging and fat-finger errors; it does not
+make the result objective — the SIL is only as sound as the four letters
+you choose (see WHAT REQ DOES NOT DO).
 
   hazard risk (C/F/P/W)  ─►  required SIL        (per hazard)
   max over its hazards   ─►  allocated SIL       (per safety function)
@@ -955,9 +957,10 @@ AUTHORING A HAZARD — write the harm first, in plain words.
     F  exposure        F_A rare→occasional · F_B frequent→continuous
     P  avoidance       P_A possible · P_B almost impossible
     W  probability     W1 very slight · W2 slight · W3 relatively high
-  These derive the required SIL (— / a / SIL1..4 / b). Pick honestly:
-  the classification is the whole safety argument. When unsure of C,
-  let the worst credible outcome in `harm` guide you.
+  These derive the required SIL (— / a / SIL1..4 / b). Pick honestly and
+  have a competent assessor review the choice: the classification is
+  where the safety argument STARTS, not the whole of it. When unsure of
+  C, let the worst credible outcome in `harm` guide you.
 
 DRIVING OUT SAFETY FUNCTIONS — one per independent way to reach a safe
 state. Link it to the hazard it mitigates; its allocated SIL appears
@@ -986,14 +989,17 @@ AUDITED exception (it is logged and re-flagged at every `req validate`).
 Do not reach for `--force` to make a red gate green; fix the evidence.
 
 SEEING THE WHOLE PICTURE — `req trace` is the single best command. Given
-any HAZ/SF/SR id it prints the end-to-end safety case and a verdict:
+any HAZ/SF/SR id it prints the end-to-end chain and a traceability roll-up:
 
-  req trace HAZ-0001        # adequate? complete? what's blocking?
+  req trace HAZ-0001        # linked? verified? what's blocking?
 
-  A case is ADEQUATE when allocated SIL ≥ required SIL, and COMPLETE
-  when every realizing safety requirement is Verified with evidence
-  whose rigour meets its SIL. `req validate` enforces the same rules,
-  so a broken safety case fails CI — it does not just print sadly.
+  TRACE STATUS is COMPLETE when every link is present and every realizing
+  safety requirement is Verified with evidence whose rigour meets its SIL.
+  The SIL line is an *allocation* check (allocated ≥ required). `req
+  validate` enforces the same rules, so a broken chain fails CI.
+
+  Read \"complete\" as *traceability complete*, NOT \"safe\". See the
+  limits below before you treat a green trace as assurance.
 
 WHAT THE VALIDATOR WILL HOLD YOU TO (REQ-V-0025..0031):
   • a hazard needs a harm narrative;
@@ -1002,6 +1008,34 @@ WHAT THE VALIDATOR WILL HOLD YOU TO (REQ-V-0025..0031):
   • mitigates/realizes links must resolve;
   • a Verified safety requirement needs passing evidence of adequate
     rigour for its SIL.
-Don't argue with the validator — assess, link, and verify properly.",
+Don't argue with the validator — assess, link, and verify properly.
+
+WHAT REQ DOES NOT DO — and you must not let it imply otherwise:
+
+  • req is NOT a qualified safety tool. Per IEC 61508-3 §7.4.4 (and
+    ISO 26262-8), a tool whose output you rely on without independent
+    verification needs a tool-confidence/qualification argument. req
+    provides none. If you work to a standard, you own that gap — qualify
+    it yourself or independently check every SIL it computes.
+  • The SIL it shows is a CANDIDATE derived from four letters you chose.
+    \"Derived, never typed\" stops fat-finger and casual fudging; it does
+    NOT launder out the subjectivity of picking C/F/P/W. Pick honestly,
+    and have the classification reviewed by someone competent.
+  • req tracks REQUIRED/allocated/inherited SIL — the *target*. It does
+    NOT model ACHIEVED integrity: no PFD/PFH, no diagnostic coverage, no
+    safe-failure-fraction, no systematic capability, no hardware fault
+    tolerance. \"allocation >= required\" is not evidence of risk reduction.
+  • No SIL decomposition or independence modelling. If you mitigate one
+    hazard with several independent functions, req stamps each with the
+    full SIL; apportioning integrity across redundant elements is your
+    judgement to make and record outside req.
+  • req is the wrong instrument for the analysis itself (HARA/HAZOP,
+    FMEA, FTA, quantification). It is a place to RECORD and TRACE the
+    results of that analysis so they survive between sessions and stay
+    linked to code — a requirements tool with a safety-aware workflow,
+    not a safety-engineering tool.
+
+  Treat req's output as an organised aid for a competent assessor, never
+  as the assessment.",
     },
 ];

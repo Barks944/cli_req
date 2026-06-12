@@ -507,12 +507,19 @@ pub struct SreqVerifyArgs {
     pub notes: String,
     #[arg(long = "cites")]
     pub cites: Vec<String>,
-    /// Promote to Verified after recording.
+    /// Promote to Verified after recording. Promotion is gated: only
+    /// from Implemented (like ordinary `req verify`), and a SIL 3/4
+    /// requirement cannot be promoted on inspection-only evidence.
     #[arg(long)]
     pub promote: bool,
-    /// Override the SIL-rigour gate (records an explicit exception).
-    #[arg(long)]
+    /// Override the promotion guards (the status ladder and the
+    /// SIL-rigour gate). Requires --reason; the override is recorded as
+    /// a structured, audited exception on the evidence record.
+    #[arg(long, requires = "reason")]
     pub force: bool,
+    /// Justification, required with --force. Recorded on the evidence.
+    #[arg(long)]
+    pub reason: Option<String>,
     #[arg(long)]
     pub json: bool,
 }

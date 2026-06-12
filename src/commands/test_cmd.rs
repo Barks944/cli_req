@@ -83,6 +83,7 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         kind,
         content_hash: None,
         linked_files: None,
+        sil_gate_exception: false,
     };
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
@@ -190,6 +191,7 @@ fn record(mut args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
                     .collect(),
             )
         },
+        sil_gate_exception: false,
     };
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
@@ -616,6 +618,7 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
                         .collect(),
                 )
             },
+            sil_gate_exception: false,
         };
         records_to_apply.push((req_id.clone(), record));
     }
