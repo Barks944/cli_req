@@ -16,6 +16,46 @@ use crate::model::Project;
 pub const FORMAT_TAG: &str = "req-v3";
 pub const FORMAT_TAG_DIR: &str = "req-v1-dir";
 
+/// REQ-0141: monotonic schema-revision counter, written into every file's
+/// hashed payload as `_schema_rev`. Bump this whenever the on-disk shape of
+/// a record changes (a field added, renamed, or given new semantics) so a
+/// binary that knows a lower revision refuses to *load* — and therefore
+/// cannot save over — a file a newer binary wrote, rather than silently
+/// dropping fields it cannot model. A file with no `_schema_rev` (written
+/// before this guard existed) is treated as rev 0.
+///
+/// The guard fires on load, before the integrity check, mirroring how a
+/// newer `_format` tag is rejected: refusing to read a file we don't fully
+/// understand is safer than reading it, dropping the unknown parts, and
+/// writing the loss back. `_schema_rev` lives *inside* the integrity payload
+/// (not as a reserved meta key) so that an older binary which has no concept
+/// of it still computes a matching hash — introducing the stamp does not
+/// break the integrity check for existing readers.
+///
+/// Revision history:
+///   1 — introduced the guard; baseline for the req-v3 shape that already
+///       carries per-requirement `validation` (REQ-0139) and the
+///       functional-safety artifacts (REQ-0134).
+pub const SCHEMA_REV: u64 = 1;
+
+/// REQ-0141: reject a payload whose `_schema_rev` is newer than this binary
+/// understands, with a message that names both revisions and points at the
+/// fix. Called on load, before the integrity check.
+fn guard_schema_rev(map: &Map<String, Value>, path: &Path) -> Result<()> {
+    let on_disk = map.get("_schema_rev").and_then(Value::as_u64).unwrap_or(0);
+    if on_disk > SCHEMA_REV {
+        return Err(anyhow!(
+            "{} was written by a newer `req` (schema rev {}, this binary speaks \
+             rev {}). Upgrade the binary — this version would drop fields it does \
+             not understand.",
+            path.display(),
+            on_disk,
+            SCHEMA_REV
+        ));
+    }
+    Ok(())
+}
+
 /// REQ-0075: the on-disk shape. `Single` is one JSON file at `path`.
 /// `Directory` is a folder at `path` containing `index.req` and a
 /// `requirements/REQ-NNNN.req` per requirement.
@@ -86,7 +126,19 @@ pub fn save(path: &Path, project: &Project) -> Result<()> {
         Layout::Directory => return save_directory(path, project),
         Layout::Single => {}
     }
-    let payload = serde_json::to_value(project).context("serialize project")?;
+    let mut payload_map = match serde_json::to_value(project).context("serialize project")? {
+        Value::Object(m) => m,
+        _ => return Err(anyhow!("project did not serialize to a JSON object")),
+    };
+    // REQ-0141: `_schema_rev` is part of the *hashed* payload, not a reserved
+    // key excluded from it. That is deliberate: a binary that does not know
+    // the key still computes a matching integrity hash (it just treats the
+    // key as ordinary content), so introducing the stamp does not break the
+    // integrity check for an older reader. It also means the revision is
+    // tamper-evident — a direct edit lowering it to dodge the guard trips the
+    // hash.
+    payload_map.insert("_schema_rev".into(), Value::Number(SCHEMA_REV.into()));
+    let payload = Value::Object(payload_map);
     let mut root = Map::new();
     root.insert("_warning".into(), Value::String(WARNING_HEADLINE.into()));
     root.insert(
@@ -179,6 +231,10 @@ pub fn load_with_options(path: &Path, force: bool) -> Result<Project> {
         None => return Err(anyhow!("not a .req file: missing _format field")),
     }
 
+    // REQ-0141: refuse a newer schema revision before doing anything else,
+    // just like a newer _format above.
+    guard_schema_rev(&root, path)?;
+
     let stored_hash = root
         .remove("_integrity")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -186,8 +242,10 @@ pub fn load_with_options(path: &Path, force: bool) -> Result<Project> {
     root.remove("_warning");
     root.remove("_instructions");
     root.remove("_format");
+    // REQ-0141: `_schema_rev` stays in the hashed payload (see `save`), so it
+    // is NOT removed before the integrity check — only afterwards, below.
 
-    let payload = Value::Object(root);
+    let mut payload = Value::Object(root);
     let actual = integrity_hash(&payload);
     // SR-0001: refuse to load a spec whose content fails its integrity hash.
     if !force && actual != stored_hash {
@@ -198,6 +256,11 @@ pub fn load_with_options(path: &Path, force: bool) -> Result<Project> {
              from version control.",
             path.display()
         ));
+    }
+    // REQ-0141: strip the reserved `_schema_rev` only now (after hashing) so
+    // the flatten catch-all on `Project` does not capture it as project data.
+    if let Value::Object(m) = &mut payload {
+        m.remove("_schema_rev");
     }
     let project: Project = serde_json::from_value(payload).context("deserialize project")?;
     Ok(project)
@@ -352,6 +415,10 @@ pub fn save_directory(root: &Path, project: &Project) -> Result<()> {
         ),
     );
     root_obj.insert("_format".into(), Value::String(FORMAT_TAG_DIR.into()));
+    // REQ-0141: stamp the schema revision into the index (the directory
+    // integrity hash is computed over the project, not this map, so the key
+    // does not perturb it).
+    root_obj.insert("_schema_rev".into(), Value::Number(SCHEMA_REV.into()));
     root_obj.insert("_integrity".into(), Value::String(hash));
     root_obj.insert("name".into(), Value::String(project.name.clone()));
     root_obj.insert("created".into(), serde_json::to_value(project.created)?);
@@ -393,6 +460,8 @@ pub fn load_directory(root: &Path, force: bool) -> Result<Project> {
         Some(other) => return Err(anyhow!("unsupported _format in directory index: {}", other)),
         None => return Err(anyhow!("not a directory-layout project: missing _format")),
     }
+    // REQ-0141: refuse a newer schema revision recorded in the index.
+    guard_schema_rev(&root_obj, &index_path)?;
     let stored_hash = root_obj
         .remove("_integrity")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -460,6 +529,12 @@ pub fn load_directory(root: &Path, force: bool) -> Result<Project> {
         config: root_obj
             .remove("_config")
             .and_then(|v| serde_json::from_value(v).ok()),
+        // The directory index is reconstructed field-by-field rather than
+        // via serde flatten, so top-level unknowns are not round-tripped
+        // here (the single-file format is the one that needs REQ-0140's
+        // catch-all). Requirement/safety-entity `extra` still round-trips
+        // through their own per-file serialization.
+        extra: Default::default(),
     };
 
     if !force {

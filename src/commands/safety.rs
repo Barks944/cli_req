@@ -145,6 +145,8 @@ fn hazard_add(args: HazardAddArgs, file: &Option<PathBuf>) -> Result<()> {
         created: now,
         updated: now,
         history: vec![super::history("created", None)],
+        // REQ-0140: forward-compat catch-all preserves unknown fields.
+        extra: Default::default(),
     };
     project.hazards.insert(id.clone(), hazard.clone());
     project.updated = now;
@@ -406,6 +408,8 @@ fn sf_add(args: SfAddArgs, file: &Option<PathBuf>) -> Result<()> {
         created: now,
         updated: now,
         history: vec![super::history("created", None)],
+        // REQ-0140: forward-compat catch-all preserves unknown fields.
+        extra: Default::default(),
     };
     project.safety_functions.insert(id.clone(), sf.clone());
     // A hazard that just gained a mitigation advances to Mitigated.
@@ -692,6 +696,8 @@ fn sreq_add(args: SreqAddArgs, file: &Option<PathBuf>) -> Result<()> {
         tests: Vec::new(),
         // REQ-0139: a new safety requirement starts without a validation dossier.
         validation: None,
+        // REQ-0140: forward-compat catch-all preserves unknown fields.
+        extra: Default::default(),
     };
     project.safety_requirements.insert(id.clone(), sr.clone());
     project.updated = now;

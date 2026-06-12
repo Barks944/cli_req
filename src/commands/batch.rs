@@ -232,6 +232,7 @@ fn apply_one(
                 tests: Vec::new(),
                 // REQ-0139: new requirements start without a validation dossier.
                 validation: None,
+                extra: Default::default(),
             };
             let findings = validate::validate_requirement(&req);
             let errs = validate::errors_only(&findings);

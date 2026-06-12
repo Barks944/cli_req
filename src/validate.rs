@@ -842,6 +842,7 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             history: Vec::new(),
             tests: sr.tests.clone(),
             validation: None,
+            extra: Default::default(),
         };
         for f in validate_requirement(&shim) {
             push(id, f);

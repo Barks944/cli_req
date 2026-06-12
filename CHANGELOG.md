@@ -8,6 +8,21 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+### Added
+- `req_test_list` MCP tool — agent-facing read of a requirement's test-record
+  history, mirroring the CLI `req test list`. Closes the CLI/MCP parity gap
+  where test records could be written (`req_test_record` / `req_test_run`) but
+  not read back over MCP (REQ-0129).
+
+### Changed
+- Forward-compatible storage (REQ-0140 / REQ-0141): a project record now
+  preserves any field written by a newer `req` instead of silently dropping it
+  on save (a `#[serde(flatten)]` catch-all on the requirement, project-root, and
+  safety-entity records), and the storage layer stamps a `_schema_rev` and
+  refuses to overwrite a file whose recorded revision is newer than the running
+  binary understands. Together these stop an older binary — e.g. a stale MCP
+  server — from destroying data such as the per-requirement validation dossier.
+
 ## [0.5.0-rc.2] — 2026-06-12
 
 Release candidate for functional-safety support (supersedes the unpublished

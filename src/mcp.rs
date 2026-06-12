@@ -281,6 +281,11 @@ const TOOLS: &[ToolDef] = &[
         schema: test_run_schema,
     },
     ToolDef {
+        name: "req_test_list",
+        description: "List the test-record history attached to one requirement: each record's timestamp, commit SHA, outcome (pass/fail), evidence kind (test/composition/inspection), and notes, oldest first. Read-only — the agent-facing counterpart to `req_test_record`/`req_test_run`. Use to see what verification a requirement already carries before re-testing or promoting it.",
+        schema: test_list_schema,
+    },
+    ToolDef {
         name: "req_verify",
         description: "Record a composition or inspection evidence record on a requirement, optionally promoting to Verified. Composition cites another requirement's tests; inspection records a human review. NOTE: promote=true now REQUIRES a passing validation dossier (see req_validation_*) — for the full staged validation prefer req_validation_conclude. An ordinary requirement may instead carry a `validation-exempt` tag, or you may pass no_dossier=true with a reason to record an audited exemption.",
         schema: verify_schema,
@@ -709,6 +714,17 @@ fn test_run_schema() -> Value {
     })
 }
 
+// REQ-0129: read-only history of a requirement's attached test records.
+fn test_list_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+            "id": { "type": "string", "description": "REQ-NNNN (any case/pad form accepted)." }
+        }
+    })
+}
+
 fn verify_schema() -> Value {
     json!({
         "type": "object",
@@ -1063,6 +1079,7 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_audit" => tool_audit(args, file),
         "req_test_record" => tool_test_record(args, file),
         "req_test_run" => tool_test_run(args, file),
+        "req_test_list" => tool_test_list(args, file),
         "req_verify" => tool_verify(args, file),
         "req_batch" => tool_batch(args, file),
         "req_import" => tool_import(args, file),
@@ -1285,6 +1302,7 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         tests: Vec::new(),
         // REQ-0139: a new requirement starts without a validation dossier.
         validation: None,
+        extra: Default::default(),
     };
     let findings = validate::validate_requirement(&req);
     let errs = validate::errors_only(&findings);
@@ -2475,6 +2493,19 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
     }))?)
 }
 
+// REQ-0129: agent-facing read of a requirement's test-record history,
+// mirroring the CLI `req test list`. Returns the `tests` vector as JSON.
+fn tool_test_list(args: &Value, file: &Path) -> Result<String> {
+    let raw = req_s(args, "id")?;
+    let project = storage::load(file)?;
+    let id = crate::commands::resolve_id(&project, &raw)?;
+    let r = project
+        .requirements
+        .get(&id)
+        .ok_or_else(|| anyhow!("no such requirement: {}", id))?;
+    Ok(serde_json::to_string_pretty(&r.tests)?)
+}
+
 fn tool_verify(args: &Value, file: &Path) -> Result<String> {
     let id = req_s(args, "id")?;
     let by = req_s(args, "by")?;
@@ -3214,6 +3245,7 @@ mod safety_mcp {
             created: now,
             updated: now,
             history: vec![commands::history("created", None)],
+            extra: Default::default(),
         };
         let sil = p.required_sil(&h);
         p.hazards.insert(id.clone(), h);
@@ -3376,6 +3408,7 @@ mod safety_mcp {
             created: now,
             updated: now,
             history: vec![commands::history("created", None)],
+            extra: Default::default(),
         };
         let alloc = p.allocated_sil(&sf);
         p.safety_functions.insert(id.clone(), sf);
@@ -3575,6 +3608,7 @@ mod safety_mcp {
             history: vec![commands::history("created", None)],
             tests: Vec::new(),
             validation: None,
+            extra: Default::default(),
         };
         let sil = p.inherited_sil(&sr);
         p.safety_requirements.insert(id.clone(), sr);

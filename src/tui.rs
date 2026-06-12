@@ -486,6 +486,7 @@ mod tests {
                 created: now,
                 updated: now,
                 history: vec![],
+                extra: Default::default(),
             },
         );
         crate::storage::save(&path, &project).unwrap();

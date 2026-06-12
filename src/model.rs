@@ -51,6 +51,13 @@ pub struct Project {
     /// defaults.
     #[serde(default, rename = "_config", skip_serializing_if = "Option::is_none")]
     pub config: Option<ProjectConfig>,
+    /// REQ-0140: forward-compatibility catch-all. Any top-level field
+    /// written by a newer `req` that this binary does not model is captured
+    /// here and re-emitted verbatim on save, so an older binary round-trips
+    /// a newer file instead of silently dropping it. Flattened: unknown keys
+    /// sit inline alongside the modelled ones.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// REQ-0110: the schema for the in-file `_config` map. Each section
@@ -202,6 +209,7 @@ impl Project {
             next_sr_id: 1,
             purpose: None,
             config: None,
+            extra: BTreeMap::new(),
         }
     }
 
@@ -317,6 +325,11 @@ pub struct Requirement {
     /// it keep a byte-identical file (and integrity hash).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation: Option<Validation>,
+    /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
+    /// Preserves any per-requirement field a newer `req` writes (the
+    /// silent-drop of `validation` by a stale binary is what motivated it).
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1123,6 +1136,9 @@ pub struct Hazard {
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub history: Vec<HistoryEntry>,
+    /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Hazard {
@@ -1180,6 +1196,9 @@ pub struct SafetyFunction {
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub history: Vec<HistoryEntry>,
+    /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// REQ-0134: a safety requirement — a normative obligation that realizes
@@ -1212,6 +1231,9 @@ pub struct SafetyRequirement {
     /// exemption) before a safety requirement may reach Verified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation: Option<Validation>,
+    /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
