@@ -49,6 +49,33 @@ pub fn req(args: &[&str]) -> Output {
         .expect("invoke req binary")
 }
 
+/// REQ-0138: write a safety-acceptance file beside `project_file` so a
+/// test can exercise the gated safety features. This mirrors the
+/// committed artifact a human's `req safety accept` produces — and since
+/// the gate is "file present", writing it directly is a faithful way to
+/// enable safety without an interactive terminal.
+#[allow(dead_code)]
+pub fn enable_safety(project_file: &std::path::Path) {
+    let dir = if project_file.is_dir() {
+        project_file.to_path_buf()
+    } else {
+        project_file
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+    };
+    let body = r#"{"accepted_by":"Test","at":"2026-01-01T00:00:00Z","tool_version":"test","disclaimer_version":"1"}"#;
+    std::fs::write(dir.join("req-safety-acceptance.json"), body).expect("write acceptance file");
+}
+
+impl Sandbox {
+    /// Enable the functional-safety features for this sandbox project.
+    #[allow(dead_code)]
+    pub fn enable_safety(&self) {
+        enable_safety(&self.path());
+    }
+}
+
 #[allow(dead_code)]
 pub fn stdout(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()

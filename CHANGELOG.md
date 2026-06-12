@@ -63,7 +63,8 @@ features keeps a byte-identical file.
   committed `req-safety-acceptance.json` whose presence (for the current
   disclaimer version) activates hazards/SF/SR; an agent cannot accept —
   `req safety` is off the MCP/TUI surface and `accept` refuses
-  `REQ_ACTOR_KIND=agent` and requires a TTY (or explicit `--yes`). `req
+  `REQ_ACTOR_KIND=agent` and requires an interactive terminal (no
+  non-interactive flag, by design). `req
   safety calibrate` makes the IEC 61508-5 Annex D risk-graph table a
   **per-project, leaf-overridable default** (`--set "C_D/F_B/P_B=W3:4,
   W2:3,W1:2"`, `--label`, `--show`, `--reset`); every derived SIL then

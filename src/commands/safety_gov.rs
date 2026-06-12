@@ -116,12 +116,18 @@ fn accept(args: SafetyAcceptArgs, file: &Option<PathBuf>) -> Result<()> {
     // The project must exist (so the acceptance sits beside a real spec).
     storage::load(&path).context("open project before accepting (run `req init` first?)")?;
 
-    // REQ-0138: this must be a human decision, as far as we can tell.
-    // (1) Refuse when the actor self-identifies as an agent. (2) Require
-    // an interactive terminal for the confirmation — agents generally
-    // have no TTY — unless a human explicitly passes --yes. `req safety`
-    // is also absent from the MCP surface, so an agent cannot reach it
-    // through its normal tool channel at all.
+    // REQ-0138: acceptance must be a deliberate human act, as far as a
+    // CLI can tell. We CANNOT cryptographically prove humanness — an
+    // agent shares the shell and filesystem — so this is "raise the bar
+    // + make it accountable", not "prevent". The bar:
+    //   (1) `req safety` is absent from the MCP surface (an agent's
+    //       normal channel can't reach it);
+    //   (2) refuse a self-identified agent (REQ_ACTOR_KIND=agent);
+    //   (3) require an interactive terminal to confirm — there is no
+    //       `--yes` escape, because that was just a backdoor an agent
+    //       could take.
+    // The real control is that the result is a committed, attributed
+    // file: a forged acceptance is visible in the diff under a name.
     if matches!(super::current_actor_kind(), crate::model::ActorKind::Agent) {
         return Err(anyhow!(
             "accepting the safety disclaimer must be done by a human, but \
@@ -132,24 +138,24 @@ fn accept(args: SafetyAcceptArgs, file: &Option<PathBuf>) -> Result<()> {
         Some(n) if !n.trim().is_empty() => n,
         _ => return Err(anyhow!("--name is required (record who is accepting)")),
     };
+    if !atty_stdin() {
+        return Err(anyhow!(
+            "`req safety accept` needs an interactive terminal — run it at a \
+             real prompt. There is deliberately no non-interactive flag. For \
+             unattended setup, a human can instead create {} by hand (it is a \
+             small JSON file) and commit it; see `req help safety`.",
+            acceptance_path(&path).display()
+        ));
+    }
 
     println!("{}\n", DISCLAIMER);
-    if args.yes {
-        // Human scripting setup: explicit, but still blocked for agents above.
-    } else if atty_stdin() {
-        use dialoguer::Confirm;
-        let ok = Confirm::new()
-            .with_prompt("Do you accept, on behalf of your project?")
-            .default(false)
-            .interact()?;
-        if !ok {
-            return Err(anyhow!("not accepted — safety features remain disabled"));
-        }
-    } else {
-        return Err(anyhow!(
-            "no interactive terminal to confirm. Run this in a terminal, or — \
-             if you are a human scripting setup — pass --yes."
-        ));
+    use dialoguer::Confirm;
+    let ok = Confirm::new()
+        .with_prompt("Do you accept, on behalf of your project?")
+        .default(false)
+        .interact()?;
+    if !ok {
+        return Err(anyhow!("not accepted — safety features remain disabled"));
     }
 
     let record = DisclaimerAcceptance {

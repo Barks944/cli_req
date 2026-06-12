@@ -10,7 +10,7 @@ use common::{req, stderr, stdout, Sandbox};
 fn req_0134_sil_derives_and_propagates_through_the_chain() {
     let s = Sandbox::new();
     s.init("p");
-    s.run(&["safety", "accept", "--name", "Test", "--yes"]);
+    s.enable_safety();
     assert!(s
         .run(&["hazard", "add", "-t", "H", "--harm", "someone is hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"])
         .status
@@ -34,7 +34,7 @@ fn req_0134_sil_derives_and_propagates_through_the_chain() {
 fn req_0135_sil_gate_blocks_inspection_and_force_needs_reason() {
     let s = Sandbox::new();
     s.init("p");
-    s.run(&["safety", "accept", "--name", "Test", "--yes"]);
+    s.enable_safety();
     s.run(&["hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
     s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
     s.run(&["sreq", "add", "-t", "Stop the blade", "-s", "The system shall stop the blade on demand.", "-r", "Operator safety during cleaning.", "-a", "blade stops within 200ms", "--realizes", "SF-0001"]);
@@ -66,7 +66,7 @@ fn req_0135_sil_gate_blocks_inspection_and_force_needs_reason() {
 fn req_0135_recording_inspection_without_promote_is_allowed() {
     let s = Sandbox::new();
     s.init("p");
-    s.run(&["safety", "accept", "--name", "Test", "--yes"]);
+    s.enable_safety();
     s.run(&["hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
     s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
     s.run(&["sreq", "add", "-t", "Stop the blade", "-s", "The system shall stop the blade on demand.", "-r", "Operator safety during cleaning.", "-a", "blade stops within 200ms", "--realizes", "SF-0001"]);
@@ -80,7 +80,7 @@ fn req_0135_recording_inspection_without_promote_is_allowed() {
 fn req_0135_obsolete_hazard_drops_from_allocation() {
     let s = Sandbox::new();
     s.init("p");
-    s.run(&["safety", "accept", "--name", "Test", "--yes"]);
+    s.enable_safety();
     // SIL3 hazard + a low-SIL hazard, one SF covering both.
     s.run(&["hazard", "add", "-t", "High", "--harm", "killed", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]); // SIL3
     s.run(&["hazard", "add", "-t", "Low", "--harm", "minor", "-C", "C_B", "-F", "F_A", "-P", "P_A", "-W", "W3"]); // "a"
@@ -99,7 +99,7 @@ fn req_0135_directory_layout_persists_safety_artifacts() {
     let proj = dir.path().join("proj");
     let p = proj.to_str().unwrap();
     assert!(req(&["init", "-n", "d", "-o", p, "--layout", "directory"]).status.success());
-    let _ = req(&["--file", p, "safety", "accept", "--name", "Test", "--yes"]);
+    common::enable_safety(std::path::Path::new(p));
     assert!(req(&["--file", p, "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_D", "-F", "F_B", "-P", "P_B", "-W", "W3"]).status.success());
     // Fresh process re-reads the directory project.
     let listed = req(&["--file", p, "hazard", "list"]);
@@ -115,7 +115,7 @@ fn req_0135_directory_layout_persists_safety_artifacts() {
 fn req_0136_trace_is_honest_about_what_it_asserts() {
     let s = Sandbox::new();
     s.init("p");
-    s.run(&["safety", "accept", "--name", "Test", "--yes"]);
+    s.enable_safety();
     s.run(&["hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
     s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
     s.run(&["sreq", "add", "-t", "Stop the blade", "-s", "The system shall stop the blade on demand.", "-r", "Operator safety during cleaning.", "-a", "blade stops within 200ms", "--realizes", "SF-0001"]);
@@ -133,7 +133,7 @@ fn req_0136_trace_is_honest_about_what_it_asserts() {
 fn req_0137_wellformed_safety_chain_validates_clean() {
     let s = Sandbox::new();
     s.init("p");
-    s.run(&["safety", "accept", "--name", "Test", "--yes"]);
+    s.enable_safety();
     s.run(&["hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
     s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
     s.run(&["sreq", "add", "-t", "Stop the blade", "-s", "The system shall stop the blade on demand.", "-r", "Operator safety during cleaning.", "-a", "blade stops within 200ms", "--realizes", "SF-0001"]);
@@ -162,7 +162,7 @@ fn req_0135_sr_evidence_from_test_run_goes_stale_on_code_change() {
     };
 
     assert!(run(&["init", "-n", "p"]).status.success());
-    run(&["safety", "accept", "--name", "Test", "--yes"]);
+    common::enable_safety(&root.join("project.req"));
     run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "operator hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
     run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
     run(&["sreq", "add", "-t", "Cut blade power", "-s", "The interlock shall cut blade power within 200 ms.", "-r", "Bounds operator exposure.", "-a", "power cut <=200ms", "--realizes", "SF-0001"]);
@@ -209,7 +209,7 @@ fn req_0135_sr_coverage_orphans_and_ghosts() {
         Command::new(bin).args(args).current_dir(root).env_remove("REQ_FILE").output().expect("run req")
     };
     assert!(run(&["init", "-n", "p"]).status.success());
-    run(&["safety", "accept", "--name", "Test", "--yes"]);
+    common::enable_safety(&root.join("project.req"));
     run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
     run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
     // SR-0001 will be marked in code; SR-0002 will be an orphan.
@@ -261,14 +261,20 @@ fn req_0138_governance_gate_agent_refusal_and_calibration() {
     assert!(!blocked.status.success(), "hazard add must be gated before acceptance");
     assert!(String::from_utf8_lossy(&blocked.stderr).contains("not enabled"));
 
-    // An agent cannot accept.
-    let agent = run(&["safety", "accept", "--name", "Bot", "--yes"], Some("agent"));
+    // An agent cannot accept (refused on the self-identified actor kind).
+    let agent = run(&["safety", "accept", "--name", "Bot"], Some("agent"));
     assert!(!agent.status.success(), "agent must not be able to accept");
     assert!(String::from_utf8_lossy(&agent.stderr).contains("human"));
 
-    // A human accepts → the file is written and the feature activates.
-    assert!(run(&["safety", "accept", "--name", "Tom", "--yes"], Some("human")).status.success());
-    assert!(root.join("req-safety-acceptance.json").exists(), "acceptance file must be written");
+    // Even a non-agent cannot accept without an interactive terminal —
+    // there is no --yes backdoor. (Tests have no TTY.)
+    let no_tty = run(&["safety", "accept", "--name", "Tom"], None);
+    assert!(!no_tty.status.success(), "accept must require a terminal");
+    assert!(String::from_utf8_lossy(&no_tty.stderr).contains("interactive terminal"));
+
+    // Enable via the committed acceptance file (what an interactive accept
+    // produces / what a human commits) → the feature activates.
+    common::enable_safety(&root.join("project.req"));
     assert!(run(&["hazard", "add", "-t", "Hazardous", "--harm", "x", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"], None).status.success());
 
     // Default calibration: C_C/F_B/P_B/W3 -> SIL3.

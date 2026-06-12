@@ -218,9 +218,6 @@ pub struct SafetyAcceptArgs {
     /// Who is accepting — recorded in the committed acceptance file.
     #[arg(long)]
     pub name: Option<String>,
-    /// Skip the interactive confirmation (for a human scripting setup).
-    #[arg(long)]
-    pub yes: bool,
 }
 
 #[derive(Args, Debug)]
