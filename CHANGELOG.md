@@ -8,11 +8,15 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
-## [0.5.0-rc.1] — 2026-06-12
+## [0.5.0-rc.2] — 2026-06-12
 
-First release candidate for functional-safety support. `req` now manages
-hazards, safety functions, and safety requirements as first-class
-artifacts on the IEC 61508 model, so a safety-related project can keep
+Release candidate for functional-safety support (supersedes the unpublished
+rc.1; folds in the post-review hardening, the evidence-honesty loop, SR
+coverage, web/HARA surfaces, and the human-only acceptance gate + overridable
+calibration).
+
+`req` now manages hazards, safety functions, and safety requirements as
+first-class artifacts on the IEC 61508 model, so a safety-related project can keep
 its hazard analysis, its safety case, and its requirements in one
 git-tracked, agent-drivable spec. Schema moves `req-v2 → req-v3`; the
 migration is a pure pass-through, so a project that uses no safety
