@@ -86,7 +86,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Purpose(args) => commands::purpose::run(args, &cli.file),
         // REQ-0109: retroactive backfill helper.
         Command::Adopt(args) => commands::adopt::run(args, &cli.file),
-        // REQ-0132: functional-safety surface.
+        // REQ-0134: functional-safety surface.
         Command::Hazard(cmd) => commands::safety::run_hazard(cmd, &cli.file),
         Command::Sf(cmd) => commands::safety::run_sf(cmd, &cli.file),
         Command::Sreq(cmd) => commands::safety::run_sreq(cmd, &cli.file),

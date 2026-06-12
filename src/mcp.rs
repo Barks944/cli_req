@@ -331,7 +331,7 @@ const TOOLS: &[ToolDef] = &[
         description: "Project-wide quality audit beyond the validator. Returns markdown (default) or JSON with sections for validator findings, requirements lacking source markers, short rationales, single-acceptance functionals, and active requirements with no test record. Read-only; lint observations never gate.",
         schema: lint_schema,
     },
-    // REQ-0132: functional-safety tools (IEC 61508). Hazards -> safety
+    // REQ-0134: functional-safety tools (IEC 61508). Hazards -> safety
     // functions -> safety requirements, with derived SILs.
     ToolDef {
         name: "req_hazard_add",
@@ -721,7 +721,7 @@ fn schema_which_schema() -> Value {
     })
 }
 
-// ---------- REQ-0132: functional-safety schemas ----------
+// ---------- REQ-0134: functional-safety schemas ----------
 
 fn id_schema() -> Value {
     json!({
@@ -953,7 +953,7 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_split" => tool_split(args, file),
         "req_lint" => tool_lint(args, file),   // REQ-0101
         "req_brief" => tool_brief(args, file), // REQ-0104
-        // REQ-0132: functional-safety tools.
+        // REQ-0134: functional-safety tools.
         "req_hazard_add" => safety_mcp::hazard_add(args, file),
         "req_hazard_list" => safety_mcp::hazard_list(args, file),
         "req_hazard_show" => safety_mcp::hazard_show(args, file),
@@ -2720,7 +2720,7 @@ fn write_config(path: &Path, force: bool) -> Result<()> {
     Ok(())
 }
 
-// ---------- REQ-0132: functional-safety tool handlers ----------
+// ---------- REQ-0134: functional-safety tool handlers ----------
 //
 // These mirror the `req hazard|sf|sreq|trace` CLI surface for agents
 // driving the tool over MCP. Each loads, mutates, saves, and returns a

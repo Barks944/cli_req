@@ -918,4 +918,90 @@ DEBUGGING
 
 Use `-o -` to write to stdout (default), or `-o reqs.md` to a file.",
     },
+    Section {
+        name: "safety",
+        summary: "Authoring hazards, safety functions, and safety requirements (IEC 61508).",
+        body: "Functional-safety work in `req` follows the IEC 61508 chain. Four
+artifacts, each with its own id space:
+
+  HAZ-NNNN  Hazard            a hazardous event; risk-assessed to a SIL
+  SF-NNNN   Safety function   the measure that reaches/keeps a safe state
+  SR-NNNN   Safety requirement  a normative obligation realizing a function
+  REQ-NNNN  Requirement       ordinary requirements, unchanged
+
+THE GOLDEN RULE: you never type a SIL. It is DERIVED — from the hazard's
+risk parameters, then aggregated up the chain. Do not look for a
+`--sil` flag; there isn't one, by design.
+
+  hazard risk (C/F/P/W)  ─►  required SIL        (per hazard)
+  max over its hazards   ─►  allocated SIL       (per safety function)
+  inherited from its SF  ─►  governs verification rigour (per safety req)
+
+AUTHORING A HAZARD — write the harm first, in plain words.
+
+  req hazard add \\
+    --title \"Blade restarts during cleaning\" \\
+    --harm \"an operator's hand could be severed\" \\
+    --context \"maintenance with the guard removed\"
+
+  `harm` is free text and is NOT the same as the severity class. Write
+  what actually happens to a person. Then risk-assess:
+
+  req hazard assess HAZ-0001 -C C_D -F F_B -P P_B -W W2
+
+  The four IEC 61508-5 risk-graph parameters:
+    C  consequence     C_A minor · C_B serious/one death · C_C several ·
+                       C_D many killed
+    F  exposure        F_A rare→occasional · F_B frequent→continuous
+    P  avoidance       P_A possible · P_B almost impossible
+    W  probability     W1 very slight · W2 slight · W3 relatively high
+  These derive the required SIL (— / a / SIL1..4 / b). Pick honestly:
+  the classification is the whole safety argument. When unsure of C,
+  let the worst credible outcome in `harm` guide you.
+
+DRIVING OUT SAFETY FUNCTIONS — one per independent way to reach a safe
+state. Link it to the hazard it mitigates; its allocated SIL appears
+automatically as the worst of the hazards it covers.
+
+  req sf add --title \"Guard interlock halts blade\" \\
+    --safe-state \"blade de-energised within 200ms\" --mitigates HAZ-0001
+
+DRIVING OUT SAFETY REQUIREMENTS — atomic, testable, `shall`. Each
+realizes a safety function and inherits its SIL.
+
+  req sreq add --title \"Interlock cuts power <=200ms\" \\
+    --statement \"The interlock shall cut blade power within 200 ms of \\
+guard opening.\" --rationale \"Bounds exposure to a moving blade.\" \\
+    --accept \"Power removed <=200ms on the bench rig\" --realizes SF-0001
+
+  Mark the implementing code with `// SR-NNNN:` just as you would a
+  requirement, then record evidence:
+
+  req sreq verify SR-0001 --by automated --notes \"bench rig log\" --promote
+
+THE VERIFICATION GATE — a SIL 3/4 safety requirement CANNOT reach
+Verified on inspection alone. Provide automated or composition
+evidence. If you genuinely must accept inspection, `--force` records an
+AUDITED exception (it is logged and re-flagged at every `req validate`).
+Do not reach for `--force` to make a red gate green; fix the evidence.
+
+SEEING THE WHOLE PICTURE — `req trace` is the single best command. Given
+any HAZ/SF/SR id it prints the end-to-end safety case and a verdict:
+
+  req trace HAZ-0001        # adequate? complete? what's blocking?
+
+  A case is ADEQUATE when allocated SIL ≥ required SIL, and COMPLETE
+  when every realizing safety requirement is Verified with evidence
+  whose rigour meets its SIL. `req validate` enforces the same rules,
+  so a broken safety case fails CI — it does not just print sadly.
+
+WHAT THE VALIDATOR WILL HOLD YOU TO (REQ-V-0025..0031):
+  • a hazard needs a harm narrative;
+  • an assessed hazard needs all four C/F/P/W;
+  • a mitigated hazard needs a live safety function;
+  • mitigates/realizes links must resolve;
+  • a Verified safety requirement needs passing evidence of adequate
+    rigour for its SIL.
+Don't argue with the validator — assess, link, and verify properly.",
+    },
 ];

@@ -421,7 +421,7 @@ pub fn load_directory(root: &Path, force: bool) -> Result<Project> {
             .and_then(|v| v.as_u64())
             .unwrap_or(1) as u32,
         requirements,
-        // REQ-0132: the directory layout does not yet shard the
+        // REQ-0134: the directory layout does not yet shard the
         // functional-safety artifacts to their own files. They round-trip
         // through the single-file layout; a directory-backed project keeps
         // them empty until that sharding lands.

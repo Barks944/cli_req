@@ -55,7 +55,7 @@ fn v1_to_v2(root: Map<String, Value>) -> Result<Map<String, Value>> {
     Ok(root)
 }
 
-/// REQ-0132: v2 → v3 introduces the functional-safety artifacts
+/// REQ-0134: v2 → v3 introduces the functional-safety artifacts
 /// (`hazards`, `safety_functions`, `safety_requirements` maps and their
 /// `next_haz_id` / `next_sf_id` / `next_sr_id` counters). Every new
 /// field is optional and defaults to empty/1, so the migration is a

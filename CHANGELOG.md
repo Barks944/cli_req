@@ -8,6 +8,54 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.5.0-rc.1] — 2026-06-12
+
+First release candidate for functional-safety support. `req` now manages
+hazards, safety functions, and safety requirements as first-class
+artifacts on the IEC 61508 model, so a safety-related project can keep
+its hazard analysis, its safety case, and its requirements in one
+git-tracked, agent-drivable spec. Schema moves `req-v2 → req-v3`; the
+migration is a pure pass-through, so a project that uses no safety
+features keeps a byte-identical file.
+
+### Added
+- **REQ-0134 (functional-safety artifact model):** three new artifact
+  families with their own id spaces — hazards (`HAZ-NNNN`), safety
+  functions (`SF-NNNN`), and safety requirements (`SR-NNNN`) — alongside
+  ordinary requirements. The SIL is **derived, never entered**: a
+  hazard's required SIL comes from the IEC 61508-5 Annex D risk graph
+  (`C/F/P/W`), a safety function's allocated SIL is the max over the
+  hazards it mitigates, and a safety requirement inherits its function's
+  SIL. A free-text `harm` narrative sits beside the `C` severity bucket
+  so a reviewer can sanity-check the classification. New CLI: `req
+  hazard`, `req sf`, `req sreq` (each with add/list/show/update and the
+  `mitigate`/`realize` link verbs), mirrored as `req_hazard_*` /
+  `req_sf_*` / `req_sreq_*` MCP tools and a TUI safety review entry.
+- **REQ-0135 (SIL-rigour verification gate):** a SIL 3/4 safety
+  requirement cannot reach Verified on inspection-only evidence;
+  `req sreq verify` blocks it by default and `--force` records an
+  audited, re-flagged exception.
+- **REQ-0136 (end-to-end safety-case trace):** `req trace HAZ/SF/SR`
+  walks hazard → safety function → safety requirements → verification
+  and prints an adequacy/completeness verdict (human-readable and
+  `--json`).
+- **REQ-0137 (safety validation):** `req validate` checks the safety
+  artifacts on the same pass as requirements (rule codes REQ-V-0025..
+  0031): missing harm, an assessed hazard without full `C/F/P/W`, a
+  mitigated hazard with no live safety function, dangling
+  mitigates/realizes links, and under-evidenced SIL 3/4 claims — so a
+  broken safety case fails the pre-commit hook and CI, not just prints.
+- **Agent guidance:** `req help safety` documents the authoring workflow
+  in the agent's voice (the golden rule: you never type a SIL).
+- **Dogfood:** this project now carries its own meta-hazard (HAZ-0001 —
+  req mis-managing a safety requirement for a safety-related system) with
+  the safety functions and safety requirements it drives out.
+
+### Changed
+- `_format` advances to `req-v3`. Older binaries refuse a v3 file and
+  point at an upgrade; `req migrate` / auto-migrate carry v1 and v2 files
+  forward.
+
 ## [0.4.0-rc.5] — 2026-06-05
 
 Driven by field feedback after a heavy multi-repo week of use: the

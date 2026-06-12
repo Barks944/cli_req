@@ -667,7 +667,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
         }
     }
-    // REQ-0132: functional-safety artifacts validate on the same pass so
+    // REQ-0137: functional-safety artifacts validate on the same pass so
     // the pre-commit hook and CI gate cover the whole spec.
     for (id, findings) in validate_safety(p) {
         if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| *rid == id) {
@@ -684,7 +684,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     out
 }
 
-/// REQ-0132: validate the functional-safety artifacts. The integrity of
+/// REQ-0137: validate the functional-safety artifacts. The integrity of
 /// the SIL derivation chain is enforced here — a SIL 3/4 safety
 /// requirement cannot stay Verified on inspection-only evidence without
 /// an audited exception, an assessed hazard must carry its full risk

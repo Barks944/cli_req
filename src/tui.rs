@@ -36,7 +36,7 @@ pub const MENU: &[&str] = &[
     "Diff between git refs",
     "Audit (git signature trail)",
     "Export to markdown (stdout)",
-    // REQ-0132: functional-safety review surface for humans — browse
+    // REQ-0134: functional-safety review surface for humans — browse
     // hazards / SF / SR and trace a safety case. (Label avoids commas so
     // the parity guard's comma-split keeps it as one entry.)
     "Safety: hazards / SF / SR (sreq) / trace",
@@ -163,7 +163,7 @@ fn dispatch(
     }
 }
 
-/// REQ-0132: read-oriented functional-safety browser. Authoring (add /
+/// REQ-0134: read-oriented functional-safety browser. Authoring (add /
 /// assess / verify) stays on the CLI/MCP surface where the multi-field
 /// risk parameters belong; the TUI exists so a human reviewer can walk
 /// the hazard log and trace a safety case end to end.

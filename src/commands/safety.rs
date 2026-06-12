@@ -1,4 +1,4 @@
-// REQ-0132: functional-safety command surface (IEC 61508).
+// REQ-0134: functional-safety command surface (IEC 61508).
 //
 // Three artifact families — hazards (HAZ), safety functions (SF), and
 // safety requirements (SR) — plus `req trace`, the end-to-end safety
@@ -854,7 +854,7 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     let kind: EvidenceKind = args.by.into();
     let inherited = project.inherited_sil(&project.safety_requirements[&id]);
 
-    // REQ-0132: the SIL-rigour gate. A SIL 3/4 safety requirement cannot
+    // REQ-0135: the SIL-rigour gate. A SIL 3/4 safety requirement cannot
     // reach Verified on inspection alone — it needs automated or
     // composition evidence. Block by default; --force records an
     // explicit, audited exception in the notes.

@@ -16,7 +16,7 @@ pub struct Project {
     pub updated: DateTime<Utc>,
     pub next_id: u32,
     pub requirements: BTreeMap<String, Requirement>,
-    /// REQ-0132: functional-safety artifacts (IEC 61508). Hazards
+    /// REQ-0134: functional-safety artifacts (IEC 61508). Hazards
     /// (HAZ-NNNN), the safety functions that mitigate them (SF-NNNN),
     /// and the safety requirements that realize those functions
     /// (SR-NNNN) live in their own maps so they never blur into the
@@ -125,7 +125,7 @@ impl Project {
         id
     }
 
-    /// REQ-0132: allocate the next HAZ / SF / SR identifier. Each family
+    /// REQ-0134: allocate the next HAZ / SF / SR identifier. Each family
     /// has an independent counter so the three id spaces never collide.
     pub fn allocate_haz_id(&mut self) -> String {
         let id = format!("HAZ-{:04}", self.next_haz_id);
@@ -145,7 +145,7 @@ impl Project {
         id
     }
 
-    /// REQ-0132: the SIL allocated to a safety function is the most
+    /// REQ-0134: the SIL allocated to a safety function is the most
     /// demanding required-SIL among every hazard it mitigates. This is
     /// the IEC 61508 allocation rule — a function protecting against two
     /// hazards inherits the worse of the two. Returns `None` when the SF
@@ -159,7 +159,7 @@ impl Project {
             .max_by_key(|s| s.rank())
     }
 
-    /// REQ-0132: the SIL a safety requirement inherits, taken as the
+    /// REQ-0134: the SIL a safety requirement inherits, taken as the
     /// most demanding allocated-SIL among the safety functions it
     /// realizes. Drives the verification-rigour gate.
     pub fn inherited_sil(&self, sr: &SafetyRequirement) -> Option<Sil> {
@@ -376,9 +376,9 @@ pub enum LinkKind {
     Conflicts,
     Refines,
     Verifies,
-    /// REQ-0132: a safety function mitigates a hazard (SF -> HAZ).
+    /// REQ-0134: a safety function mitigates a hazard (SF -> HAZ).
     Mitigates,
-    /// REQ-0132: a safety requirement realizes a safety function
+    /// REQ-0134: a safety requirement realizes a safety function
     /// (SR -> SF).
     Realizes,
 }
@@ -555,7 +555,7 @@ impl LinkKind {
 }
 
 // ============================================================================
-// REQ-0132: functional-safety model (IEC 61508)
+// REQ-0134: functional-safety model (IEC 61508)
 //
 // Four artifacts wire together a complete safety case:
 //
@@ -725,7 +725,7 @@ impl Sil {
 
 }
 
-/// REQ-0132: the IEC 61508-5 Annex D calibrated risk graph. Pure
+/// REQ-0134: the IEC 61508-5 Annex D calibrated risk graph. Pure
 /// function of the four qualitative parameters; this is the single
 /// place SIL is ever decided. Every leaf is pinned by a unit test.
 ///
@@ -797,7 +797,7 @@ impl HazardStatus {
     }
 }
 
-/// REQ-0132: a hazardous event and its risk assessment. The four risk
+/// REQ-0134: a hazardous event and its risk assessment. The four risk
 /// parameters are optional so a hazard can be logged at `Identified`
 /// before it is assessed; the validator requires them from `Assessed`
 /// onward. The SIL is never stored — `required_sil()` derives it.
@@ -808,7 +808,7 @@ pub struct Hazard {
     pub description: String,
     /// The operational situation / mode in which the hazard arises.
     pub operating_context: String,
-    /// REQ-0132: free-text narrative of the potential harm, in the
+    /// REQ-0134: free-text narrative of the potential harm, in the
     /// reviewer's own words — "an operator's hand could be severed",
     /// "a pedestrian could be killed". This is deliberately distinct
     /// from the `consequence` bucket below: the C_A..C_D parameter is
@@ -877,7 +877,7 @@ impl SafetyFunctionStatus {
     }
 }
 
-/// REQ-0132: a safety function — the risk-reduction measure that brings
+/// REQ-0134: a safety function — the risk-reduction measure that brings
 /// a hazardous situation to, or maintains it in, a safe state. Its SIL
 /// is allocated (derived) from the hazards it mitigates, not stored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -899,7 +899,7 @@ pub struct SafetyFunction {
     pub history: Vec<HistoryEntry>,
 }
 
-/// REQ-0132: a safety requirement — a normative obligation that realizes
+/// REQ-0134: a safety requirement — a normative obligation that realizes
 /// a safety function. It carries the full requirement machinery
 /// (acceptance criteria, lifecycle, // SR-NNNN code markers, test
 /// records) but lives in its own id space, and the SIL it inherits from

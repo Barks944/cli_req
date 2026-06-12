@@ -179,18 +179,18 @@ pub enum Command {
     /// REQ-0109: retroactive backfill — advance requirements through
     /// the lifecycle to a target status in one invocation.
     Adopt(AdoptArgs),
-    /// REQ-0132: manage hazards (HAZ-NNNN) — the functional-safety
+    /// REQ-0134: manage hazards (HAZ-NNNN) — the functional-safety
     /// entry point. Risk-assess via the IEC 61508 risk graph.
     #[command(subcommand)]
     Hazard(HazardCmd),
-    /// REQ-0132: manage safety functions (SF-NNNN) that mitigate hazards.
+    /// REQ-0134: manage safety functions (SF-NNNN) that mitigate hazards.
     #[command(subcommand)]
     Sf(SfCmd),
-    /// REQ-0132: manage safety requirements (SR-NNNN) that realize
+    /// REQ-0134: manage safety requirements (SR-NNNN) that realize
     /// safety functions.
     #[command(subcommand)]
     Sreq(SreqCmd),
-    /// REQ-0132: print the end-to-end safety case for a HAZ/SF/SR id —
+    /// REQ-0136: print the end-to-end safety case for a HAZ/SF/SR id —
     /// hazard → safety function → safety requirements → verification.
     Trace(TraceArgs),
 }
