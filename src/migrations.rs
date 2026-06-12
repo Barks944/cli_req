@@ -32,11 +32,18 @@ pub struct MigrationStep {
 /// FORMAT_TAG (in storage.rs) must equal the `to` field of the last
 /// entry, or the empty list's implicit terminus.
 pub fn registered_steps() -> Vec<MigrationStep> {
-    vec![MigrationStep {
-        from: "req-v1",
-        to: "req-v2",
-        apply: v1_to_v2,
-    }]
+    vec![
+        MigrationStep {
+            from: "req-v1",
+            to: "req-v2",
+            apply: v1_to_v2,
+        },
+        MigrationStep {
+            from: "req-v2",
+            to: "req-v3",
+            apply: v2_to_v3,
+        },
+    ]
 }
 
 /// REQ-0110 + REQ-0111: v1 → v2 introduces two reserved top-level keys
@@ -45,6 +52,17 @@ pub fn registered_steps() -> Vec<MigrationStep> {
 /// requirements, history entries, links, and test records are
 /// preserved byte-for-byte.
 fn v1_to_v2(root: Map<String, Value>) -> Result<Map<String, Value>> {
+    Ok(root)
+}
+
+/// REQ-0132: v2 → v3 introduces the functional-safety artifacts
+/// (`hazards`, `safety_functions`, `safety_requirements` maps and their
+/// `next_haz_id` / `next_sf_id` / `next_sr_id` counters). Every new
+/// field is optional and defaults to empty/1, so the migration is a
+/// pure pass-through — a v2 file with no safety artifacts is
+/// byte-identical as v3 apart from the `_format` tag. Existing
+/// requirements, history, links, and test records are preserved exactly.
+fn v2_to_v3(root: Map<String, Value>) -> Result<Map<String, Value>> {
     Ok(root)
 }
 

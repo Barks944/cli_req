@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::Project;
 
-pub const FORMAT_TAG: &str = "req-v2";
+pub const FORMAT_TAG: &str = "req-v3";
 pub const FORMAT_TAG_DIR: &str = "req-v1-dir";
 
 /// REQ-0075: the on-disk shape. `Single` is one JSON file at `path`.
@@ -421,6 +421,16 @@ pub fn load_directory(root: &Path, force: bool) -> Result<Project> {
             .and_then(|v| v.as_u64())
             .unwrap_or(1) as u32,
         requirements,
+        // REQ-0132: the directory layout does not yet shard the
+        // functional-safety artifacts to their own files. They round-trip
+        // through the single-file layout; a directory-backed project keeps
+        // them empty until that sharding lands.
+        hazards: std::collections::BTreeMap::new(),
+        safety_functions: std::collections::BTreeMap::new(),
+        safety_requirements: std::collections::BTreeMap::new(),
+        next_haz_id: 1,
+        next_sf_id: 1,
+        next_sr_id: 1,
         purpose: root_obj
             .remove("_purpose")
             .and_then(|v| serde_json::from_value(v).ok()),
