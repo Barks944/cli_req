@@ -16,19 +16,24 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
 
     let mut rows = Vec::new();
     let mut counts = (0usize, 0usize, 0usize, 0usize, 0usize); // fresh, drifted, stale, no_records, unknown
-    for r in project.requirements.values() {
-        let latest = match r.tests.last() {
+
+    // REQ-0135: the staleness logic is id-agnostic, so run it over both
+    // ordinary requirements and safety requirements. This is what makes a
+    // SIL 3/4 SR's automated evidence go STALE when its linked code moves,
+    // rather than standing as a claim forever.
+    let mut process = |id: &str, tests: &[crate::model::TestRecord]| {
+        let latest = match tests.last() {
             None => {
                 counts.3 += 1;
                 if !args.only_stale {
                     rows.push((
-                        r.id.clone(),
+                        id.to_string(),
                         "no-records".to_string(),
                         "—".to_string(),
                         Vec::<String>::new(),
                     ));
                 }
-                continue;
+                return;
             }
             Some(t) => t,
         };
@@ -39,10 +44,10 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
             Some(stored_hash) => test_cmd::staleness_by_content(
                 stored_hash,
                 latest.linked_files.as_ref(),
-                &r.id,
+                id,
                 &args.path,
             ),
-            None => test_cmd::staleness(&latest.commit, &r.id, &args.path),
+            None => test_cmd::staleness(&latest.commit, id, &args.path),
         };
         let label = match &s {
             Staleness::Fresh => {
@@ -63,18 +68,24 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         };
         if args.only_stale && !matches!(s, Staleness::Stale { .. }) {
-            continue;
+            return;
         }
         let changed: Vec<String> = match &s {
             Staleness::Stale { changed, .. } => changed.clone(),
             _ => Vec::new(),
         };
         rows.push((
-            r.id.clone(),
+            id.to_string(),
             label.to_string(),
             test_cmd::short(&latest.commit),
             changed,
         ));
+    };
+    for r in project.requirements.values() {
+        process(&r.id, &r.tests);
+    }
+    for sr in project.safety_requirements.values() {
+        process(&sr.id, &sr.tests);
     }
 
     if args.json {

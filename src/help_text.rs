@@ -985,9 +985,20 @@ guard opening.\" --rationale \"Bounds exposure to a moving blade.\" \\
     --accept \"Power removed <=200ms on the bench rig\" --realizes SF-0001
 
   Mark the implementing code with `// SR-NNNN:` just as you would a
-  requirement, then record evidence:
+  requirement, then record evidence. Prefer evidence PRODUCED BY A RUN
+  over a hand-asserted record: name the test `sr_NNNN_*` and let
+  `req test run` attach the result, stamped with the commit and a hash
+  of the linked files —
+
+  req test run --promote        # maps sr_0001_* -> SR-0001, records pass/fail
+
+  so `req stale` flags the SR when its code later changes (a SIL 3/4
+  \"automated\" claim that has gone stale is no longer trustworthy). Wire
+  `req stale` into CI to keep the safety evidence honest. The manual form
 
   req sreq verify SR-0001 --by automated --notes \"bench rig log\" --promote
+
+  is fine when there is no automated test to point at.
 
 THE VERIFICATION GATE — a SIL 3/4 safety requirement CANNOT reach
 Verified on inspection alone. Provide automated or composition

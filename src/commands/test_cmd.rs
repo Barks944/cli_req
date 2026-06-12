@@ -316,7 +316,7 @@ pub fn hash_files(files: &[std::path::PathBuf]) -> String {
 pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path::PathBuf> {
     use once_cell::sync::Lazy;
     use regex::Regex;
-    static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
+    static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:REQ|SR)-\d{4}").unwrap());
     let exts: Vec<String> = [
         "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h",
     ]
@@ -437,8 +437,12 @@ pub fn staleness(record_commit: &str, req_id: &str, source_root: &std::path::Pat
 // ---------- req test run ----------
 
 static TEST_LINE: Lazy<Regex> = Lazy::new(|| {
-    // matches `test req_0006_some_name ... ok` or `... FAILED` or `... ignored`
-    Regex::new(r"(?m)^test\s+(?:[\w:]+::)?(req_(\d{4})\w*)\s+\.\.\.\s+(ok|FAILED|ignored)").unwrap()
+    // REQ-0135: matches `test req_0006_some_name ... ok|FAILED|ignored`
+    // and the safety variant `test sr_0007_some_name ... ok`, so a SIL
+    // 3/4 safety requirement's automated evidence is produced by a real
+    // run, not a hand-asserted record.
+    Regex::new(r"(?m)^test\s+(?:[\w:]+::)?((req|sr)_(\d{4})\w*)\s+\.\.\.\s+(ok|FAILED|ignored)")
+        .unwrap()
 });
 
 #[derive(Debug, Default)]
@@ -476,8 +480,8 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut by_req: BTreeMap<String, ReqResult> = BTreeMap::new();
     for cap in TEST_LINE.captures_iter(&combined) {
         let test_name = cap[1].to_string();
-        let id = format!("REQ-{}", &cap[2]);
-        let verdict = &cap[3];
+        let id = format!("{}-{}", cap[2].to_uppercase(), &cap[3]);
+        let verdict = &cap[4];
         let bucket = by_req.entry(id).or_default();
         match verdict {
             "ok" => bucket.passed.push(test_name),
@@ -553,7 +557,8 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut records_to_apply: Vec<(String, TestRecord)> = Vec::new();
     let mut summary: Vec<serde_json::Value> = Vec::new();
     for (req_id, res) in &by_req {
-        let exists = project.requirements.contains_key(req_id);
+        let exists = project.requirements.contains_key(req_id)
+            || project.safety_requirements.contains_key(req_id);
         let outcome = if !res.failed.is_empty() {
             TestOutcome::Fail
         } else {
@@ -626,9 +631,18 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut promoted: Vec<String> = Vec::new();
     if !args.dry_run {
         for (req_id, record) in &records_to_apply {
-            let r = project.requirements.get_mut(req_id).unwrap();
-            r.tests.push(record.clone());
-            r.history.push(super::history(
+            // REQ-0135: route to the requirements or the safety-requirements
+            // map, so `sr_NNNN_*` tests attach automated evidence to SRs.
+            let (tests, history, updated) =
+                if let Some(r) = project.requirements.get_mut(req_id) {
+                    (&mut r.tests, &mut r.history, &mut r.updated)
+                } else if let Some(sr) = project.safety_requirements.get_mut(req_id) {
+                    (&mut sr.tests, &mut sr.history, &mut sr.updated)
+                } else {
+                    continue;
+                };
+            tests.push(record.clone());
+            history.push(super::history(
                 format!(
                     "test {} recorded against commit {} via req test run",
                     record.outcome.as_str(),
@@ -636,27 +650,33 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
                 ),
                 None,
             ));
-            r.updated = Utc::now();
+            *updated = Utc::now();
         }
         // Auto-promote pass after writing records, so the latest record is
-        // already on r.tests when we evaluate "is there fresh evidence?".
+        // already on tests when we evaluate "is there fresh evidence?".
         if args.promote {
             let head = current_head_sha_opt();
             for (req_id, _) in &records_to_apply {
-                let r = project.requirements.get_mut(req_id).unwrap();
-                if matches!(r.status, Status::Verified | Status::Obsolete) {
+                let (status, tests, history): (&mut Status, &Vec<TestRecord>, &mut Vec<_>) =
+                    if let Some(r) = project.requirements.get_mut(req_id) {
+                        (&mut r.status, &r.tests, &mut r.history)
+                    } else if let Some(sr) = project.safety_requirements.get_mut(req_id) {
+                        (&mut sr.status, &sr.tests, &mut sr.history)
+                    } else {
+                        continue;
+                    };
+                if matches!(*status, Status::Verified | Status::Obsolete) {
                     continue;
                 }
                 let fresh = match &head {
-                    Some(h) => r
-                        .tests
+                    Some(h) => tests
                         .iter()
                         .any(|t| t.outcome == TestOutcome::Pass && &t.commit == h),
                     None => false,
                 };
                 if fresh {
-                    r.status = Status::Verified;
-                    r.history.push(super::history(
+                    *status = Status::Verified;
+                    history.push(super::history(
                         "status promoted to verified (req test run --promote, fresh passing record on HEAD)",
                         None,
                     ));

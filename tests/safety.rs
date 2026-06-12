@@ -133,3 +133,57 @@ fn req_0137_wellformed_safety_chain_validates_clean() {
     let out = s.run(&["validate"]);
     assert!(out.status.success(), "well-formed safety chain must validate: {}", stdout(&out));
 }
+
+/// REQ-0135 (evidence-honesty loop): `req test run` attaches automated
+/// evidence to a safety requirement from an `sr_NNNN_*` test, and that
+/// evidence goes STALE when its linked code changes. Runs the binary
+/// with the working directory set to the project so the source-marker
+/// scan and the content hash see the right tree.
+#[test]
+fn req_0135_sr_evidence_from_test_run_goes_stale_on_code_change() {
+    use std::process::Command;
+    let dir = tempfile::Builder::new().prefix("req-evh-").tempdir().unwrap();
+    let root = dir.path();
+    let bin = env!("CARGO_BIN_EXE_req");
+    let run = |args: &[&str]| {
+        Command::new(bin)
+            .args(args)
+            .current_dir(root)
+            .env_remove("REQ_FILE")
+            .output()
+            .expect("run req")
+    };
+
+    assert!(run(&["init", "-n", "p"]).status.success());
+    run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "operator hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
+    run(&["sreq", "add", "-t", "Cut blade power", "-s", "The interlock shall cut blade power within 200 ms.", "-r", "Bounds operator exposure.", "-a", "power cut <=200ms", "--realizes", "SF-0001"]);
+
+    // Implementing source carries the // SR-0001 marker.
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/interlock.rs"), "// SR-0001: interlock\nfn interlock() {}\n").unwrap();
+
+    // A captured test log with an sr_0001_* test name.
+    std::fs::write(root.join("log.txt"), "running 1 test\ntest sr_0001_cuts_power ... ok\n").unwrap();
+    let tr = run(&["test", "run", "--from-file", "log.txt"]);
+    assert!(tr.status.success(), "test run: {}", String::from_utf8_lossy(&tr.stderr));
+
+    // The SR now carries an Automated evidence record.
+    let shown = String::from_utf8_lossy(&run(&["sreq", "show", "SR-0001", "--json"]).stdout).into_owned();
+    let v: serde_json::Value = serde_json::from_str(&shown).expect("json");
+    let tests = v["tests"].as_array().expect("tests");
+    assert!(
+        tests.iter().any(|t| t["kind"] == "Automated"),
+        "SR must carry automated evidence from the run"
+    );
+
+    // Fresh now (content matches the hash recorded at run time).
+    let fresh = run(&["stale", "--only-stale"]);
+    assert!(!String::from_utf8_lossy(&fresh.stdout).contains("SR-0001"), "should be fresh before any change");
+
+    // Change the linked file → the SR's evidence goes STALE.
+    std::fs::write(root.join("src/interlock.rs"), "// SR-0001: interlock\nfn interlock() { /* changed */ }\n").unwrap();
+    let stale = run(&["stale"]);
+    let out = String::from_utf8_lossy(&stale.stdout);
+    assert!(out.contains("SR-0001") && out.contains("STALE"), "SR evidence must go stale on code change:\n{}", out);
+}
