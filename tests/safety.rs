@@ -283,3 +283,83 @@ fn req_0138_governance_gate_agent_refusal_and_calibration() {
     assert!(run(&["safety", "calibrate", "--set", "C_C/F_B/P_B=W3:4,W2:3,W1:2"], None).status.success());
     assert!(String::from_utf8_lossy(&run(&["hazard", "list"], None).stdout).contains("SIL4"), "calibration override must change the derived SIL");
 }
+
+/// REQ-0137 (SF-0002 protective path): a BROKEN safety case must FAIL
+/// `req validate` with a non-zero exit, not merely print — this is the
+/// "a broken safety case fails CI" half of SF-0002, which the clean-case
+/// test above (`req_0137_wellformed_safety_chain_validates_clean`) does
+/// not exercise. We drive rule REQ-V-0027 by retiring the only safety
+/// function that mitigates a Mitigated hazard, leaving the hazard with no
+/// live mitigation.
+#[test]
+fn req_0137_broken_safety_case_fails_validate() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    s.run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "operator hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    // A safety function mitigating the hazard auto-advances it to Mitigated.
+    s.run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
+
+    // Baseline: a well-formed chain validates clean (guards against the
+    // test passing for the wrong reason).
+    assert!(s.run(&["validate"]).status.success(), "baseline chain must be clean");
+
+    // Retire the only mitigation. The hazard stays Mitigated but now has
+    // no live safety function behind it — a broken safety case.
+    assert!(
+        s.run(&["sf", "update", "SF-0001", "--status", "obsolete", "--reason", "retired without replacement"]).status.success(),
+        "obsoleting the SF should itself succeed"
+    );
+
+    let broken = s.run(&["validate"]);
+    assert!(!broken.status.success(), "a broken safety case must fail validate with a non-zero exit");
+    let out = stdout(&broken) + &stderr(&broken);
+    assert!(
+        out.contains("REQ-V-0027"),
+        "validate must flag the mitigated-hazard-without-live-SF rule:\n{}",
+        out
+    );
+}
+
+/// REQ-0011 (SF-0003 mechanism): a mutation of a SAFETY artifact records a
+/// reasoned, APPEND-ONLY history entry. Each status change must ADD an
+/// entry carrying its `--reason` and an attributable actor/action, never
+/// replacing the prior history — the property SF-0003 relies on for a
+/// tamper-evident audit trail on safety artifacts specifically (the cited
+/// REQ-0017/REQ-0109 tests only exercise ordinary requirements).
+#[test]
+fn req_0011_safety_mutation_records_reasoned_append_only_history() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    s.run(&["hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    s.run(&["sreq", "add", "-t", "Stop the blade", "-s", "The system shall stop the blade on demand.", "-r", "Operator safety during cleaning.", "-a", "blade stops within 200ms", "--realizes", "SF-0001"]);
+
+    let reasons = ["reviewed at design gate", "implementation landed on main"];
+    s.run(&["sreq", "update", "SR-0001", "--status", "approved", "--reason", reasons[0]]);
+    s.run(&["sreq", "update", "SR-0001", "--status", "implemented", "--reason", reasons[1]]);
+
+    let shown = stdout(&s.run(&["sreq", "show", "SR-0001", "--json"]));
+    let v: serde_json::Value = serde_json::from_str(&shown).expect("json");
+    let hist = v["history"].as_array().expect("history array present");
+
+    // Append-only: created + two reasoned updates accumulate (≥ 3 entries),
+    // never collapse to the latest.
+    assert!(hist.len() >= 3, "history must accumulate, got {}:\n{}", hist.len(), shown);
+
+    // Each supplied reason is recorded.
+    let recorded: Vec<String> = hist
+        .iter()
+        .filter_map(|e| e["reason"].as_str().map(str::to_string))
+        .collect();
+    assert!(recorded.iter().any(|r| r == reasons[0]), "first reason must be recorded: {:?}", recorded);
+    assert!(recorded.iter().any(|r| r == reasons[1]), "second reason must be recorded: {:?}", recorded);
+
+    // Every entry is attributable (actor + action) — the tamper-evident shape.
+    assert!(
+        hist.iter().all(|e| e["action"].is_string() && e["actor"].is_string()),
+        "every history entry must carry an actor and action:\n{}",
+        shown
+    );
+}
