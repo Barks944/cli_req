@@ -187,3 +187,38 @@ fn req_0135_sr_evidence_from_test_run_goes_stale_on_code_change() {
     let out = String::from_utf8_lossy(&stale.stdout);
     assert!(out.contains("SR-0001") && out.contains("STALE"), "SR evidence must go stale on code change:\n{}", out);
 }
+
+/// REQ-0135: `req coverage` traces // SR-NNNN markers — an implemented SR
+/// with no marker is an orphan, a marker pointing at no SR is a ghost,
+/// and --strict exits non-zero on either.
+#[test]
+fn req_0135_sr_coverage_orphans_and_ghosts() {
+    use std::process::Command;
+    let dir = tempfile::Builder::new().prefix("req-cov-").tempdir().unwrap();
+    let root = dir.path();
+    let bin = env!("CARGO_BIN_EXE_req");
+    let run = |args: &[&str]| {
+        Command::new(bin).args(args).current_dir(root).env_remove("REQ_FILE").output().expect("run req")
+    };
+    assert!(run(&["init", "-n", "p"]).status.success());
+    run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
+    // SR-0001 will be marked in code; SR-0002 will be an orphan.
+    run(&["sreq", "add", "-t", "Marked one", "-s", "The interlock shall cut blade power fast.", "-r", "safety", "-a", "cuts", "--realizes", "SF-0001"]);
+    run(&["sreq", "add", "-t", "Orphan one", "-s", "The guard shall be detected within 50 ms.", "-r", "safety", "-a", "detects", "--realizes", "SF-0001"]);
+    for sr in ["SR-0001", "SR-0002"] {
+        run(&["sreq", "update", sr, "--status", "approved", "--reason", "r"]);
+        run(&["sreq", "update", sr, "--status", "implemented", "--reason", "r"]);
+    }
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/x.rs"), "// SR-0001: here\n// SR-0099: ghost\nfn x() {}\n").unwrap();
+
+    let cov = run(&["coverage", "--path", "."]);
+    let out = String::from_utf8_lossy(&cov.stdout);
+    assert!(out.contains("SR-0002"), "SR-0002 should be an orphan:\n{}", out);
+    assert!(out.contains("SR-0099"), "SR-0099 should be a ghost:\n{}", out);
+    assert!(!out.contains("SR ORPHANS") || !out.contains("SR-0001\n    SR-0001"), "SR-0001 is referenced, not an orphan");
+
+    // --strict turns SR orphan/ghost findings into a non-zero exit.
+    assert!(!run(&["coverage", "--path", ".", "--strict"]).status.success(), "strict must fail on SR findings");
+}

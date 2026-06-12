@@ -12,6 +12,9 @@ use crate::model::Status;
 use crate::storage::load_resolved;
 
 static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
+// REQ-0135: safety-requirement markers (// SR-NNNN:) are traced the same
+// way as REQ markers so the safety spec↔code loop closes too.
+static SR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"SR-\d{4}").unwrap());
 
 // REQ-0033: default extension list for source scanning. Schema-as-code
 // (SQL migrations, init scripts) is a first-class implementation surface
@@ -59,6 +62,14 @@ struct Report {
     drafts_unmarked: Vec<String>,
     ghosts: BTreeMap<String, Vec<String>>,
     obsolete_referenced: BTreeMap<String, Vec<String>>,
+    /// REQ-0135: the same three views for safety requirements (SR-NNNN).
+    /// Omitted from JSON when empty so non-safety projects are unchanged.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    sr_referenced: BTreeMap<String, Vec<String>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sr_orphans: Vec<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    sr_ghosts: BTreeMap<String, Vec<String>>,
 }
 
 pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
@@ -83,10 +94,16 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     let mut hits: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut sr_hits: BTreeMap<String, Vec<String>> = BTreeMap::new();
     walk(&args.path, &exts, &mut |path, line_no, line| {
         for m in REQ_RE.find_iter(line) {
-            let id = m.as_str().to_string();
-            hits.entry(id)
+            hits.entry(m.as_str().to_string())
+                .or_default()
+                .push(format!("{}:{}", path.display(), line_no));
+        }
+        for m in SR_RE.find_iter(line) {
+            sr_hits
+                .entry(m.as_str().to_string())
                 .or_default()
                 .push(format!("{}:{}", path.display(), line_no));
         }
@@ -100,7 +117,34 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
         drafts_unmarked: Vec::new(),
         ghosts: BTreeMap::new(),
         obsolete_referenced: BTreeMap::new(),
+        sr_referenced: BTreeMap::new(),
+        sr_orphans: Vec::new(),
+        sr_ghosts: BTreeMap::new(),
     };
+
+    // REQ-0135: safety-requirement coverage. A marker pointing at a known
+    // SR is referenced; one pointing at nothing is a ghost; an SR that is
+    // implemented-or-beyond with no marker is an orphan (Draft/Obsolete
+    // excluded, same rule as requirements).
+    for (id, refs) in &sr_hits {
+        match project.safety_requirements.get(id) {
+            Some(_) => {
+                report.sr_referenced.insert(id.clone(), refs.clone());
+            }
+            None => {
+                report.sr_ghosts.insert(id.clone(), refs.clone());
+            }
+        }
+    }
+    for (id, sr) in &project.safety_requirements {
+        if sr_hits.contains_key(id) {
+            continue;
+        }
+        if !matches!(sr.status, Status::Draft | Status::Obsolete) {
+            report.sr_orphans.push(id.clone());
+        }
+    }
+    report.sr_orphans.sort();
 
     for (id, refs) in &hits {
         let has_impl = refs.iter().any(|r| !is_test_path(r));
@@ -146,7 +190,16 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
                 .iter()
                 .filter(|id| !allow.contains(*id))
                 .count();
-            let findings = unexpected + report.ghosts.len() + report.obsolete_referenced.len();
+            let sr_unexpected = report
+                .sr_orphans
+                .iter()
+                .filter(|id| !allow.contains(*id))
+                .count();
+            let findings = unexpected
+                + report.ghosts.len()
+                + report.obsolete_referenced.len()
+                + sr_unexpected
+                + report.sr_ghosts.len();
             if findings > 0 {
                 std::process::exit(1);
             }
@@ -212,6 +265,31 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         }
     }
+    // REQ-0135: safety-requirement coverage, printed only when the project
+    // has any SR markers or safety requirements.
+    if !project.safety_requirements.is_empty() || !report.sr_ghosts.is_empty() {
+        println!(
+            "\nSafety requirements: {} referenced, {} orphan(s), {} ghost(s)",
+            report.sr_referenced.len(),
+            report.sr_orphans.len(),
+            report.sr_ghosts.len()
+        );
+        if !report.sr_orphans.is_empty() {
+            println!("  SR ORPHANS (safety requirement exists but is not mentioned in code):");
+            for id in &report.sr_orphans {
+                println!("    {}", id);
+            }
+        }
+        if !report.sr_ghosts.is_empty() {
+            println!("  SR GHOSTS (code mentions an unknown SR id):");
+            for (id, refs) in &report.sr_ghosts {
+                println!("    {}", id);
+                for r in refs {
+                    println!("      {}", r);
+                }
+            }
+        }
+    }
     // REQ-0065: strict mode turns findings into a non-zero exit.
     if args.strict {
         let allow: std::collections::HashSet<&String> = args.allow_orphans.iter().collect();
@@ -220,8 +298,16 @@ pub fn run(args: CoverageArgs, file: &Option<PathBuf>) -> Result<()> {
             .iter()
             .filter(|id| !allow.contains(*id))
             .collect();
-        let findings =
-            unexpected_orphans.len() + report.ghosts.len() + report.obsolete_referenced.len();
+        let sr_unexpected = report
+            .sr_orphans
+            .iter()
+            .filter(|id| !allow.contains(*id))
+            .count();
+        let findings = unexpected_orphans.len()
+            + report.ghosts.len()
+            + report.obsolete_referenced.len()
+            + sr_unexpected
+            + report.sr_ghosts.len();
         if findings > 0 {
             eprintln!(
                 "\ncoverage --strict: {} unallowed finding(s); exiting non-zero.",
@@ -483,7 +569,9 @@ fn walk(root: &Path, exts: &[String], visit: &mut impl FnMut(&Path, usize, &str)
     crate::source_walk::walk_source_tree(root, exts, |path| {
         if let Ok(text) = fs::read_to_string(path) {
             for (i, line) in text.lines().enumerate() {
-                if REQ_RE.is_match(line) {
+                // REQ-0135: pass lines carrying either a REQ or an SR
+                // marker so safety-requirement coverage sees SR-only lines.
+                if REQ_RE.is_match(line) || SR_RE.is_match(line) {
                     visit(path, i + 1, line);
                 }
             }
