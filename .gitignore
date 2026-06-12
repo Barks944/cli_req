@@ -5,3 +5,6 @@
 .*.req.lock
 .claude/settings.local.json
 .agent-sandbox/
+
+# Migration backups written by `req migrate` / auto-migrate.
+*.req.bak-*

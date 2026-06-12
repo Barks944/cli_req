@@ -790,6 +790,8 @@ fn hazard_update_schema() -> Value {
             "context": { "type": "string" },
             "harm": { "type": "string" },
             "status": { "type": "string" },
+            "add_tag": { "type": "array", "items": { "type": "string" } },
+            "remove_tag": { "type": "array", "items": { "type": "string" } },
             "reason": { "type": "string" }
         },
         "required": ["id"]
@@ -830,6 +832,8 @@ fn sf_update_schema() -> Value {
             "description": { "type": "string" },
             "safe_state": { "type": "string" },
             "status": { "type": "string" },
+            "add_tag": { "type": "array", "items": { "type": "string" } },
+            "remove_tag": { "type": "array", "items": { "type": "string" } },
             "reason": { "type": "string" }
         },
         "required": ["id"]
@@ -887,6 +891,8 @@ fn sreq_update_schema() -> Value {
             "add_acceptance": { "type": "array", "items": { "type": "string" } },
             "priority": { "type": "string" },
             "status": { "type": "string" },
+            "add_tag": { "type": "array", "items": { "type": "string" } },
+            "remove_tag": { "type": "array", "items": { "type": "string" } },
             "reason": { "type": "string" }
         },
         "required": ["id"]
@@ -2761,6 +2767,17 @@ mod safety_mcp {
             })
             .unwrap_or_default()
     }
+    /// Apply add_tag/remove_tag arrays from an MCP request to a tag list,
+    /// matching the CLI `--add-tag`/`--remove-tag` semantics.
+    fn apply_tags(tags: &mut Vec<String>, a: &Value) {
+        for t in arr(a, "add_tag") {
+            if !tags.contains(&t) {
+                tags.push(t);
+            }
+        }
+        let rm = arr(a, "remove_tag");
+        tags.retain(|t| !rm.contains(t));
+    }
     fn norm(prefix: &str, raw: &str) -> String {
         let up = raw.trim().to_uppercase();
         let want = format!("{}-", prefix);
@@ -3007,6 +3024,7 @@ mod safety_mcp {
             if let Some(st) = status {
                 h.status = st;
             }
+            apply_tags(&mut h.tags, a);
             h.updated = now;
             h.history.push(commands::history("updated", s(a, "reason")));
         }
@@ -3134,6 +3152,7 @@ mod safety_mcp {
             if let Some(st) = status {
                 sf.status = st;
             }
+            apply_tags(&mut sf.tags, a);
             sf.updated = now;
             sf.history.push(commands::history("updated", s(a, "reason")));
         }
@@ -3315,6 +3334,7 @@ mod safety_mcp {
             if let Some(st) = status {
                 sr.status = st;
             }
+            apply_tags(&mut sr.tags, a);
             sr.updated = now;
             sr.history.push(commands::history("updated", s(a, "reason")));
         }

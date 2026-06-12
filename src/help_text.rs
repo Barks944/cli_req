@@ -962,6 +962,13 @@ AUTHORING A HAZARD — write the harm first, in plain words.
   where the safety argument STARTS, not the whole of it. When unsure of
   C, let the worst credible outcome in `harm` guide you.
 
+  CALIBRATION: the table req uses is the *worked example* from IEC
+  61508-5 Annex D. The standard is explicit that a risk graph must be
+  CALIBRATED for your project/sector (the boundaries between SIL bands
+  are an organisational risk-acceptance decision). Treat req's output as
+  the default-calibration result and confirm — or recalibrate — it
+  against your own scheme before relying on it.
+
 DRIVING OUT SAFETY FUNCTIONS — one per independent way to reach a safe
 state. Link it to the hazard it mitigates; its allocated SIL appears
 automatically as the worst of the hazards it covers.

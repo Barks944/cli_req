@@ -743,9 +743,12 @@ impl Sil {
 
 }
 
-/// REQ-0134: the IEC 61508-5 Annex D calibrated risk graph. Pure
-/// function of the four qualitative parameters; this is the single
-/// place SIL is ever decided. Every leaf is pinned by a unit test.
+/// REQ-0134: the IEC 61508-5 Annex D risk graph — the standard's WORKED
+/// EXAMPLE calibration. Pure function of the four qualitative parameters;
+/// this is the single place SIL is ever decided. Every leaf is pinned by
+/// a unit test. NOTE: Annex D requires a risk graph to be calibrated per
+/// project/sector; this default calibration must be confirmed or replaced
+/// for real safety-related use (see `req help safety`).
 ///
 /// The table is read as: pick the (C, F, P) leaf to get a row of three
 /// outcomes ordered `[W3, W2, W1]`, then index by W. C_A short-circuits

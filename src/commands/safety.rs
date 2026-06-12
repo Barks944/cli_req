@@ -1157,6 +1157,17 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     if !v.blocking.is_empty() {
         println!("    blocking: {}", v.blocking.join("; "));
     }
+    // REQ-0135: the risk-graph 'b' outcome is not just "very high SIL" —
+    // it means a single E/E/PE safety-related system is NOT sufficient.
+    // That is an architectural finding the verification gate can't speak
+    // to, so call it out explicitly.
+    if matches!(v.required, Some(Sil::B)) || matches!(v.allocated, Some(Sil::B)) {
+        println!(
+            "    ⚠ SIL 'b': a single E/E/PE safety-related system is not sufficient for this \
+             risk — independent/additional risk-reduction measures are required (an \
+             architecture decision, beyond what req's verification gate checks)."
+        );
+    }
     println!();
     println!("{}", SAFETY_DISCLAIMER_LINE);
     Ok(())
