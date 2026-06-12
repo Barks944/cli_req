@@ -331,6 +331,93 @@ const TOOLS: &[ToolDef] = &[
         description: "Project-wide quality audit beyond the validator. Returns markdown (default) or JSON with sections for validator findings, requirements lacking source markers, short rationales, single-acceptance functionals, and active requirements with no test record. Read-only; lint observations never gate.",
         schema: lint_schema,
     },
+    // REQ-0132: functional-safety tools (IEC 61508). Hazards -> safety
+    // functions -> safety requirements, with derived SILs.
+    ToolDef {
+        name: "req_hazard_add",
+        description: "Create a hazard (HAZ-NNNN). Use this when a new hazard is identified. REQUIRED: title, harm (free-text narrative of the potential harm, e.g. \"an operator's hand could be severed\"). Optional: description, context (operational situation), and the four IEC 61508 risk-graph parameters consequence (C_A..C_D), frequency (F_A/F_B), avoidance (P_A/P_B), probability (W1..W3). Supply all four to risk-assess on creation; omit them to log as Identified and assess later. The SIL is DERIVED from C/F/P/W — never pass a SIL.",
+        schema: hazard_add_schema,
+    },
+    ToolDef {
+        name: "req_hazard_list",
+        description: "List hazards with their derived required SIL and status. Optional filters: sil (e.g. SIL3), status, unmitigated=true (only hazards with no mitigating safety function). Call this to review the hazard log.",
+        schema: hazard_list_schema,
+    },
+    ToolDef {
+        name: "req_hazard_show",
+        description: "Return one hazard in full, including its derived SIL and the safety functions that mitigate it. Pass id (HAZ-NNNN).",
+        schema: id_schema,
+    },
+    ToolDef {
+        name: "req_hazard_assess",
+        description: "Set a hazard's C/F/P/W risk parameters; this derives the required SIL and advances the hazard to Assessed. REQUIRED: id, consequence (C_A..C_D), frequency (F_A/F_B), avoidance (P_A/P_B), probability (W1..W3). Pass reason for the history.",
+        schema: hazard_assess_schema,
+    },
+    ToolDef {
+        name: "req_hazard_update",
+        description: "Update a hazard's title/description/context/harm/status. Pass id and reason. Use status to move it through Identified -> Assessed -> Mitigated -> Verified -> Obsolete.",
+        schema: hazard_update_schema,
+    },
+    ToolDef {
+        name: "req_sf_add",
+        description: "Create a safety function (SF-NNNN) — the risk-reduction measure that brings a hazard to a safe state. REQUIRED: title. Optional: description, safe_state (the state it maintains), mitigates (array of HAZ-NNNN it covers). Its allocated SIL is DERIVED as the max required SIL of the hazards it mitigates.",
+        schema: sf_add_schema,
+    },
+    ToolDef {
+        name: "req_sf_list",
+        description: "List safety functions with their derived allocated SIL and status. Optional filters: sil, status, unrealized=true (only those with no realizing safety requirement).",
+        schema: sf_list_schema,
+    },
+    ToolDef {
+        name: "req_sf_show",
+        description: "Return one safety function in full: allocated SIL, the hazards it mitigates, and the safety requirements that realize it. Pass id (SF-NNNN).",
+        schema: id_schema,
+    },
+    ToolDef {
+        name: "req_sf_update",
+        description: "Modify a safety function's title/description/safe_state/status. Set id and reason.",
+        schema: sf_update_schema,
+    },
+    ToolDef {
+        name: "req_sf_mitigate",
+        description: "Record that a safety function mitigates a hazard (SF -> HAZ). REQUIRED: sf (SF-NNNN), hazard (HAZ-NNNN). Set remove=true to unlink. Adding the first mitigation advances the hazard to Mitigated.",
+        schema: sf_mitigate_schema,
+    },
+    ToolDef {
+        name: "req_sreq_add",
+        description: "Add a safety requirement (SR-NNNN) that realizes a safety function. REQUIRED: title, statement (use shall/must), rationale. Optional: acceptance (array), priority (default must), realizes (array of SF-NNNN). It inherits its SIL from the safety function it realizes; that SIL governs how rigorously it must be verified.",
+        schema: sreq_add_schema,
+    },
+    ToolDef {
+        name: "req_sreq_list",
+        description: "List safety requirements with their inherited SIL and status. Optional filters: sil, status, unverified=true.",
+        schema: sreq_list_schema,
+    },
+    ToolDef {
+        name: "req_sreq_show",
+        description: "Return one safety requirement in full: inherited SIL, statement, acceptance, the safety functions it realizes, and its latest evidence. Pass id (SR-NNNN).",
+        schema: id_schema,
+    },
+    ToolDef {
+        name: "req_sreq_update",
+        description: "Modify a safety requirement's fields/status. Set id and reason. add_acceptance appends; acceptance replaces.",
+        schema: sreq_update_schema,
+    },
+    ToolDef {
+        name: "req_sreq_realize",
+        description: "Record that a safety requirement realizes a safety function (SR -> SF). REQUIRED: sreq (SR-NNNN), sf (SF-NNNN). Set remove=true to unlink.",
+        schema: sreq_realize_schema,
+    },
+    ToolDef {
+        name: "req_sreq_verify",
+        description: "Attach verification evidence to a safety requirement, optionally promoting to Verified. REQUIRED: id, by (automated | composition | inspection). The SIL-rigour gate BLOCKS inspection-only evidence for a SIL 3/4 requirement — provide automated/composition evidence, or set force=true to record an audited exception. Pass notes and optional cites (array).",
+        schema: sreq_verify_schema,
+    },
+    ToolDef {
+        name: "req_trace",
+        description: "Print the end-to-end safety case for a HAZ/SF/SR id: hazard -> required SIL -> safety function -> allocated SIL (adequate?) -> safety requirements -> verification evidence, with a roll-up verdict (complete / incomplete and what's blocking). The single best call to review whether a hazard is fully mitigated and verified.",
+        schema: id_schema,
+    },
 ];
 
 // ---------- schemas ----------
@@ -634,6 +721,205 @@ fn schema_which_schema() -> Value {
     })
 }
 
+// ---------- REQ-0132: functional-safety schemas ----------
+
+fn id_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "id": { "type": "string", "description": "HAZ-/SF-/SR-NNNN id" } },
+        "required": ["id"]
+    })
+}
+
+const C_ENUM: [&str; 4] = ["C_A", "C_B", "C_C", "C_D"];
+const F_ENUM: [&str; 2] = ["F_A", "F_B"];
+const P_ENUM: [&str; 2] = ["P_A", "P_B"];
+const W_ENUM: [&str; 3] = ["W1", "W2", "W3"];
+
+fn hazard_add_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "title": { "type": "string" },
+            "harm": { "type": "string", "description": "free-text potential-harm narrative" },
+            "description": { "type": "string" },
+            "context": { "type": "string", "description": "operational situation/mode" },
+            "consequence": { "type": "string", "enum": C_ENUM },
+            "frequency": { "type": "string", "enum": F_ENUM },
+            "avoidance": { "type": "string", "enum": P_ENUM },
+            "probability": { "type": "string", "enum": W_ENUM },
+            "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["title", "harm"]
+    })
+}
+
+fn hazard_list_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "sil": { "type": "string" },
+            "status": { "type": "string" },
+            "unmitigated": { "type": "boolean" }
+        }
+    })
+}
+
+fn hazard_assess_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "consequence": { "type": "string", "enum": C_ENUM },
+            "frequency": { "type": "string", "enum": F_ENUM },
+            "avoidance": { "type": "string", "enum": P_ENUM },
+            "probability": { "type": "string", "enum": W_ENUM },
+            "reason": { "type": "string" }
+        },
+        "required": ["id", "consequence", "frequency", "avoidance", "probability"]
+    })
+}
+
+fn hazard_update_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "context": { "type": "string" },
+            "harm": { "type": "string" },
+            "status": { "type": "string" },
+            "reason": { "type": "string" }
+        },
+        "required": ["id"]
+    })
+}
+
+fn sf_add_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "safe_state": { "type": "string" },
+            "mitigates": { "type": "array", "items": { "type": "string" } },
+            "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["title"]
+    })
+}
+
+fn sf_list_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "sil": { "type": "string" },
+            "status": { "type": "string" },
+            "unrealized": { "type": "boolean" }
+        }
+    })
+}
+
+fn sf_update_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "safe_state": { "type": "string" },
+            "status": { "type": "string" },
+            "reason": { "type": "string" }
+        },
+        "required": ["id"]
+    })
+}
+
+fn sf_mitigate_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "sf": { "type": "string" },
+            "hazard": { "type": "string" },
+            "remove": { "type": "boolean" }
+        },
+        "required": ["sf", "hazard"]
+    })
+}
+
+fn sreq_add_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "title": { "type": "string" },
+            "statement": { "type": "string" },
+            "rationale": { "type": "string" },
+            "acceptance": { "type": "array", "items": { "type": "string" } },
+            "priority": { "type": "string", "enum": ["must","should","could","wont"] },
+            "realizes": { "type": "array", "items": { "type": "string" } },
+            "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["title", "statement", "rationale"]
+    })
+}
+
+fn sreq_list_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "sil": { "type": "string" },
+            "status": { "type": "string" },
+            "unverified": { "type": "boolean" }
+        }
+    })
+}
+
+fn sreq_update_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "title": { "type": "string" },
+            "statement": { "type": "string" },
+            "rationale": { "type": "string" },
+            "acceptance": { "type": "array", "items": { "type": "string" } },
+            "add_acceptance": { "type": "array", "items": { "type": "string" } },
+            "priority": { "type": "string" },
+            "status": { "type": "string" },
+            "reason": { "type": "string" }
+        },
+        "required": ["id"]
+    })
+}
+
+fn sreq_realize_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "sreq": { "type": "string" },
+            "sf": { "type": "string" },
+            "remove": { "type": "boolean" }
+        },
+        "required": ["sreq", "sf"]
+    })
+}
+
+fn sreq_verify_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "by": { "type": "string", "enum": ["automated","composition","inspection"] },
+            "notes": { "type": "string" },
+            "cites": { "type": "array", "items": { "type": "string" } },
+            "promote": { "type": "boolean" },
+            "force": { "type": "boolean" }
+        },
+        "required": ["id", "by"]
+    })
+}
+
 // ---------- dispatcher ----------
 
 fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
@@ -667,6 +953,24 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_split" => tool_split(args, file),
         "req_lint" => tool_lint(args, file),   // REQ-0101
         "req_brief" => tool_brief(args, file), // REQ-0104
+        // REQ-0132: functional-safety tools.
+        "req_hazard_add" => safety_mcp::hazard_add(args, file),
+        "req_hazard_list" => safety_mcp::hazard_list(args, file),
+        "req_hazard_show" => safety_mcp::hazard_show(args, file),
+        "req_hazard_assess" => safety_mcp::hazard_assess(args, file),
+        "req_hazard_update" => safety_mcp::hazard_update(args, file),
+        "req_sf_add" => safety_mcp::sf_add(args, file),
+        "req_sf_list" => safety_mcp::sf_list(args, file),
+        "req_sf_show" => safety_mcp::sf_show(args, file),
+        "req_sf_update" => safety_mcp::sf_update(args, file),
+        "req_sf_mitigate" => safety_mcp::sf_mitigate(args, file),
+        "req_sreq_add" => safety_mcp::sreq_add(args, file),
+        "req_sreq_list" => safety_mcp::sreq_list(args, file),
+        "req_sreq_show" => safety_mcp::sreq_show(args, file),
+        "req_sreq_update" => safety_mcp::sreq_update(args, file),
+        "req_sreq_realize" => safety_mcp::sreq_realize(args, file),
+        "req_sreq_verify" => safety_mcp::sreq_verify(args, file),
+        "req_trace" => safety_mcp::trace(args, file),
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
 }
@@ -2414,4 +2718,821 @@ fn write_config(path: &Path, force: bool) -> Result<()> {
     println!("`tools/call` with {{name: \"req_help\", arguments: {{section: \"agents\"}}}}");
     println!("for the trigger table that tells them when to use each tool.");
     Ok(())
+}
+
+// ---------- REQ-0132: functional-safety tool handlers ----------
+//
+// These mirror the `req hazard|sf|sreq|trace` CLI surface for agents
+// driving the tool over MCP. Each loads, mutates, saves, and returns a
+// JSON view. SILs are derived (never accepted as input), and the
+// SIL-rigour gate is enforced identically to the CLI.
+mod safety_mcp {
+    use super::{commands, json, storage, Value};
+    use crate::model::{
+        Avoidance, Consequence, EvidenceKind, Frequency, Hazard, HazardStatus, Link, LinkKind,
+        Probability, Project, SafetyFunction, SafetyFunctionStatus, SafetyRequirement, Sil, Status,
+        TestOutcome, TestRecord,
+    };
+    use anyhow::{anyhow, Result};
+    use chrono::Utc;
+    use std::path::Path;
+
+    fn s(v: &Value, k: &str) -> Option<String> {
+        v.get(k).and_then(Value::as_str).map(|s| s.to_string())
+    }
+    fn req_s(v: &Value, k: &str) -> Result<String> {
+        s(v, k).ok_or_else(|| anyhow!("'{}' is required", k))
+    }
+    fn b(v: &Value, k: &str) -> bool {
+        v.get(k).and_then(Value::as_bool).unwrap_or(false)
+    }
+    fn arr(v: &Value, k: &str) -> Vec<String> {
+        v.get(k)
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    fn norm(prefix: &str, raw: &str) -> String {
+        let up = raw.trim().to_uppercase();
+        let want = format!("{}-", prefix);
+        let digits = if let Some(r) = up.strip_prefix(&want) {
+            r.to_string()
+        } else if raw.trim().chars().all(|c| c.is_ascii_digit()) && !raw.trim().is_empty() {
+            raw.trim().to_string()
+        } else {
+            return up;
+        };
+        match digits.parse::<u32>() {
+            Ok(n) => format!("{}-{:04}", prefix, n),
+            Err(_) => up,
+        }
+    }
+    fn parse_c(s: &str) -> Result<Consequence> {
+        Ok(match s.to_uppercase().as_str() {
+            "C_A" => Consequence::Ca,
+            "C_B" => Consequence::Cb,
+            "C_C" => Consequence::Cc,
+            "C_D" => Consequence::Cd,
+            o => return Err(anyhow!("bad consequence {} (want C_A..C_D)", o)),
+        })
+    }
+    fn parse_f(s: &str) -> Result<Frequency> {
+        Ok(match s.to_uppercase().as_str() {
+            "F_A" => Frequency::Fa,
+            "F_B" => Frequency::Fb,
+            o => return Err(anyhow!("bad frequency {} (want F_A/F_B)", o)),
+        })
+    }
+    fn parse_p(s: &str) -> Result<Avoidance> {
+        Ok(match s.to_uppercase().as_str() {
+            "P_A" => Avoidance::Pa,
+            "P_B" => Avoidance::Pb,
+            o => return Err(anyhow!("bad avoidance {} (want P_A/P_B)", o)),
+        })
+    }
+    fn parse_w(s: &str) -> Result<Probability> {
+        Ok(match s.to_uppercase().as_str() {
+            "W1" => Probability::W1,
+            "W2" => Probability::W2,
+            "W3" => Probability::W3,
+            o => return Err(anyhow!("bad probability {} (want W1..W3)", o)),
+        })
+    }
+    fn parse_status(s: &str) -> Result<Status> {
+        Ok(match s.to_lowercase().as_str() {
+            "draft" => Status::Draft,
+            "proposed" => Status::Proposed,
+            "approved" => Status::Approved,
+            "implemented" => Status::Implemented,
+            "verified" => Status::Verified,
+            "obsolete" => Status::Obsolete,
+            o => return Err(anyhow!("bad status {}", o)),
+        })
+    }
+    fn parse_haz_status(s: &str) -> Result<HazardStatus> {
+        Ok(match s.to_lowercase().as_str() {
+            "identified" => HazardStatus::Identified,
+            "assessed" => HazardStatus::Assessed,
+            "mitigated" => HazardStatus::Mitigated,
+            "verified" => HazardStatus::Verified,
+            "obsolete" => HazardStatus::Obsolete,
+            o => return Err(anyhow!("bad hazard status {}", o)),
+        })
+    }
+    fn parse_sf_status(s: &str) -> Result<SafetyFunctionStatus> {
+        Ok(match s.to_lowercase().as_str() {
+            "proposed" => SafetyFunctionStatus::Proposed,
+            "allocated" => SafetyFunctionStatus::Allocated,
+            "implemented" => SafetyFunctionStatus::Implemented,
+            "verified" => SafetyFunctionStatus::Verified,
+            "obsolete" => SafetyFunctionStatus::Obsolete,
+            o => return Err(anyhow!("bad safety-function status {}", o)),
+        })
+    }
+    fn parse_priority(s: &str) -> Result<crate::model::Priority> {
+        Ok(match s.to_lowercase().as_str() {
+            "must" => crate::model::Priority::Must,
+            "should" => crate::model::Priority::Should,
+            "could" => crate::model::Priority::Could,
+            "wont" => crate::model::Priority::Wont,
+            o => return Err(anyhow!("bad priority {}", o)),
+        })
+    }
+    fn sil_s(s: Option<Sil>) -> Value {
+        match s {
+            Some(s) => Value::String(s.as_str().to_string()),
+            None => Value::Null,
+        }
+    }
+    fn mitigates(sf: &SafetyFunction, hid: &str) -> bool {
+        sf.links
+            .iter()
+            .any(|l| l.kind == LinkKind::Mitigates && l.target == hid)
+    }
+    fn realizes(sr: &SafetyRequirement, sfid: &str) -> bool {
+        sr.links
+            .iter()
+            .any(|l| l.kind == LinkKind::Realizes && l.target == sfid)
+    }
+
+    // ----- hazards -----
+
+    pub fn hazard_add(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let now = Utc::now();
+        let consequence = s(a, "consequence").map(|x| parse_c(&x)).transpose()?;
+        let frequency = s(a, "frequency").map(|x| parse_f(&x)).transpose()?;
+        let avoidance = s(a, "avoidance").map(|x| parse_p(&x)).transpose()?;
+        let probability = s(a, "probability").map(|x| parse_w(&x)).transpose()?;
+        let assessed = consequence.is_some()
+            && frequency.is_some()
+            && avoidance.is_some()
+            && probability.is_some();
+        let id = p.allocate_haz_id();
+        let h = Hazard {
+            id: id.clone(),
+            title: req_s(a, "title")?,
+            description: s(a, "description").unwrap_or_default(),
+            operating_context: s(a, "context").unwrap_or_default(),
+            harm: req_s(a, "harm")?,
+            consequence,
+            frequency,
+            avoidance,
+            probability,
+            status: if assessed {
+                HazardStatus::Assessed
+            } else {
+                HazardStatus::Identified
+            },
+            tags: arr(a, "tags"),
+            links: Vec::new(),
+            created: now,
+            updated: now,
+            history: vec![commands::history("created", None)],
+        };
+        let sil = h.required_sil();
+        p.hazards.insert(id.clone(), h);
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(
+            &json!({ "id": id, "required_sil": sil_s(sil), "status": p.hazards[&id].status.as_str() }),
+        )?)
+    }
+
+    pub fn hazard_list(a: &Value, file: &Path) -> Result<String> {
+        let p = storage::load(file)?;
+        let status = s(a, "status").map(|x| parse_haz_status(&x)).transpose()?;
+        let sil = s(a, "sil").map(|x| x.to_uppercase());
+        let unmit = b(a, "unmitigated");
+        let mut rows = Vec::new();
+        for h in p.hazards.values() {
+            if let Some(st) = status {
+                if h.status != st {
+                    continue;
+                }
+            }
+            if let Some(want) = &sil {
+                if h.required_sil().map(|s| s.as_str().to_uppercase()) != Some(want.clone()) {
+                    continue;
+                }
+            }
+            if unmit && p.safety_functions.values().any(|sf| mitigates(sf, &h.id)) {
+                continue;
+            }
+            rows.push(json!({
+                "id": h.id, "title": h.title, "status": h.status.as_str(),
+                "required_sil": sil_s(h.required_sil()),
+            }));
+        }
+        rows.sort_by(|x, y| x["id"].as_str().cmp(&y["id"].as_str()));
+        Ok(serde_json::to_string_pretty(&json!({ "count": rows.len(), "hazards": rows }))?)
+    }
+
+    pub fn hazard_show(a: &Value, file: &Path) -> Result<String> {
+        let p = storage::load(file)?;
+        let id = norm("HAZ", &req_s(a, "id")?);
+        let h = p.hazards.get(&id).ok_or_else(|| anyhow!("no such hazard: {}", id))?;
+        Ok(serde_json::to_string_pretty(&json!({
+            "hazard": h,
+            "required_sil": sil_s(h.required_sil()),
+            "mitigated_by": p.safety_functions.values()
+                .filter(|sf| mitigates(sf, &id))
+                .map(|sf| sf.id.clone()).collect::<Vec<_>>(),
+        }))?)
+    }
+
+    pub fn hazard_assess(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let id = norm("HAZ", &req_s(a, "id")?);
+        if !p.hazards.contains_key(&id) {
+            return Err(anyhow!("no such hazard: {}", id));
+        }
+        let c = parse_c(&req_s(a, "consequence")?)?;
+        let f = parse_f(&req_s(a, "frequency")?)?;
+        let pa = parse_p(&req_s(a, "avoidance")?)?;
+        let w = parse_w(&req_s(a, "probability")?)?;
+        let now = Utc::now();
+        {
+            let h = p.hazards.get_mut(&id).unwrap();
+            h.consequence = Some(c);
+            h.frequency = Some(f);
+            h.avoidance = Some(pa);
+            h.probability = Some(w);
+            if matches!(h.status, HazardStatus::Identified) {
+                h.status = HazardStatus::Assessed;
+            }
+            h.updated = now;
+            h.history.push(commands::history("assessed", s(a, "reason")));
+        }
+        p.updated = now;
+        let sil = p.hazards[&id].required_sil();
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&json!({ "id": id, "required_sil": sil_s(sil) }))?)
+    }
+
+    pub fn hazard_update(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let id = norm("HAZ", &req_s(a, "id")?);
+        if !p.hazards.contains_key(&id) {
+            return Err(anyhow!("no such hazard: {}", id));
+        }
+        let status = s(a, "status").map(|x| parse_haz_status(&x)).transpose()?;
+        let now = Utc::now();
+        {
+            let h = p.hazards.get_mut(&id).unwrap();
+            if let Some(t) = s(a, "title") {
+                h.title = t;
+            }
+            if let Some(d) = s(a, "description") {
+                h.description = d;
+            }
+            if let Some(c) = s(a, "context") {
+                h.operating_context = c;
+            }
+            if let Some(harm) = s(a, "harm") {
+                h.harm = harm;
+            }
+            if let Some(st) = status {
+                h.status = st;
+            }
+            h.updated = now;
+            h.history.push(commands::history("updated", s(a, "reason")));
+        }
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&p.hazards[&id])?)
+    }
+
+    // ----- safety functions -----
+
+    pub fn sf_add(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let now = Utc::now();
+        let mut links = Vec::new();
+        for raw in arr(a, "mitigates") {
+            let hid = norm("HAZ", &raw);
+            if !p.hazards.contains_key(&hid) {
+                return Err(anyhow!("no such hazard: {}", hid));
+            }
+            links.push(Link {
+                kind: LinkKind::Mitigates,
+                target: hid,
+            });
+        }
+        let status = if links.is_empty() {
+            SafetyFunctionStatus::Proposed
+        } else {
+            SafetyFunctionStatus::Allocated
+        };
+        let id = p.allocate_sf_id();
+        let sf = SafetyFunction {
+            id: id.clone(),
+            title: req_s(a, "title")?,
+            description: s(a, "description").unwrap_or_default(),
+            safe_state: s(a, "safe_state").unwrap_or_default(),
+            status,
+            tags: arr(a, "tags"),
+            links: links.clone(),
+            created: now,
+            updated: now,
+            history: vec![commands::history("created", None)],
+        };
+        let alloc = p.allocated_sil(&sf);
+        p.safety_functions.insert(id.clone(), sf);
+        for l in &links {
+            if let Some(h) = p.hazards.get_mut(&l.target) {
+                if matches!(h.status, HazardStatus::Identified | HazardStatus::Assessed) {
+                    h.status = HazardStatus::Mitigated;
+                    h.updated = now;
+                    h.history
+                        .push(commands::history(format!("mitigated by {}", id), None));
+                }
+            }
+        }
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&json!({ "id": id, "allocated_sil": sil_s(alloc) }))?)
+    }
+
+    pub fn sf_list(a: &Value, file: &Path) -> Result<String> {
+        let p = storage::load(file)?;
+        let status = s(a, "status").map(|x| parse_sf_status(&x)).transpose()?;
+        let sil = s(a, "sil").map(|x| x.to_uppercase());
+        let unreal = b(a, "unrealized");
+        let mut rows = Vec::new();
+        for sf in p.safety_functions.values() {
+            if let Some(st) = status {
+                if sf.status != st {
+                    continue;
+                }
+            }
+            if let Some(want) = &sil {
+                if p.allocated_sil(sf).map(|s| s.as_str().to_uppercase()) != Some(want.clone()) {
+                    continue;
+                }
+            }
+            if unreal && p.safety_requirements.values().any(|sr| realizes(sr, &sf.id)) {
+                continue;
+            }
+            rows.push(json!({
+                "id": sf.id, "title": sf.title, "status": sf.status.as_str(),
+                "allocated_sil": sil_s(p.allocated_sil(sf)),
+            }));
+        }
+        rows.sort_by(|x, y| x["id"].as_str().cmp(&y["id"].as_str()));
+        Ok(serde_json::to_string_pretty(&json!({ "count": rows.len(), "safety_functions": rows }))?)
+    }
+
+    pub fn sf_show(a: &Value, file: &Path) -> Result<String> {
+        let p = storage::load(file)?;
+        let id = norm("SF", &req_s(a, "id")?);
+        let sf = p
+            .safety_functions
+            .get(&id)
+            .ok_or_else(|| anyhow!("no such safety function: {}", id))?;
+        Ok(serde_json::to_string_pretty(&json!({
+            "safety_function": sf,
+            "allocated_sil": sil_s(p.allocated_sil(sf)),
+            "realized_by": p.safety_requirements.values()
+                .filter(|sr| realizes(sr, &id)).map(|sr| sr.id.clone()).collect::<Vec<_>>(),
+        }))?)
+    }
+
+    pub fn sf_update(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let id = norm("SF", &req_s(a, "id")?);
+        if !p.safety_functions.contains_key(&id) {
+            return Err(anyhow!("no such safety function: {}", id));
+        }
+        let status = s(a, "status").map(|x| parse_sf_status(&x)).transpose()?;
+        let now = Utc::now();
+        {
+            let sf = p.safety_functions.get_mut(&id).unwrap();
+            if let Some(t) = s(a, "title") {
+                sf.title = t;
+            }
+            if let Some(d) = s(a, "description") {
+                sf.description = d;
+            }
+            if let Some(ss) = s(a, "safe_state") {
+                sf.safe_state = ss;
+            }
+            if let Some(st) = status {
+                sf.status = st;
+            }
+            sf.updated = now;
+            sf.history.push(commands::history("updated", s(a, "reason")));
+        }
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&p.safety_functions[&id])?)
+    }
+
+    pub fn sf_mitigate(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let sf_id = norm("SF", &req_s(a, "sf")?);
+        let haz_id = norm("HAZ", &req_s(a, "hazard")?);
+        if !p.safety_functions.contains_key(&sf_id) {
+            return Err(anyhow!("no such safety function: {}", sf_id));
+        }
+        if !p.hazards.contains_key(&haz_id) {
+            return Err(anyhow!("no such hazard: {}", haz_id));
+        }
+        let remove = b(a, "remove");
+        let now = Utc::now();
+        {
+            let sf = p.safety_functions.get_mut(&sf_id).unwrap();
+            if remove {
+                sf.links
+                    .retain(|l| !(l.kind == LinkKind::Mitigates && l.target == haz_id));
+            } else if mitigates(sf, &haz_id) {
+                return Err(anyhow!("{} already mitigates {}", sf_id, haz_id));
+            } else {
+                sf.links.push(Link {
+                    kind: LinkKind::Mitigates,
+                    target: haz_id.clone(),
+                });
+                if matches!(sf.status, SafetyFunctionStatus::Proposed) {
+                    sf.status = SafetyFunctionStatus::Allocated;
+                }
+            }
+            sf.updated = now;
+            sf.history.push(commands::history(
+                if remove {
+                    format!("unlinked mitigates {}", haz_id)
+                } else {
+                    format!("mitigates {}", haz_id)
+                },
+                None,
+            ));
+        }
+        if !remove {
+            if let Some(h) = p.hazards.get_mut(&haz_id) {
+                if matches!(h.status, HazardStatus::Identified | HazardStatus::Assessed) {
+                    h.status = HazardStatus::Mitigated;
+                    h.updated = now;
+                    h.history
+                        .push(commands::history(format!("mitigated by {}", sf_id), None));
+                }
+            }
+        }
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&json!({ "sf": sf_id, "hazard": haz_id, "linked": !remove }))?)
+    }
+
+    // ----- safety requirements -----
+
+    pub fn sreq_add(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let now = Utc::now();
+        let mut links = Vec::new();
+        for raw in arr(a, "realizes") {
+            let sfid = norm("SF", &raw);
+            if !p.safety_functions.contains_key(&sfid) {
+                return Err(anyhow!("no such safety function: {}", sfid));
+            }
+            links.push(Link {
+                kind: LinkKind::Realizes,
+                target: sfid,
+            });
+        }
+        let priority = s(a, "priority")
+            .map(|x| parse_priority(&x))
+            .transpose()?
+            .unwrap_or(crate::model::Priority::Must);
+        let id = p.allocate_sr_id();
+        let sr = SafetyRequirement {
+            id: id.clone(),
+            title: req_s(a, "title")?,
+            statement: req_s(a, "statement")?,
+            rationale: req_s(a, "rationale")?,
+            acceptance: arr(a, "acceptance"),
+            priority,
+            status: Status::Draft,
+            tags: arr(a, "tags"),
+            links,
+            created: now,
+            updated: now,
+            history: vec![commands::history("created", None)],
+            tests: Vec::new(),
+        };
+        let sil = p.inherited_sil(&sr);
+        p.safety_requirements.insert(id.clone(), sr);
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&json!({ "id": id, "inherited_sil": sil_s(sil) }))?)
+    }
+
+    pub fn sreq_list(a: &Value, file: &Path) -> Result<String> {
+        let p = storage::load(file)?;
+        let status = s(a, "status").map(|x| parse_status(&x)).transpose()?;
+        let sil = s(a, "sil").map(|x| x.to_uppercase());
+        let unver = b(a, "unverified");
+        let mut rows = Vec::new();
+        for sr in p.safety_requirements.values() {
+            if let Some(st) = status {
+                if sr.status != st {
+                    continue;
+                }
+            }
+            if let Some(want) = &sil {
+                if p.inherited_sil(sr).map(|s| s.as_str().to_uppercase()) != Some(want.clone()) {
+                    continue;
+                }
+            }
+            if unver && matches!(sr.status, Status::Verified) {
+                continue;
+            }
+            rows.push(json!({
+                "id": sr.id, "title": sr.title, "status": sr.status.as_str(),
+                "inherited_sil": sil_s(p.inherited_sil(sr)),
+            }));
+        }
+        rows.sort_by(|x, y| x["id"].as_str().cmp(&y["id"].as_str()));
+        Ok(serde_json::to_string_pretty(&json!({ "count": rows.len(), "safety_requirements": rows }))?)
+    }
+
+    pub fn sreq_show(a: &Value, file: &Path) -> Result<String> {
+        let p = storage::load(file)?;
+        let id = norm("SR", &req_s(a, "id")?);
+        let sr = p
+            .safety_requirements
+            .get(&id)
+            .ok_or_else(|| anyhow!("no such safety requirement: {}", id))?;
+        Ok(serde_json::to_string_pretty(&json!({
+            "safety_requirement": sr,
+            "inherited_sil": sil_s(p.inherited_sil(sr)),
+        }))?)
+    }
+
+    pub fn sreq_update(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let id = norm("SR", &req_s(a, "id")?);
+        if !p.safety_requirements.contains_key(&id) {
+            return Err(anyhow!("no such safety requirement: {}", id));
+        }
+        let status = s(a, "status").map(|x| parse_status(&x)).transpose()?;
+        let priority = s(a, "priority").map(|x| parse_priority(&x)).transpose()?;
+        let now = Utc::now();
+        {
+            let sr = p.safety_requirements.get_mut(&id).unwrap();
+            if let Some(t) = s(a, "title") {
+                sr.title = t;
+            }
+            if let Some(st) = s(a, "statement") {
+                sr.statement = st;
+            }
+            if let Some(r) = s(a, "rationale") {
+                sr.rationale = r;
+            }
+            if a.get("acceptance").is_some() {
+                sr.acceptance = arr(a, "acceptance");
+            }
+            for ac in arr(a, "add_acceptance") {
+                sr.acceptance.push(ac);
+            }
+            if let Some(pr) = priority {
+                sr.priority = pr;
+            }
+            if let Some(st) = status {
+                sr.status = st;
+            }
+            sr.updated = now;
+            sr.history.push(commands::history("updated", s(a, "reason")));
+        }
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&p.safety_requirements[&id])?)
+    }
+
+    pub fn sreq_realize(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let sr_id = norm("SR", &req_s(a, "sreq")?);
+        let sf_id = norm("SF", &req_s(a, "sf")?);
+        if !p.safety_requirements.contains_key(&sr_id) {
+            return Err(anyhow!("no such safety requirement: {}", sr_id));
+        }
+        if !p.safety_functions.contains_key(&sf_id) {
+            return Err(anyhow!("no such safety function: {}", sf_id));
+        }
+        let remove = b(a, "remove");
+        let now = Utc::now();
+        {
+            let sr = p.safety_requirements.get_mut(&sr_id).unwrap();
+            if remove {
+                sr.links
+                    .retain(|l| !(l.kind == LinkKind::Realizes && l.target == sf_id));
+            } else if realizes(sr, &sf_id) {
+                return Err(anyhow!("{} already realizes {}", sr_id, sf_id));
+            } else {
+                sr.links.push(Link {
+                    kind: LinkKind::Realizes,
+                    target: sf_id.clone(),
+                });
+            }
+            sr.updated = now;
+            sr.history.push(commands::history(
+                if remove {
+                    format!("unlinked realizes {}", sf_id)
+                } else {
+                    format!("realizes {}", sf_id)
+                },
+                None,
+            ));
+        }
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&json!({ "sreq": sr_id, "sf": sf_id, "linked": !remove }))?)
+    }
+
+    pub fn sreq_verify(a: &Value, file: &Path) -> Result<String> {
+        let mut p = storage::load(file)?;
+        let id = norm("SR", &req_s(a, "id")?);
+        if !p.safety_requirements.contains_key(&id) {
+            return Err(anyhow!("no such safety requirement: {}", id));
+        }
+        let kind = match req_s(a, "by")?.to_lowercase().as_str() {
+            "automated" => EvidenceKind::Automated,
+            "composition" => EvidenceKind::Composition,
+            "inspection" => EvidenceKind::Inspection,
+            o => return Err(anyhow!("bad evidence kind {} (automated|composition|inspection)", o)),
+        };
+        let force = b(a, "force");
+        let inherited = p.inherited_sil(&p.safety_requirements[&id]);
+        if let Some(sil) = inherited {
+            if sil.rank() >= Sil::Sil3.rank()
+                && matches!(kind, EvidenceKind::Inspection)
+                && !force
+            {
+                return Err(anyhow!(
+                    "SIL-rigour gate: {} inherits {} — inspection-only evidence is not sufficient. \
+                     Provide automated or composition evidence, or pass force=true for an audited exception.",
+                    id, sil.as_str()
+                ));
+            }
+        }
+        let now = Utc::now();
+        let mut notes = s(a, "notes").unwrap_or_default();
+        let cites = arr(a, "cites");
+        if !cites.is_empty() {
+            notes = format!("cites {} — {}", cites.join(", "), notes);
+        }
+        if force && matches!(kind, EvidenceKind::Inspection) {
+            notes = format!("[SIL-gate exception] {}", notes);
+        }
+        let promote = b(a, "promote");
+        {
+            let sr = p.safety_requirements.get_mut(&id).unwrap();
+            sr.tests.push(TestRecord {
+                at: now,
+                actor: commands::current_actor(),
+                commit: git_head(),
+                outcome: TestOutcome::Pass,
+                notes,
+                kind,
+                content_hash: None,
+                linked_files: None,
+            });
+            if promote {
+                sr.status = Status::Verified;
+            }
+            sr.updated = now;
+            sr.history.push(commands::history(
+                if promote { "verified (promoted)" } else { "evidence recorded" },
+                None,
+            ));
+        }
+        p.updated = now;
+        storage::save(file, &p)?;
+        Ok(serde_json::to_string_pretty(&p.safety_requirements[&id])?)
+    }
+
+    fn git_head() -> String {
+        std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default()
+    }
+
+    // ----- trace (JSON safety case) -----
+
+    pub fn trace(a: &Value, file: &Path) -> Result<String> {
+        let p = storage::load(file)?;
+        let raw = req_s(a, "id")?;
+        let up = raw.trim().to_uppercase();
+        let haz_ids: Vec<String> = if up.starts_with("HAZ") {
+            vec![norm("HAZ", &raw)]
+        } else if up.starts_with("SF") {
+            let id = norm("SF", &raw);
+            let sf = p
+                .safety_functions
+                .get(&id)
+                .ok_or_else(|| anyhow!("no such safety function: {}", id))?;
+            sf.links
+                .iter()
+                .filter(|l| l.kind == LinkKind::Mitigates)
+                .map(|l| l.target.clone())
+                .collect()
+        } else if up.starts_with("SR") {
+            let id = norm("SR", &raw);
+            let sr = p
+                .safety_requirements
+                .get(&id)
+                .ok_or_else(|| anyhow!("no such safety requirement: {}", id))?;
+            let mut hs = Vec::new();
+            for l in sr.links.iter().filter(|l| l.kind == LinkKind::Realizes) {
+                if let Some(sf) = p.safety_functions.get(&l.target) {
+                    for m in sf.links.iter().filter(|l| l.kind == LinkKind::Mitigates) {
+                        hs.push(m.target.clone());
+                    }
+                }
+            }
+            hs
+        } else {
+            return Err(anyhow!("trace expects a HAZ-/SF-/SR- id; got {}", raw));
+        };
+
+        let cases: Vec<Value> = haz_ids
+            .iter()
+            .filter(|h| p.hazards.contains_key(*h))
+            .map(|h| trace_case(&p, h))
+            .collect();
+        Ok(serde_json::to_string_pretty(&json!({ "cases": cases }))?)
+    }
+
+    fn trace_case(p: &Project, haz_id: &str) -> Value {
+        let h = &p.hazards[haz_id];
+        let required = h.required_sil();
+        let sfs: Vec<&SafetyFunction> = p
+            .safety_functions
+            .values()
+            .filter(|sf| mitigates(sf, haz_id))
+            .collect();
+        let allocated = sfs
+            .iter()
+            .filter_map(|sf| p.allocated_sil(sf))
+            .max_by_key(|s| s.rank());
+        let adequate = match (required, allocated) {
+            (Some(r), Some(al)) => al.rank() >= r.rank(),
+            (Some(_), None) => false,
+            (None, _) => true,
+        };
+        let mut sr_total = 0;
+        let mut sr_verified = 0;
+        let mut blocking: Vec<String> = Vec::new();
+        let sf_json: Vec<Value> = sfs
+            .iter()
+            .map(|sf| {
+                let srs: Vec<Value> = p
+                    .safety_requirements
+                    .values()
+                    .filter(|sr| realizes(sr, &sf.id))
+                    .map(|sr| {
+                        sr_total += 1;
+                        let verified = matches!(sr.status, Status::Verified);
+                        if verified {
+                            sr_verified += 1;
+                        } else {
+                            blocking.push(format!("{} not verified", sr.id));
+                        }
+                        json!({
+                            "id": sr.id, "title": sr.title, "status": sr.status.as_str(),
+                            "inherited_sil": sil_s(p.inherited_sil(sr)),
+                            "evidence": sr.tests.last().map(|t| t.kind.as_str()),
+                        })
+                    })
+                    .collect();
+                json!({
+                    "id": sf.id, "title": sf.title, "status": sf.status.as_str(),
+                    "allocated_sil": sil_s(p.allocated_sil(sf)),
+                    "safety_requirements": srs,
+                })
+            })
+            .collect();
+        if sfs.is_empty() {
+            blocking.push("no mitigating safety function".to_string());
+        } else if sr_total == 0 {
+            blocking.push("no realizing safety requirement".to_string());
+        }
+        let complete = adequate && blocking.is_empty();
+        json!({
+            "hazard": { "id": h.id, "title": h.title, "status": h.status.as_str(), "harm": h.harm },
+            "required_sil": sil_s(required),
+            "allocated_sil": sil_s(allocated),
+            "adequate": adequate,
+            "complete": complete,
+            "safety_requirements": { "total": sr_total, "verified": sr_verified },
+            "safety_functions": sf_json,
+            "blocking": blocking,
+        })
+    }
 }

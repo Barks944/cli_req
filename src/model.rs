@@ -723,12 +723,6 @@ impl Sil {
         }
     }
 
-    /// True for the levels that impose an actual integrity target
-    /// (SIL 1–4 and the b ceiling). The `—` and `a` outcomes do not, so
-    /// they are exempt from the verification-rigour gate.
-    pub fn is_safety_relevant(&self) -> bool {
-        self.rank() >= Sil::Sil1.rank()
-    }
 }
 
 /// REQ-0132: the IEC 61508-5 Annex D calibrated risk graph. Pure
@@ -940,6 +934,7 @@ mod sil_tests {
     // Pin every leaf of the IEC 61508-5 Annex D calibrated risk graph.
     // Reference: each (C, F, P) maps to outcomes for [W3, W2, W1].
     #[test]
+    #[allow(clippy::type_complexity)]
     fn risk_graph_every_leaf() {
         use Avoidance::*;
         use Consequence::*;
@@ -989,8 +984,5 @@ mod sil_tests {
         assert!(Sil::Sil4.rank() > Sil::Sil1.rank());
         assert!(Sil::Sil1.rank() > Sil::A.rank());
         assert!(Sil::A.rank() > Sil::NoneRequired.rank());
-        assert!(Sil::Sil3.is_safety_relevant());
-        assert!(!Sil::A.is_safety_relevant());
-        assert!(!Sil::NoneRequired.is_safety_relevant());
     }
 }

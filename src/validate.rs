@@ -5,7 +5,10 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-use crate::model::{Kind, Project, Requirement, Status};
+use crate::model::{
+    EvidenceKind, HazardStatus, Kind, LinkKind, Project, Requirement, SafetyFunctionStatus, Sil,
+    Status,
+};
 
 /// A validation finding. `error = true` blocks the operation; otherwise it's a warning.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -94,6 +97,31 @@ pub const RULES: &[(&str, &str)] = &[
     (
         "REQ-V-0024",
         "verified status but latest test record outcome is Fail — structural contradiction (warn)",
+    ),
+    ("REQ-V-0025", "hazard is missing its free-text harm narrative"),
+    (
+        "REQ-V-0026",
+        "hazard is assessed (or beyond) but missing one or more C/F/P/W risk parameters",
+    ),
+    (
+        "REQ-V-0027",
+        "hazard is mitigated (or beyond) but no live safety function mitigates it",
+    ),
+    (
+        "REQ-V-0028",
+        "safety mitigates/realizes link points at a non-existent target",
+    ),
+    (
+        "REQ-V-0029",
+        "safety function is allocated (or beyond) but mitigates no hazard",
+    ),
+    (
+        "REQ-V-0030",
+        "safety requirement is Verified but carries no passing evidence",
+    ),
+    (
+        "REQ-V-0031",
+        "SIL 3/4 safety requirement verified on inspection-only evidence (error without an audited --force exception; warn with one)",
     ),
 ];
 
@@ -639,11 +667,228 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
         }
     }
+    // REQ-0132: functional-safety artifacts validate on the same pass so
+    // the pre-commit hook and CI gate cover the whole spec.
+    for (id, findings) in validate_safety(p) {
+        if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| *rid == id) {
+            existing.extend(findings);
+        } else {
+            out.push((id, findings));
+        }
+    }
     // REQ-0102: deterministic finding order. HashMap iteration is
     // unordered; without an explicit sort consecutive `req validate`
     // runs can list reqs in different orders. Sort by id ascending so
     // tooling and diffs are stable.
     out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// REQ-0132: validate the functional-safety artifacts. The integrity of
+/// the SIL derivation chain is enforced here — a SIL 3/4 safety
+/// requirement cannot stay Verified on inspection-only evidence without
+/// an audited exception, an assessed hazard must carry its full risk
+/// profile, and a mitigated hazard must actually have a live mitigation.
+pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
+    let mut out: Vec<(String, Vec<Finding>)> = Vec::new();
+    let mut push = |id: &str, f: Finding| {
+        if let Some((_, v)) = out.iter_mut().find(|(rid, _)| rid == id) {
+            v.push(f);
+        } else {
+            out.push((id.to_string(), vec![f]));
+        }
+    };
+
+    // ---- hazards ----
+    for (id, h) in &p.hazards {
+        if matches!(h.status, HazardStatus::Obsolete) {
+            continue;
+        }
+        if h.harm.trim().is_empty() {
+            push(
+                id,
+                Finding::err(
+                    "REQ-V-0025",
+                    "harm",
+                    "hazard has no harm narrative — describe the potential harm in plain words (e.g. \"an operator's hand could be severed\")",
+                ),
+            );
+        }
+        let assessed_or_beyond = !matches!(h.status, HazardStatus::Identified);
+        if assessed_or_beyond && !h.is_assessed() {
+            push(
+                id,
+                Finding::err(
+                    "REQ-V-0026",
+                    "risk",
+                    format!(
+                        "{} is {} but has not been fully risk-assessed — set all four C/F/P/W parameters via `req hazard assess {}`",
+                        id,
+                        h.status.as_str(),
+                        id
+                    ),
+                ),
+            );
+        }
+        let mitigated_or_beyond =
+            matches!(h.status, HazardStatus::Mitigated | HazardStatus::Verified);
+        if mitigated_or_beyond {
+            let has_live_mitigation = p.safety_functions.values().any(|sf| {
+                !matches!(sf.status, SafetyFunctionStatus::Obsolete)
+                    && sf
+                        .links
+                        .iter()
+                        .any(|l| l.kind == LinkKind::Mitigates && l.target == *id)
+            });
+            if !has_live_mitigation {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0027",
+                        "links",
+                        format!(
+                            "{} is {} but no live safety function mitigates it — add one with `req sf add --mitigates {}` or step the status back",
+                            id,
+                            h.status.as_str(),
+                            id
+                        ),
+                    ),
+                );
+            }
+        }
+    }
+
+    // ---- safety functions ----
+    for (id, sf) in &p.safety_functions {
+        if matches!(sf.status, SafetyFunctionStatus::Obsolete) {
+            continue;
+        }
+        for l in &sf.links {
+            if l.kind == LinkKind::Mitigates && !p.hazards.contains_key(&l.target) {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0028",
+                        "links",
+                        format!("mitigates link target {} does not exist", l.target),
+                    ),
+                );
+            }
+        }
+        let allocated_or_beyond = !matches!(sf.status, SafetyFunctionStatus::Proposed);
+        let mitigates_any = sf.links.iter().any(|l| l.kind == LinkKind::Mitigates);
+        if allocated_or_beyond && !mitigates_any {
+            push(
+                id,
+                Finding::err(
+                    "REQ-V-0029",
+                    "links",
+                    format!(
+                        "{} is {} but mitigates no hazard — link it with `req sf mitigate {} HAZ-NNNN`",
+                        id,
+                        sf.status.as_str(),
+                        id
+                    ),
+                ),
+            );
+        }
+    }
+
+    // ---- safety requirements ----
+    for (id, sr) in &p.safety_requirements {
+        if matches!(sr.status, Status::Obsolete) {
+            continue;
+        }
+        // Reuse the requirement statement-quality rules via a shim so a
+        // safety requirement is held to the same bar (modal verb, weasel
+        // words, acceptance criteria) as an ordinary one.
+        let shim = Requirement {
+            id: sr.id.clone(),
+            title: sr.title.clone(),
+            statement: sr.statement.clone(),
+            rationale: sr.rationale.clone(),
+            acceptance: sr.acceptance.clone(),
+            kind: Kind::Functional,
+            priority: sr.priority,
+            status: sr.status,
+            tags: Vec::new(),
+            links: Vec::new(),
+            created: sr.created,
+            updated: sr.updated,
+            history: Vec::new(),
+            tests: sr.tests.clone(),
+        };
+        for f in validate_requirement(&shim) {
+            push(id, f);
+        }
+        for l in &sr.links {
+            if l.kind == LinkKind::Realizes && !p.safety_functions.contains_key(&l.target) {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0028",
+                        "links",
+                        format!("realizes link target {} does not exist", l.target),
+                    ),
+                );
+            }
+        }
+        if matches!(sr.status, Status::Verified) {
+            let last_pass = sr
+                .tests
+                .iter()
+                .rev()
+                .find(|t| matches!(t.outcome, crate::model::TestOutcome::Pass));
+            match last_pass {
+                None => push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0030",
+                        "tests",
+                        format!(
+                            "{} is Verified but has no passing evidence — record it with `req sreq verify {} --by automated ...`",
+                            id, id
+                        ),
+                    ),
+                ),
+                Some(t) => {
+                    let sil = p.inherited_sil(sr);
+                    let needs_strong = sil.map(|s| s.rank() >= Sil::Sil3.rank()).unwrap_or(false);
+                    if needs_strong && matches!(t.kind, EvidenceKind::Inspection) {
+                        let audited = t.notes.contains("[SIL-gate exception]");
+                        if audited {
+                            push(
+                                id,
+                                Finding::warn(
+                                    "REQ-V-0031",
+                                    "tests",
+                                    format!(
+                                        "{} inherits {} and is verified by an audited inspection exception — confirm the justification holds",
+                                        id,
+                                        sil.map(|s| s.as_str()).unwrap_or("SIL3+")
+                                    ),
+                                ),
+                            );
+                        } else {
+                            push(
+                                id,
+                                Finding::err(
+                                    "REQ-V-0031",
+                                    "tests",
+                                    format!(
+                                        "{} inherits {} but its verification is inspection-only — SIL 3/4 needs automated or composition evidence (re-verify, or use --force to record an audited exception)",
+                                        id,
+                                        sil.map(|s| s.as_str()).unwrap_or("SIL3+")
+                                    ),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     out
 }
 

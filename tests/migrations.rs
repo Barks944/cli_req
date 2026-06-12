@@ -60,8 +60,8 @@ fn req_0122_auto_migrate_on_first_load() {
     // The on-disk file should now be v2.
     let migrated = fs::read_to_string(&target).unwrap();
     assert!(
-        migrated.contains("\"_format\": \"req-v2\""),
-        "_format should be req-v2 after auto-migrate"
+        migrated.contains("\"_format\": \"req-v3\""),
+        "_format should be req-v3 after auto-migrate"
     );
 
     // A sibling backup of the v1 file should exist.
@@ -114,7 +114,7 @@ fn req_0116_v1_fixture_migrates_to_v2_with_ids_preserved() {
         stderr(&out)
     );
     assert!(
-        stdout(&out).contains("req-v1 → req-v2"),
+        stdout(&out).contains("req-v1 → req-v3"),
         "expected the v1 → v2 banner, got: {}",
         stdout(&out)
     );
@@ -141,8 +141,8 @@ fn req_0116_v1_fixture_migrates_to_v2_with_ids_preserved() {
     // The on-disk file should now be tagged v2.
     let migrated = fs::read_to_string(&target).unwrap();
     assert!(
-        migrated.contains("\"_format\": \"req-v2\""),
-        "_format should be req-v2 after migrate"
+        migrated.contains("\"_format\": \"req-v3\""),
+        "_format should be req-v3 after migrate"
     );
 
     // A sibling backup of the v1 file should exist.
@@ -178,7 +178,7 @@ fn req_0116_migrate_rejects_unknown_newer_format() {
     // refuse on the format check before looking at the hash so users
     // get the right hint ("upgrade your binary", not "run repair").
     let text = fs::read_to_string(s.path()).unwrap();
-    let bumped = text.replace("\"_format\": \"req-v2\"", "\"_format\": \"req-v99\"");
+    let bumped = text.replace("\"_format\": \"req-v3\"", "\"_format\": \"req-v99\"");
     fs::write(s.path(), bumped).unwrap();
     let out = s.run(&["migrate"]);
     assert!(!out.status.success(), "newer format must error");

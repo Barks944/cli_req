@@ -193,7 +193,7 @@ fn hazard_list(args: HazardListArgs, file: &Option<PathBuf>) -> Result<()> {
         println!("No hazards.");
         return Ok(());
     }
-    println!("{:<9}  {:<6}  {:<11}  {}", "ID", "SIL", "STATUS", "TITLE");
+    println!("{:<9}  {:<6}  {:<11}  TITLE", "ID", "SIL", "STATUS");
     for h in rows {
         println!(
             "{:<9}  {:<6}  {:<11}  {}",
@@ -444,7 +444,7 @@ fn sf_list(args: SfListArgs, file: &Option<PathBuf>) -> Result<()> {
         println!("No safety functions.");
         return Ok(());
     }
-    println!("{:<8}  {:<6}  {:<12}  {}", "ID", "SIL", "STATUS", "TITLE");
+    println!("{:<8}  {:<6}  {:<12}  TITLE", "ID", "SIL", "STATUS");
     for sf in rows {
         println!(
             "{:<8}  {:<6}  {:<12}  {}",
@@ -696,7 +696,7 @@ fn sreq_list(args: SreqListArgs, file: &Option<PathBuf>) -> Result<()> {
         println!("No safety requirements.");
         return Ok(());
     }
-    println!("{:<8}  {:<6}  {:<12}  {}", "ID", "SIL", "STATUS", "TITLE");
+    println!("{:<8}  {:<6}  {:<12}  TITLE", "ID", "SIL", "STATUS");
     for sr in rows {
         println!(
             "{:<8}  {:<6}  {:<12}  {}",

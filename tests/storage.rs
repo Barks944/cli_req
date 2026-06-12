@@ -15,7 +15,7 @@ fn req_0002_init_writes_diffable_json() {
         &text[..40]
     );
     assert!(text.contains("_format"), "should have _format field");
-    assert!(text.contains("\"req-v2\""), "should declare format tag");
+    assert!(text.contains("\"req-v3\""), "should declare format tag");
     assert!(text.contains("_integrity"), "should carry integrity hash");
 }
 

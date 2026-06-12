@@ -26,7 +26,7 @@ fn req_0111_init_with_purpose_persists() {
         "_purpose key should appear in file"
     );
     assert!(
-        on_disk.contains("\"_format\": \"req-v2\""),
+        on_disk.contains("\"_format\": \"req-v3\""),
         "init must write the current format tag"
     );
 }

@@ -36,6 +36,10 @@ pub const MENU: &[&str] = &[
     "Diff between git refs",
     "Audit (git signature trail)",
     "Export to markdown (stdout)",
+    // REQ-0132: functional-safety review surface for humans — browse
+    // hazards / SF / SR and trace a safety case. (Label avoids commas so
+    // the parity guard's comma-split keeps it as one entry.)
+    "Safety: hazards / SF / SR (sreq) / trace",
     "Version",
     "Quit",
 ];
@@ -152,8 +156,70 @@ fn dispatch(
             },
             file,
         ),
+        "Safety: hazards / SF / SR (sreq) / trace" => safety_flow(file, theme),
         "Version" => commands::version::run(VersionArgs { json: false }),
         "Quit" => Err(anyhow::anyhow!("__quit__")),
+        _ => Ok(()),
+    }
+}
+
+/// REQ-0132: read-oriented functional-safety browser. Authoring (add /
+/// assess / verify) stays on the CLI/MCP surface where the multi-field
+/// risk parameters belong; the TUI exists so a human reviewer can walk
+/// the hazard log and trace a safety case end to end.
+fn safety_flow(file: &Option<PathBuf>, theme: &ColorfulTheme) -> Result<()> {
+    use crate::cli::{
+        HazardCmd, HazardListArgs, SfCmd, SfListArgs, SreqCmd, SreqListArgs, TraceArgs,
+    };
+    let opts = [
+        "Hazards (list)",
+        "Safety functions (list)",
+        "Safety requirements (sreq, list)",
+        "Trace a safety case",
+        "Back",
+    ];
+    let idx = Select::with_theme(theme)
+        .with_prompt("Safety")
+        .items(&opts)
+        .default(0)
+        .interact()?;
+    match idx {
+        0 => commands::safety::run_hazard(
+            HazardCmd::List(HazardListArgs {
+                sil: None,
+                status: None,
+                unmitigated: false,
+                json: false,
+            }),
+            file,
+        ),
+        1 => commands::safety::run_sf(
+            SfCmd::List(SfListArgs {
+                sil: None,
+                status: None,
+                unrealized: false,
+                json: false,
+            }),
+            file,
+        ),
+        2 => commands::safety::run_sreq(
+            SreqCmd::List(SreqListArgs {
+                sil: None,
+                status: None,
+                unverified: false,
+                json: false,
+            }),
+            file,
+        ),
+        3 => {
+            let id: String = dialoguer::Input::with_theme(theme)
+                .with_prompt("Trace which id? (HAZ-/SF-/SR-NNNN)")
+                .interact_text()?;
+            if id.trim().is_empty() {
+                return Ok(());
+            }
+            commands::safety::run_trace(TraceArgs { id, json: false }, file)
+        }
         _ => Ok(()),
     }
 }
