@@ -64,8 +64,10 @@ Approved/Implemented/Verified functional reqs cannot lack acceptance.",
   * approved/implemented/verified functional reqs need acceptance
   * Verified requirements (REQ + SR) need a passing validation dossier
     (REQ-0139: plan → analysis → testing → statement → verdict). An
-    ordinary requirement may instead carry a `validation-exempt` tag;
-    safety requirements have no exemption. See REQ-V-0032 / REQ-V-0033.
+    ordinary requirement may instead carry a `validation-exempt` tag or an
+    audited back-fill; safety requirements have NO exemption — neither a tag
+    nor a back-fill, only a genuine dossier (REQ-0143). See REQ-V-0032 /
+    REQ-V-0033.
 
 Warned (saved but flagged):
   * weasel words: etc, and/or, user-friendly, fast, robust, TBD, ...

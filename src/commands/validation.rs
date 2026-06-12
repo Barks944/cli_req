@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{
     TestResultArg, ValidationActivityArgs, ValidationBackfillArgs, ValidationCmd,
-    ValidationConcludeArgs, ValidationPlanArgs, ValidationShowArgs,
+    ValidationConcludeArgs, ValidationPlanArgs, ValidationReportArgs, ValidationShowArgs,
 };
 use crate::commands::test_cmd::{auto_linked_files, current_head_sha_opt, hash_files, short};
 use crate::model::{
@@ -61,6 +61,137 @@ pub struct ConcludeOutcome {
 }
 
 // --------------------------------------------------------------------------
+// REQ-0142: verification provenance — the *true* status behind a Verified
+// item. `Validation::passed()` short-circuits on `exempt`, so a backfilled
+// or `--no-dossier` waiver is indistinguishable from a genuine concluded
+// dossier in every headline surface. This classifier recovers that
+// distinction so an agent (or auditor) can tell real validation from a
+// grandfathered exemption in one query.
+// --------------------------------------------------------------------------
+
+/// How a *Verified* item's verification stands up to scrutiny. Ordered loosely
+/// from weakest to strongest trust.
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum Provenance {
+    /// Verified with no validation dossier at all (pre-gate residue, or a
+    /// status forced by other means). The weakest possible standing.
+    Ungated,
+    /// A passing dossier exists but its `exempt` flag is set: an audited
+    /// `req validation backfill` (grandfathered) waiver.
+    ExemptBackfilled,
+    /// A passing dossier exists but its `exempt` flag is set: an audited
+    /// `req verify --no-dossier` waiver (ordinary requirements only).
+    ExemptNoDossier,
+    /// A genuine concluded Pass dossier whose anchored source has since
+    /// drifted — the verification no longer stands until re-validated.
+    Stale,
+    /// A genuine concluded dossier: real analysis + testing + statement,
+    /// Pass verdict, anchor still fresh (or no git context to judge).
+    Genuine,
+}
+
+impl Provenance {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Provenance::Ungated => "ungated",
+            Provenance::ExemptBackfilled => "exempt:backfilled",
+            Provenance::ExemptNoDossier => "exempt:no-dossier",
+            Provenance::Stale => "stale",
+            Provenance::Genuine => "genuine",
+        }
+    }
+
+    /// True only for a genuine, non-stale passing dossier — the bar the
+    /// headline "verified" number should really be measuring.
+    pub fn is_genuine(self) -> bool {
+        matches!(self, Provenance::Genuine)
+    }
+}
+
+/// Classify a single dossier's provenance. `source_root` is where linked
+/// files are hashed to judge staleness; pass `None` to skip the staleness
+/// probe (treats a genuine dossier as Genuine regardless of drift).
+pub fn classify(v: Option<&Validation>, source_root: Option<&Path>, id: &str) -> Provenance {
+    let v = match v {
+        None => return Provenance::Ungated,
+        Some(v) => v,
+    };
+    if v.exempt {
+        // Distinguish the two waiver kinds by the plan prefix stamped at
+        // backfill / no-dossier time (see op_backfill / exemption_dossier).
+        return if v.plan.starts_with("[--no-dossier") {
+            Provenance::ExemptNoDossier
+        } else {
+            Provenance::ExemptBackfilled
+        };
+    }
+    // A non-exempt dossier only counts as genuine if it actually concluded
+    // Pass with both activity stages and a statement recorded.
+    let genuine = matches!(v.verdict, Some(TestOutcome::Pass))
+        && v.analysis.is_some()
+        && v.testing.is_some()
+        && v.statement.is_some();
+    if !genuine {
+        return Provenance::Ungated;
+    }
+    if let (Some(root), Some(hash)) = (source_root, v.content_hash.as_deref()) {
+        let s = crate::commands::test_cmd::staleness_by_content(
+            hash,
+            v.linked_files.as_ref(),
+            id,
+            root,
+        );
+        if matches!(s, crate::commands::test_cmd::Staleness::Stale { .. }) {
+            return Provenance::Stale;
+        }
+    }
+    Provenance::Genuine
+}
+
+/// One row of the provenance report.
+pub struct ProvenanceRow {
+    pub id: String,
+    pub family: &'static str,
+    pub provenance: Provenance,
+    pub sil: Option<String>,
+}
+
+/// REQ-0142: classify every *Verified* requirement and safety requirement.
+/// Rows are sorted by id within family (requirements first, then safety).
+pub fn provenance_report(project: &Project, source_root: Option<&Path>) -> Vec<ProvenanceRow> {
+    let mut rows = Vec::new();
+    let mut reqs: Vec<_> = project
+        .requirements
+        .values()
+        .filter(|r| matches!(r.status, Status::Verified))
+        .collect();
+    reqs.sort_by(|a, b| a.id.cmp(&b.id));
+    for r in reqs {
+        rows.push(ProvenanceRow {
+            id: r.id.clone(),
+            family: "requirement",
+            provenance: classify(r.validation.as_ref(), source_root, &r.id),
+            sil: None,
+        });
+    }
+    let mut srs: Vec<_> = project
+        .safety_requirements
+        .values()
+        .filter(|sr| matches!(sr.status, Status::Verified))
+        .collect();
+    srs.sort_by(|a, b| a.id.cmp(&b.id));
+    for sr in srs {
+        rows.push(ProvenanceRow {
+            id: sr.id.clone(),
+            family: "safety-requirement",
+            provenance: classify(sr.validation.as_ref(), source_root, &sr.id),
+            sil: project.inherited_sil(sr).map(|s| s.as_str().to_string()),
+        });
+    }
+    rows
+}
+
+// --------------------------------------------------------------------------
 // CLI dispatch
 // --------------------------------------------------------------------------
 
@@ -72,6 +203,7 @@ pub fn run(cmd: ValidationCmd, file: &Option<PathBuf>) -> Result<()> {
         ValidationCmd::Conclude(a) => conclude(a, file),
         ValidationCmd::Show(a) => show(a, file),
         ValidationCmd::Backfill(a) => backfill(a, file),
+        ValidationCmd::Report(a) => report(a, file),
     }
 }
 
@@ -501,7 +633,17 @@ pub fn op_backfill(
 ) -> Result<Vec<String>> {
     let mut targets: Vec<(String, Family)> = Vec::new();
     if let Some(raw) = raw_id {
-        targets.push(resolve(project, raw)?);
+        let (id, fam) = resolve(project, raw)?;
+        // REQ-0143: safety requirements have NO exemption — they must be
+        // validated genuinely, never grandfathered.
+        if matches!(fam, Family::Sr) {
+            return Err(anyhow!(
+                "{} is a safety requirement — safety requirements cannot be exempted. Validate it \
+                 genuinely with `req validation plan {} ...` → analysis → test → conclude --promote.",
+                id, id
+            ));
+        }
+        targets.push((id, fam));
     } else if all {
         for (id, r) in &project.requirements {
             if matches!(r.status, Status::Verified)
@@ -510,13 +652,8 @@ pub fn op_backfill(
                 targets.push((id.clone(), Family::Req));
             }
         }
-        for (id, sr) in &project.safety_requirements {
-            if matches!(sr.status, Status::Verified)
-                && !sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
-            {
-                targets.push((id.clone(), Family::Sr));
-            }
-        }
+        // REQ-0143: --all deliberately skips safety requirements — there is
+        // no audited exemption for them.
     } else {
         return Err(anyhow!(
             "pass an id, or --all to back-fill every Verified item without a passing dossier"
@@ -571,16 +708,18 @@ pub fn exemption_dossier(reason: &str, actor: String, commit: String) -> Validat
     v
 }
 
-/// REQ-0139: the front-line gate for safety requirements. No tag exemption
-/// — only a passing dossier (or an audited back-filled exemption).
+/// REQ-0139 / REQ-0143: the front-line gate for safety requirements. No tag
+/// exemption and no audited backfill — only a GENUINE concluded passing
+/// dossier (analysis + testing + statement) lets a safety requirement reach
+/// Verified. An `exempt` dossier is explicitly rejected here.
 pub fn gate_safety_requirement(sr: &crate::model::SafetyRequirement) -> Result<()> {
-    if sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false) {
+    if classify(sr.validation.as_ref(), None, &sr.id).is_genuine() {
         return Ok(());
     }
     Err(anyhow!(
-        "{} (safety) cannot be promoted to Verified without a passing validation dossier. Run \
+        "{} (safety) cannot be promoted to Verified without a GENUINE validation dossier. Run \
          `req validation plan {} ...` → analysis → test → conclude. Safety requirements cannot \
-         be tag-exempted.",
+         be tag-exempted or back-filled.",
         sr.id,
         sr.id
     ))
@@ -693,6 +832,119 @@ fn backfill(args: ValidationBackfillArgs, file: &Option<PathBuf>) -> Result<()> 
         println!("Nothing to back-fill — every Verified item already has a passing dossier.");
     } else {
         println!("Back-filled {} item(s): {}", done.len(), done.join(", "));
+    }
+    Ok(())
+}
+
+// REQ-0142: the true-status report. Classifies every Verified item and
+// rolls up the counts, so the headline "verified" number can be read with
+// its provenance instead of taken at face value.
+fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (_path, project) = load_resolved(file)?;
+    let rows = provenance_report(&project, Some(&args.path));
+
+    let mut genuine = 0usize;
+    let mut backfilled = 0usize;
+    let mut no_dossier = 0usize;
+    let mut stale = 0usize;
+    let mut ungated = 0usize;
+    for r in &rows {
+        match r.provenance {
+            Provenance::Genuine => genuine += 1,
+            Provenance::ExemptBackfilled => backfilled += 1,
+            Provenance::ExemptNoDossier => no_dossier += 1,
+            Provenance::Stale => stale += 1,
+            Provenance::Ungated => ungated += 1,
+        }
+    }
+    let total = rows.len();
+    let shown: Vec<&ProvenanceRow> = rows
+        .iter()
+        .filter(|r| !args.not_genuine || !r.provenance.is_genuine())
+        .collect();
+
+    if args.json {
+        let items: Vec<_> = shown
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.id,
+                    "family": r.family,
+                    "provenance": r.provenance.as_str(),
+                    "genuine": r.provenance.is_genuine(),
+                    "sil": r.sil,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "verified_total": total,
+                "counts": {
+                    "genuine": genuine,
+                    "exempt_backfilled": backfilled,
+                    "exempt_no_dossier": no_dossier,
+                    "stale": stale,
+                    "ungated": ungated,
+                },
+                "items": items,
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Verification provenance ({} verified item(s))", total);
+    println!(
+        "  genuine          : {:>4}   (concluded Pass dossier: analysis + testing + statement)",
+        genuine
+    );
+    println!(
+        "  exempt:backfilled: {:>4}   (grandfathered via `req validation backfill`)",
+        backfilled
+    );
+    println!(
+        "  exempt:no-dossier: {:>4}   (`req verify --no-dossier` waiver)",
+        no_dossier
+    );
+    println!(
+        "  stale            : {:>4}   (genuine dossier whose anchored source drifted)",
+        stale
+    );
+    println!(
+        "  ungated          : {:>4}   (Verified with no passing dossier)",
+        ungated
+    );
+    let not_genuine = total - genuine;
+    if not_genuine > 0 {
+        println!();
+        println!(
+            "⚠ {} of {} verified item(s) do NOT rest on a genuine validation dossier.",
+            not_genuine, total
+        );
+    }
+    if shown.is_empty() {
+        if args.not_genuine {
+            println!("\nEvery verified item rests on a genuine dossier.");
+        }
+        return Ok(());
+    }
+    println!();
+    for r in &shown {
+        if r.provenance.is_genuine() && args.not_genuine {
+            continue;
+        }
+        let sil = r
+            .sil
+            .as_deref()
+            .map(|s| format!("  [{}]", s))
+            .unwrap_or_default();
+        println!(
+            "  {:<9}  {:<18}  {}{}",
+            r.id,
+            r.provenance.as_str(),
+            r.family,
+            sil
+        );
     }
     Ok(())
 }

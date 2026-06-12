@@ -526,3 +526,149 @@ fn req_0139_conclude_promote_respects_sil_gate() {
         .status
         .success());
 }
+
+// ---------------------------------------------------------------------------
+// REQ-0142: verification provenance report
+// ---------------------------------------------------------------------------
+
+/// REQ-0142: a genuinely-concluded dossier classifies as `genuine`, and the
+/// report counts it as such; `--not-genuine` then hides it.
+#[test]
+fn req_0142_report_marks_genuine_dossier() {
+    let s = Sandbox::new();
+    implemented_req(&s);
+    s.run(&["validation", "plan", "REQ-0001", "--plan", "review + test"]);
+    s.run(&[
+        "validation",
+        "analysis",
+        "REQ-0001",
+        "--findings",
+        "ok",
+        "--result",
+        "pass",
+    ]);
+    s.run(&[
+        "validation",
+        "test",
+        "REQ-0001",
+        "--findings",
+        "green",
+        "--result",
+        "pass",
+    ]);
+    s.run(&[
+        "validation",
+        "conclude",
+        "REQ-0001",
+        "--statement",
+        "met",
+        "--promote",
+    ]);
+    let rep = s.run(&["validation", "report", "--json"]);
+    assert!(rep.status.success(), "report: {}", stderr(&rep));
+    let out = stdout(&rep);
+    assert!(
+        out.contains("\"genuine\": 1"),
+        "expected genuine=1; got {}",
+        out
+    );
+    assert!(out.contains("\"exempt_backfilled\": 0"), "got {}", out);
+    // --not-genuine hides the genuine item.
+    let only_bad = stdout(&s.run(&["validation", "report", "--not-genuine"]));
+    assert!(
+        !only_bad.contains("REQ-0001 "),
+        "genuine item should be filtered out; got {}",
+        only_bad
+    );
+}
+
+/// REQ-0142: a backfilled exemption is reported as `exempt:backfilled`, is
+/// surfaced under `--not-genuine`, and `req status` splits it out of the
+/// genuine count.
+#[test]
+fn req_0142_report_marks_backfilled_exemption() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.run(&[
+        "add",
+        "--title",
+        "Some verified behaviour",
+        "--statement",
+        "The system shall expose the baseline behaviour reliably.",
+        "--rationale",
+        "Fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    for st in ["proposed", "approved", "implemented", "verified"] {
+        s.run(&[
+            "update", "REQ-0001", "--status", st, "--reason", "f", "--force",
+        ]);
+    }
+    s.run(&[
+        "validation",
+        "backfill",
+        "--all",
+        "--reason",
+        "grandfathered",
+    ]);
+    let rep = stdout(&s.run(&["validation", "report", "--json"]));
+    assert!(rep.contains("\"genuine\": 0"), "got {}", rep);
+    assert!(rep.contains("\"exempt_backfilled\": 1"), "got {}", rep);
+    assert!(rep.contains("exempt:backfilled"), "got {}", rep);
+    // --not-genuine still lists it.
+    let only_bad = stdout(&s.run(&["validation", "report", "--not-genuine"]));
+    assert!(only_bad.contains("REQ-0001"), "got {}", only_bad);
+    // status splits the verified bucket.
+    let st = stdout(&s.run(&["status", "--json"]));
+    assert!(
+        st.contains("\"verified_provenance\""),
+        "status json missing provenance; got {}",
+        st
+    );
+    assert!(st.contains("\"exempt\": 1"), "got {}", st);
+}
+
+/// REQ-0143: a safety requirement may NOT be exempted. `backfill <SR>` is
+/// refused, `backfill --all` skips it, and a Verified SR without a genuine
+/// dossier stays a hard REQ-V-0033 error.
+#[test]
+fn req_0143_safety_requirement_cannot_be_exempted() {
+    let s = Sandbox::new();
+    implemented_sr(&s, false);
+    // Force the SR to Verified with no dossier (bypassing the verify gate).
+    s.run(&[
+        "sreq", "update", "SR-0001", "--status", "verified", "--reason", "force",
+    ]);
+    // It is now a hard validation error.
+    let out = s.run(&["validate", "--json"]);
+    assert!(!out.status.success(), "validate should fail");
+    assert!(
+        stdout(&out).contains("REQ-V-0033"),
+        "expected REQ-V-0033; got {}",
+        stdout(&out)
+    );
+    // backfill by id is refused for a safety requirement.
+    let bf = s.run(&[
+        "validation",
+        "backfill",
+        "SR-0001",
+        "--reason",
+        "grandfather",
+    ]);
+    assert!(!bf.status.success(), "backfill of an SR must be refused");
+    assert!(
+        stderr(&bf).to_lowercase().contains("safety requirement"),
+        "stderr: {}",
+        stderr(&bf)
+    );
+    // backfill --all skips it, so the error remains.
+    let bfa = s.run(&["validation", "backfill", "--all", "--reason", "grandfather"]);
+    assert!(bfa.status.success(), "backfill --all: {}", stderr(&bfa));
+    assert!(
+        !s.run(&["validate"]).status.success(),
+        "SR error must persist — --all does not exempt safety requirements"
+    );
+}

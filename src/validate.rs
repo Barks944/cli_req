@@ -129,7 +129,7 @@ pub const RULES: &[(&str, &str)] = &[
     ),
     (
         "REQ-V-0033",
-        "safety requirement is Verified but has no passing validation dossier",
+        "safety requirement is Verified but lacks a genuine validation dossier (exemptions are not allowed for safety requirements)",
     ),
 ];
 
@@ -860,19 +860,27 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
         }
         if matches!(sr.status, Status::Verified) {
-            // REQ-0139 / REQ-V-0033: a Verified safety requirement must
-            // carry a passing validation dossier (no tag exemption for
-            // safety; an audited back-fill counts as passing).
-            let dossier_ok = sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false);
-            if !dossier_ok {
+            // REQ-0139 / REQ-0143 / REQ-V-0033: a Verified safety requirement
+            // must carry a GENUINE concluded passing dossier. Unlike an
+            // ordinary requirement there is no exemption — neither a tag nor
+            // an audited back-fill counts. An `exempt` dossier is flagged.
+            let genuine = crate::commands::validation::classify(sr.validation.as_ref(), None, id)
+                .is_genuine();
+            if !genuine {
+                let exempt = sr.validation.as_ref().map(|v| v.exempt).unwrap_or(false);
+                let why = if exempt {
+                    "rests on an audited exemption, which safety requirements may not use"
+                } else {
+                    "has no passing validation dossier"
+                };
                 push(
                     id,
                     Finding::err(
                         "REQ-V-0033",
                         "validation",
                         format!(
-                            "{} is Verified but has no passing validation dossier — run `req validation plan {} ...` → analysis → test → conclude",
-                            id, id
+                            "{} is Verified but {} — safety requirements need a genuine dossier; run `req validation plan {} ...` → analysis → test → conclude --promote",
+                            id, why, id
                         ),
                     ),
                 );

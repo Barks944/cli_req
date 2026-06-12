@@ -93,6 +93,8 @@ impl Command {
             Command::Validation(ValidationCmd::Conclude(a)) => a.json,
             Command::Validation(ValidationCmd::Show(a)) => a.json,
             Command::Validation(ValidationCmd::Backfill(a)) => a.json,
+            // REQ-0142: provenance report honours --json like the rest.
+            Command::Validation(ValidationCmd::Report(a)) => a.json,
             _ => false,
         }
     }
@@ -234,6 +236,9 @@ pub enum ValidationCmd {
     /// Grandfather already-Verified items that pre-date the dossier by
     /// recording an audited exemption so a strict `req validate` passes.
     Backfill(ValidationBackfillArgs),
+    /// REQ-0142: report the true verification provenance of every Verified
+    /// item — genuine dossier vs audited exemption vs stale vs ungated.
+    Report(ValidationReportArgs),
 }
 
 #[derive(Args, Debug)]
@@ -299,6 +304,20 @@ pub struct ValidationConcludeArgs {
 pub struct ValidationShowArgs {
     /// REQ-NNNN or SR-NNNN id.
     pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+// REQ-0142: arguments for the verification-provenance report.
+#[derive(Args, Debug)]
+pub struct ValidationReportArgs {
+    /// Source root used to judge dossier staleness (hashes linked files).
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Show only items whose verification is NOT a genuine passing dossier
+    /// (exemptions, stale, ungated) — the ones that need attention.
+    #[arg(long)]
+    pub not_genuine: bool,
     #[arg(long)]
     pub json: bool,
 }
