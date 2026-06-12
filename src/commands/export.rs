@@ -1,10 +1,12 @@
 // Implements REQ-0014 (markdown / json / csv / html exports).
+// REQ-0136: the markdown/HTML export grows a HARA section (hazard
+// analysis and risk assessment) when a project carries safety artifacts.
 use anyhow::Result;
 use std::fs;
 use std::path::PathBuf;
 
 use crate::cli::{ExportArgs, ExportFormat};
-use crate::model::{Project, Requirement};
+use crate::model::{LinkKind, Project, Requirement, SafetyFunction, SafetyRequirement, Sil, Status};
 use crate::storage::load_resolved;
 
 pub fn run(args: ExportArgs, file: &Option<PathBuf>) -> Result<()> {
@@ -38,7 +40,159 @@ pub fn to_markdown(p: &Project) -> String {
         s.push_str(&fmt_md(r));
         s.push_str("\n---\n\n");
     }
+    s.push_str(&safety_markdown(p));
     s
+}
+
+/// REQ-0136: render the HARA (hazard analysis and risk assessment) when a
+/// project carries safety artifacts. An overview table plus a per-hazard
+/// safety case, so a human reviewer can sign off the whole chain from a
+/// single document. Returns empty when there are no hazards.
+fn safety_markdown(p: &Project) -> String {
+    if p.hazards.is_empty() {
+        return String::new();
+    }
+    let sil = |s: Option<Sil>| s.map(|s| s.as_str().to_string()).unwrap_or_else(|| "—".into());
+    let mut s = String::new();
+    s.push_str("# Functional safety (IEC 61508)\n\n");
+    s.push_str(&format!(
+        "_{} hazard(s), {} safety function(s), {} safety requirement(s)._\n\n",
+        p.hazards.len(),
+        p.safety_functions.len(),
+        p.safety_requirements.len()
+    ));
+
+    // HARA overview table.
+    s.push_str("## Hazard analysis & risk assessment\n\n");
+    s.push_str("| Hazard | Harm | C/F/P/W | Required SIL | Allocated SIL | SRs verified | Case |\n");
+    s.push_str("|---|---|---|---|---|---|---|\n");
+    for (id, h) in &p.hazards {
+        let sfs: Vec<&SafetyFunction> = p
+            .safety_functions
+            .values()
+            .filter(|sf| sf_mitigates(sf, id))
+            .collect();
+        let allocated = sfs
+            .iter()
+            .filter_map(|sf| p.allocated_sil(sf))
+            .max_by_key(|s| s.rank());
+        let (verified, total) = sr_tally(p, &sfs);
+        let adequate = match (h.required_sil(), allocated) {
+            (Some(r), Some(a)) => a.rank() >= r.rank(),
+            (Some(_), None) => false,
+            (None, _) => true,
+        };
+        let complete = adequate && total > 0 && verified == total && !sfs.is_empty();
+        let cfpw = match (h.consequence, h.frequency, h.avoidance, h.probability) {
+            (Some(c), Some(f), Some(a), Some(w)) => {
+                format!("{}·{}·{}·{}", c.as_str(), f.as_str(), a.as_str(), w.as_str())
+            }
+            _ => "—".into(),
+        };
+        s.push_str(&format!(
+            "| {} {} | {} | {} | {} | {} | {}/{} | {} |\n",
+            id,
+            md_cell(&h.title),
+            md_cell(&h.harm),
+            cfpw,
+            sil(h.required_sil()),
+            sil(allocated),
+            verified,
+            total,
+            if complete { "✓ complete" } else { "⚠ incomplete" },
+        ));
+    }
+    s.push('\n');
+
+    // Per-hazard safety case.
+    s.push_str("## Safety cases\n\n");
+    for (id, h) in &p.hazards {
+        s.push_str(&format!("### {} — {}\n\n", id, h.title));
+        s.push_str(&format!("- **Harm.** {}\n", h.harm));
+        if !h.operating_context.is_empty() {
+            s.push_str(&format!("- **Operating context.** {}\n", h.operating_context));
+        }
+        s.push_str(&format!(
+            "- **Risk.** {} → required **{}**\n",
+            match (h.consequence, h.frequency, h.avoidance, h.probability) {
+                (Some(c), Some(f), Some(a), Some(w)) =>
+                    format!("{} · {} · {} · {}", c.as_str(), f.as_str(), a.as_str(), w.as_str()),
+                _ => "not yet assessed".into(),
+            },
+            sil(h.required_sil())
+        ));
+        let sfs: Vec<&SafetyFunction> = p
+            .safety_functions
+            .values()
+            .filter(|sf| sf_mitigates(sf, id))
+            .collect();
+        if sfs.is_empty() {
+            s.push_str("- **Mitigation.** _none_\n");
+        }
+        for sf in &sfs {
+            s.push_str(&format!(
+                "\n  **{} — {}** (allocated {}, {})  \n  _safe state:_ {}\n",
+                sf.id,
+                sf.title,
+                sil(p.allocated_sil(sf)),
+                sf.status.as_str(),
+                if sf.safe_state.is_empty() { "—" } else { &sf.safe_state }
+            ));
+            for sr in p
+                .safety_requirements
+                .values()
+                .filter(|sr| sr_realizes(sr, &sf.id))
+            {
+                let mark = if matches!(sr.status, Status::Verified) { "✓" } else { "⚠" };
+                s.push_str(&format!(
+                    "  - {} {} {} — _{}_ (inherits {})\n",
+                    mark,
+                    sr.id,
+                    md_cell(&sr.title),
+                    sr.status.as_str(),
+                    sil(p.inherited_sil(sr))
+                ));
+            }
+        }
+        s.push_str("\n---\n\n");
+    }
+    s
+}
+
+fn sf_mitigates(sf: &SafetyFunction, haz_id: &str) -> bool {
+    sf.links
+        .iter()
+        .any(|l| l.kind == LinkKind::Mitigates && l.target == haz_id)
+}
+
+fn sr_realizes(sr: &SafetyRequirement, sf_id: &str) -> bool {
+    sr.links
+        .iter()
+        .any(|l| l.kind == LinkKind::Realizes && l.target == sf_id)
+}
+
+/// (verified, total) safety requirements across the given functions.
+fn sr_tally(p: &Project, sfs: &[&SafetyFunction]) -> (usize, usize) {
+    let mut verified = 0;
+    let mut total = 0;
+    for sf in sfs {
+        for sr in p
+            .safety_requirements
+            .values()
+            .filter(|sr| sr_realizes(sr, &sf.id))
+        {
+            total += 1;
+            if matches!(sr.status, Status::Verified) {
+                verified += 1;
+            }
+        }
+    }
+    (verified, total)
+}
+
+/// Escape a string for a single markdown table cell (pipes break the row).
+fn md_cell(s: &str) -> String {
+    s.replace('|', "\\|").replace('\n', " ")
 }
 
 fn fmt_md(r: &Requirement) -> String {
