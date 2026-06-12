@@ -168,9 +168,6 @@ fn dispatch(
 /// risk parameters belong; the TUI exists so a human reviewer can walk
 /// the hazard log and trace a safety case end to end.
 fn safety_flow(file: &Option<PathBuf>, theme: &ColorfulTheme) -> Result<()> {
-    use crate::cli::{
-        HazardCmd, HazardListArgs, SfCmd, SfListArgs, SreqCmd, SreqListArgs, TraceArgs,
-    };
     let opts = [
         "Hazards (list)",
         "Safety functions (list)",
@@ -183,7 +180,28 @@ fn safety_flow(file: &Option<PathBuf>, theme: &ColorfulTheme) -> Result<()> {
         .items(&opts)
         .default(0)
         .interact()?;
-    match idx {
+    if idx == 3 {
+        let id: String = dialoguer::Input::with_theme(theme)
+            .with_prompt("Trace which id? (HAZ-/SF-/SR-NNNN)")
+            .interact_text()?;
+        if id.trim().is_empty() {
+            return Ok(());
+        }
+        return commands::safety::run_trace(
+            crate::cli::TraceArgs { id, json: false },
+            file,
+        );
+    }
+    // The three list views are non-interactive — factored out so they can
+    // be smoke-tested without driving the terminal menu (REQ-0134).
+    safety_review(idx, file)
+}
+
+/// REQ-0134: the read-only safety review actions reachable from the TUI
+/// menu, separated from the interactive Select so they are unit-testable.
+fn safety_review(action: usize, file: &Option<PathBuf>) -> Result<()> {
+    use crate::cli::{HazardCmd, HazardListArgs, SfCmd, SfListArgs, SreqCmd, SreqListArgs};
+    match action {
         0 => commands::safety::run_hazard(
             HazardCmd::List(HazardListArgs {
                 sil: None,
@@ -211,15 +229,6 @@ fn safety_flow(file: &Option<PathBuf>, theme: &ColorfulTheme) -> Result<()> {
             }),
             file,
         ),
-        3 => {
-            let id: String = dialoguer::Input::with_theme(theme)
-                .with_prompt("Trace which id? (HAZ-/SF-/SR-NNNN)")
-                .interact_text()?;
-            if id.trim().is_empty() {
-                return Ok(());
-            }
-            commands::safety::run_trace(TraceArgs { id, json: false }, file)
-        }
         _ => Ok(()),
     }
 }
@@ -439,5 +448,59 @@ fn default_stale() -> StaleArgs {
         path: PathBuf::from("."),
         only_stale: false,
         json: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // REQ-0134: the TUI safety-review dispatch routes the three list
+    // actions to the safety commands without panicking. Drives
+    // safety_review directly (the interactive Select is bypassed) against
+    // a real on-disk project, which is the part worth covering — the menu
+    // wiring, not dialoguer's terminal I/O.
+    #[test]
+    fn safety_review_dispatch_lists_without_panicking() {
+        let dir = tempfile::Builder::new()
+            .prefix("req-tui-")
+            .tempdir()
+            .unwrap();
+        let path = dir.path().join("project.req");
+        let mut project = crate::model::Project::new("p".into());
+        // A minimal safety chain so the list views have something to show.
+        let now = chrono::Utc::now();
+        let hid = project.allocate_haz_id();
+        project.hazards.insert(
+            hid.clone(),
+            crate::model::Hazard {
+                id: hid,
+                title: "H".into(),
+                description: String::new(),
+                operating_context: String::new(),
+                harm: "hurt".into(),
+                consequence: Some(crate::model::Consequence::Cc),
+                frequency: Some(crate::model::Frequency::Fb),
+                avoidance: Some(crate::model::Avoidance::Pb),
+                probability: Some(crate::model::Probability::W3),
+                status: crate::model::HazardStatus::Assessed,
+                tags: vec![],
+                links: vec![],
+                created: now,
+                updated: now,
+                history: vec![],
+            },
+        );
+        crate::storage::save(&path, &project).unwrap();
+        let file = Some(path);
+        // actions 0,1,2 are the non-interactive list views; 99 is the
+        // "Back"/no-op arm.
+        for action in [0usize, 1, 2, 99] {
+            assert!(
+                safety_review(action, &file).is_ok(),
+                "safety_review({}) should not error",
+                action
+            );
+        }
     }
 }
