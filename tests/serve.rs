@@ -213,3 +213,35 @@ fn req_0016_serve_html_escapes_user_supplied_strings() {
         "expected &lt; entity in escaped output"
     );
 }
+
+// ---------- REQ-0134: functional-safety web view ----------
+
+#[test]
+fn req_0134_serve_safety_view_and_api() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "operator could be hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    let _ = s.run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
+    let port = pick_free_port();
+    let child = spawn_server(&s, port);
+    assert!(wait_for_bind(port, Duration::from_secs(10)), "serve did not bind");
+    let _guard = GuardedChild(Some(child));
+
+    // The index links to the safety view when hazards exist.
+    let (code, body) = http_get(port, "/");
+    assert_eq!(code, 200);
+    assert!(body.contains("/safety"), "index should link to /safety");
+
+    // The HARA view renders the hazard, its SIL, and the disclaimer.
+    let (code, body) = http_get(port, "/safety");
+    assert_eq!(code, 200, "/safety should return 200");
+    assert!(body.contains("HAZ-0001"), "/safety should list the hazard");
+    assert!(body.contains("SIL3"), "/safety should show the derived SIL");
+    assert!(body.contains("not qualified per IEC 61508-3"), "/safety must carry the disclaimer");
+
+    // The JSON API returns the safety artifacts.
+    let (code, body) = http_get(port, "/api/safety");
+    assert_eq!(code, 200, "/api/safety should return 200");
+    assert!(body.contains("\"hazards\""), "api should include hazards");
+    assert!(body.contains("HAZ-0001"));
+}

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cli::ServeArgs;
-use crate::model::{Project, Requirement};
+use crate::model::{LinkKind, Project, Requirement, SafetyFunction, SafetyRequirement, Sil, Status};
 use crate::storage::{self, resolve_path};
 
 #[derive(Clone)]
@@ -40,8 +40,10 @@ pub fn run(args: ServeArgs, file: &Option<PathBuf>) -> Result<()> {
     let app = Router::new()
         .route("/", get(index_html))
         .route("/r/:id", get(show_html))
+        .route("/safety", get(safety_html))
         .route("/api/list", get(api_list))
         .route("/api/r/:id", get(api_show))
+        .route("/api/safety", get(api_safety))
         .with_state(Arc::new(state));
 
     let addr: SocketAddr = format!("{}:{}", args.host, args.port)
@@ -113,18 +115,125 @@ async fn index_html(
             tags = h(&r.tags.join(", ")),
         ));
     }
+    let safety_link = if project.hazards.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " &middot; <a href=\"/safety\">functional safety ({} hazard(s))</a>",
+            project.hazards.len()
+        )
+    };
     Ok(Html(page(
         &format!("req — {}", h(&project.name)),
         &format!(
             "<h1>{name}</h1>\
-             <p class=\"meta\">{count} requirement(s) &middot; served from <code>{path}</code> &middot; read-only</p>\
+             <p class=\"meta\">{count} requirement(s) &middot; served from <code>{path}</code> &middot; read-only{safety_link}</p>\
              <table><thead><tr><th>ID</th><th>Title</th><th>Kind</th><th>Pri</th><th>Status</th><th>Tags</th></tr></thead><tbody>{rows}</tbody></table>",
             name = h(&project.name),
             count = project.requirements.len(),
             path = h(&state.file.display().to_string()),
+            safety_link = safety_link,
             rows = rows,
         ),
     )))
+}
+
+fn sil_s(s: Option<Sil>) -> String {
+    s.map(|s| s.as_str().to_string()).unwrap_or_else(|| "—".into())
+}
+
+/// REQ-0134: read-only HARA-style web view of the functional-safety
+/// artifacts, mirroring `req trace` / the markdown HARA export so a human
+/// reviewer can read the whole safety case in a browser.
+async fn safety_html(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    let project = load_project(&state)?;
+    if project.hazards.is_empty() {
+        return Ok(Html(page(
+            "req — functional safety",
+            "<p><a href=\"/\">&larr; index</a></p><h1>Functional safety</h1>\
+             <p class=\"meta\">This project has no hazards.</p>",
+        )));
+    }
+    let mitigates = |sf: &SafetyFunction, hid: &str| {
+        sf.links.iter().any(|l| l.kind == LinkKind::Mitigates && l.target == hid)
+    };
+    let realizes = |sr: &SafetyRequirement, sfid: &str| {
+        sr.links.iter().any(|l| l.kind == LinkKind::Realizes && l.target == sfid)
+    };
+
+    let mut rows = String::new();
+    for (id, hz) in &project.hazards {
+        let sfs: Vec<&SafetyFunction> = project
+            .safety_functions
+            .values()
+            .filter(|sf| mitigates(sf, id))
+            .collect();
+        let allocated = sfs.iter().filter_map(|sf| project.allocated_sil(sf)).max_by_key(|s| s.rank());
+        let (mut verified, mut total) = (0usize, 0usize);
+        for sf in &sfs {
+            for sr in project.safety_requirements.values().filter(|sr| realizes(sr, &sf.id)) {
+                total += 1;
+                if matches!(sr.status, Status::Verified) {
+                    verified += 1;
+                }
+            }
+        }
+        let adequate = match (hz.required_sil(), allocated) {
+            (Some(r), Some(a)) => a.rank() >= r.rank(),
+            (Some(_), None) => false,
+            (None, _) => true,
+        };
+        let complete = adequate && total > 0 && verified == total && !sfs.is_empty();
+        rows.push_str(&format!(
+            "<tr><td>{id}</td><td>{title}</td><td>{harm}</td><td>{req}</td><td>{alloc}</td><td>{v}/{t}</td><td>{verdict}</td></tr>",
+            id = h(id),
+            title = h(&hz.title),
+            harm = h(&hz.harm),
+            req = sil_s(hz.required_sil()),
+            alloc = sil_s(allocated),
+            v = verified,
+            t = total,
+            verdict = if complete { "&#10003; complete" } else { "&#9888; incomplete" },
+        ));
+    }
+    let disclaimer = "<p class=\"meta\" style=\"border-left:3px solid #e0a800;padding-left:.6rem;\">\
+        &#9888; req computes a <em>candidate</em> SIL from your inputs and checks <em>traceability</em> only. \
+        It is not qualified per IEC 61508-3 &sect;7.4.4 and does not assure risk reduction; the table uses the \
+        Annex&nbsp;D worked-example calibration. The safety determination remains the engineer's responsibility.</p>";
+    Ok(Html(page(
+        "req — functional safety",
+        &format!(
+            "<p><a href=\"/\">&larr; index</a></p>\
+             <h1>Functional safety</h1>{disclaimer}\
+             <p class=\"meta\">{nh} hazard(s) &middot; {nf} safety function(s) &middot; {nr} safety requirement(s)</p>\
+             <table><thead><tr><th>Hazard</th><th>Title</th><th>Harm</th><th>Required SIL</th><th>Allocated SIL</th><th>SRs verified</th><th>Trace</th></tr></thead><tbody>{rows}</tbody></table>",
+            disclaimer = disclaimer,
+            nh = project.hazards.len(),
+            nf = project.safety_functions.len(),
+            nr = project.safety_requirements.len(),
+            rows = rows,
+        ),
+    )))
+}
+
+#[derive(serde::Serialize)]
+struct SafetyApi {
+    hazards: Vec<crate::model::Hazard>,
+    safety_functions: Vec<SafetyFunction>,
+    safety_requirements: Vec<SafetyRequirement>,
+}
+
+async fn api_safety(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<SafetyApi>, (StatusCode, String)> {
+    let project = load_project(&state)?;
+    Ok(Json(SafetyApi {
+        hazards: project.hazards.into_values().collect(),
+        safety_functions: project.safety_functions.into_values().collect(),
+        safety_requirements: project.safety_requirements.into_values().collect(),
+    }))
 }
 
 async fn show_html(
