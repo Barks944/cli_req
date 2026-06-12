@@ -91,5 +91,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Sf(cmd) => commands::safety::run_sf(cmd, &cli.file),
         Command::Sreq(cmd) => commands::safety::run_sreq(cmd, &cli.file),
         Command::Trace(args) => commands::safety::run_trace(args, &cli.file),
+        // REQ-0138: human-only safety governance (accept / status / calibrate).
+        Command::Safety(cmd) => commands::safety_gov::run(cmd, &cli.file),
     }
 }

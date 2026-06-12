@@ -87,7 +87,7 @@ engineer's responsibility.\n\n",
             .filter_map(|sf| p.allocated_sil(sf))
             .max_by_key(|s| s.rank());
         let (verified, total) = sr_tally(p, &sfs);
-        let adequate = match (h.required_sil(), allocated) {
+        let adequate = match (p.required_sil(h), allocated) {
             (Some(r), Some(a)) => a.rank() >= r.rank(),
             (Some(_), None) => false,
             (None, _) => true,
@@ -105,7 +105,7 @@ engineer's responsibility.\n\n",
             md_cell(&h.title),
             md_cell(&h.harm),
             cfpw,
-            sil(h.required_sil()),
+            sil(p.required_sil(h)),
             sil(allocated),
             verified,
             total,
@@ -129,7 +129,7 @@ engineer's responsibility.\n\n",
                     format!("{} · {} · {} · {}", c.as_str(), f.as_str(), a.as_str(), w.as_str()),
                 _ => "not yet assessed".into(),
             },
-            sil(h.required_sil())
+            sil(p.required_sil(h))
         ));
         let sfs: Vec<&SafetyFunction> = p
             .safety_functions

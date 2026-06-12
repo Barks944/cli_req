@@ -930,6 +930,24 @@ fn sreq_verify_schema() -> Value {
 // ---------- dispatcher ----------
 
 fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
+    // REQ-0138: an agent (driving via MCP) cannot create or change safety
+    // artifacts until a human has accepted the disclaimer via the CLI.
+    // Reads (list/show/trace) are not gated.
+    const SAFETY_MUTATIONS: &[&str] = &[
+        "req_hazard_add",
+        "req_hazard_assess",
+        "req_hazard_update",
+        "req_sf_add",
+        "req_sf_update",
+        "req_sf_mitigate",
+        "req_sreq_add",
+        "req_sreq_update",
+        "req_sreq_realize",
+        "req_sreq_verify",
+    ];
+    if SAFETY_MUTATIONS.contains(&name) {
+        crate::commands::safety_gov::ensure_enabled_path(file)?;
+    }
     match name {
         "req_list" => tool_list(args, file),
         "req_show" => tool_show(args, file),
@@ -2917,7 +2935,7 @@ mod safety_mcp {
             updated: now,
             history: vec![commands::history("created", None)],
         };
-        let sil = h.required_sil();
+        let sil = p.required_sil(&h);
         p.hazards.insert(id.clone(), h);
         p.updated = now;
         storage::save(file, &p)?;
@@ -2939,7 +2957,7 @@ mod safety_mcp {
                 }
             }
             if let Some(want) = &sil {
-                if h.required_sil().map(|s| s.as_str().to_uppercase()) != Some(want.clone()) {
+                if p.required_sil(h).map(|s| s.as_str().to_uppercase()) != Some(want.clone()) {
                     continue;
                 }
             }
@@ -2948,7 +2966,7 @@ mod safety_mcp {
             }
             rows.push(json!({
                 "id": h.id, "title": h.title, "status": h.status.as_str(),
-                "required_sil": sil_s(h.required_sil()),
+                "required_sil": sil_s(p.required_sil(h)),
             }));
         }
         rows.sort_by(|x, y| x["id"].as_str().cmp(&y["id"].as_str()));
@@ -2961,7 +2979,7 @@ mod safety_mcp {
         let h = p.hazards.get(&id).ok_or_else(|| anyhow!("no such hazard: {}", id))?;
         Ok(serde_json::to_string_pretty(&json!({
             "hazard": h,
-            "required_sil": sil_s(h.required_sil()),
+            "required_sil": sil_s(p.required_sil(h)),
             "mitigated_by": p.safety_functions.values()
                 .filter(|sf| mitigates(sf, &id))
                 .map(|sf| sf.id.clone()).collect::<Vec<_>>(),
@@ -2993,7 +3011,7 @@ mod safety_mcp {
             h.history.push(commands::history("assessed", s(a, "reason")));
         }
         p.updated = now;
-        let sil = p.hazards[&id].required_sil();
+        let sil = p.required_sil(&p.hazards[&id]);
         storage::save(file, &p)?;
         Ok(serde_json::to_string_pretty(&json!({ "id": id, "required_sil": sil_s(sil) }))?)
     }
@@ -3527,7 +3545,7 @@ mod safety_mcp {
 
     fn trace_case(p: &Project, haz_id: &str) -> Value {
         let h = &p.hazards[haz_id];
-        let required = h.required_sil();
+        let required = p.required_sil(h);
         let sfs: Vec<&SafetyFunction> = p
             .safety_functions
             .values()

@@ -91,11 +91,22 @@ fn git_head() -> String {
 
 pub fn run_hazard(cmd: HazardCmd, file: &Option<PathBuf>) -> Result<()> {
     match cmd {
-        HazardCmd::Add(a) => hazard_add(a, file),
+        // REQ-0138: mutations require the safety features to be enabled
+        // (a human-accepted disclaimer file); reads do not.
+        HazardCmd::Add(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            hazard_add(a, file)
+        }
+        HazardCmd::Assess(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            hazard_assess(a, file)
+        }
+        HazardCmd::Update(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            hazard_update(a, file)
+        }
         HazardCmd::List(a) => hazard_list(a, file),
         HazardCmd::Show(a) => hazard_show(a, file),
-        HazardCmd::Assess(a) => hazard_assess(a, file),
-        HazardCmd::Update(a) => hazard_update(a, file),
     }
 }
 
@@ -143,7 +154,7 @@ fn hazard_add(args: HazardAddArgs, file: &Option<PathBuf>) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&hazard)?);
     } else {
         println!("Added {}", id);
-        match hazard.required_sil() {
+        match project.required_sil(&hazard) {
             Some(s) => println!("Assessed: required {}", s.as_str()),
             None => println!(
                 "Status: identified (run `req hazard assess {} -C .. -F .. -P .. -W ..` to derive a SIL)",
@@ -167,7 +178,7 @@ fn hazard_list(args: HazardListArgs, file: &Option<PathBuf>) -> Result<()> {
             sil_filter
                 .as_ref()
                 .map(|want| {
-                    h.required_sil()
+                    project.required_sil(h)
                         .map(|s| s.as_str().to_uppercase() == *want)
                         .unwrap_or(false)
                 })
@@ -198,7 +209,7 @@ fn hazard_list(args: HazardListArgs, file: &Option<PathBuf>) -> Result<()> {
         println!(
             "{:<9}  {:<6}  {:<11}  {}",
             h.id,
-            sil_str(h.required_sil()),
+            sil_str(project.required_sil(h)),
             h.status.as_str(),
             h.title
         );
@@ -231,7 +242,7 @@ fn hazard_show(args: HazardShowArgs, file: &Option<PathBuf>) -> Result<()> {
                 f.as_str(),
                 p.as_str(),
                 w.as_str(),
-                sil_str(h.required_sil())
+                sil_str(project.required_sil(h))
             );
         }
         _ => println!("  risk:        not yet assessed"),
@@ -273,7 +284,7 @@ fn hazard_assess(args: HazardAssessArgs, file: &Option<PathBuf>) -> Result<()> {
         h.history.push(super::history("assessed", args.reason.clone()));
     }
     project.updated = now;
-    let derived = project.hazards[&id].required_sil();
+    let derived = project.required_sil(&project.hazards[&id]);
     storage::save(&path, &project)?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&project.hazards[&id])?);
@@ -341,11 +352,20 @@ fn realizes(sr: &SafetyRequirement, sf_id: &str) -> bool {
 
 pub fn run_sf(cmd: SfCmd, file: &Option<PathBuf>) -> Result<()> {
     match cmd {
-        SfCmd::Add(a) => sf_add(a, file),
+        SfCmd::Add(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            sf_add(a, file)
+        }
+        SfCmd::Update(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            sf_update(a, file)
+        }
+        SfCmd::Mitigate(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            sf_mitigate(a, file)
+        }
         SfCmd::List(a) => sf_list(a, file),
         SfCmd::Show(a) => sf_show(a, file),
-        SfCmd::Update(a) => sf_update(a, file),
-        SfCmd::Mitigate(a) => sf_mitigate(a, file),
     }
 }
 
@@ -608,12 +628,24 @@ fn sf_mitigate(args: SfMitigateArgs, file: &Option<PathBuf>) -> Result<()> {
 
 pub fn run_sreq(cmd: SreqCmd, file: &Option<PathBuf>) -> Result<()> {
     match cmd {
-        SreqCmd::Add(a) => sreq_add(a, file),
+        SreqCmd::Add(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            sreq_add(a, file)
+        }
+        SreqCmd::Update(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            sreq_update(a, file)
+        }
+        SreqCmd::Realize(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            sreq_realize(a, file)
+        }
+        SreqCmd::Verify(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            sreq_verify(a, file)
+        }
         SreqCmd::List(a) => sreq_list(a, file),
         SreqCmd::Show(a) => sreq_show(a, file),
-        SreqCmd::Update(a) => sreq_update(a, file),
-        SreqCmd::Realize(a) => sreq_realize(a, file),
-        SreqCmd::Verify(a) => sreq_verify(a, file),
     }
 }
 
@@ -983,7 +1015,7 @@ struct Verdict {
 
 fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
     let h = &project.hazards[haz_id];
-    let required = h.required_sil();
+    let required = project.required_sil(h);
     let sfs: Vec<&SafetyFunction> = project
         .safety_functions
         .values()

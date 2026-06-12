@@ -1,0 +1,7 @@
+{
+  "_notice": "By committing this file the named person accepts the req functional-safety disclaimer: req is an unqualified aid (IEC 61508-3 §7.4.4), the SIL is a candidate, the software is provided AS IS with no warranty or liability, and the safety determination remains the user's responsibility.",
+  "accepted_by": "Tom <tom@augmentautomotive.co.uk>",
+  "at": "2026-06-12T15:19:15.561090017Z",
+  "tool_version": "0.5.0-rc.1",
+  "disclaimer_version": "1"
+}

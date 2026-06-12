@@ -929,6 +929,30 @@ artifacts, each with its own id space:
   SR-NNNN   Safety requirement  a normative obligation realizing a function
   REQ-NNNN  Requirement       ordinary requirements, unchanged
 
+ENABLING THE FEATURES — a human signs on first. The safety features are
+OFF until a person accepts the liability disclaimer:
+
+  req safety accept --name \"Your Name <you@example.com>\"
+
+This writes `req-safety-acceptance.json` beside project.req — COMMIT it.
+Its presence (for the current disclaimer version) is what activates
+hazards / safety functions / safety requirements; delete it and safety
+mutations stop. This is deliberately a HUMAN action: `req safety` is not
+on the agent/MCP surface, and `accept` refuses when REQ_ACTOR_KIND=agent.
+An agent can author hazards/SF/SR once a human has signed on, but it can
+never accept on your behalf. `req safety status` shows the current state.
+
+CALIBRATION — the risk-graph table is the IEC 61508-5 Annex D worked
+example, which the standard says you must calibrate per project/sector.
+Override only the leaves that differ; the rest keep the default:
+
+  req safety calibrate --label \"Acme rail rev 3\" \\
+    --set \"C_D/F_B/P_B=W3:4,W2:3,W1:2\"
+  req safety calibrate --show      # current calibration
+  req safety calibrate --reset     # back to the Annex D default
+
+Every SIL req then derives uses your calibration.
+
 THE WORKING RULE: you never type a SIL. It is DERIVED — from the hazard's
 risk parameters, then aggregated up the chain. There is no `--sil` flag,
 by design. This stops casual fudging and fat-finger errors; it does not

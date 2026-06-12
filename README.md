@@ -397,7 +397,7 @@ Issues and contributions: <https://github.com/Barks944/cli_req/issues>
 
 ## Functional safety — scope & disclaimer
 
-`req` can manage hazards, safety functions, and safety requirements on the IEC 61508 model (`req help safety`). Read this before using it for safety-related work:
+`req` can manage hazards, safety functions, and safety requirements on the IEC 61508 model (`req help safety`). **The features are off until a human signs on:** `req safety accept --name "..."` writes a committed `req-safety-acceptance.json` whose presence activates them — an agent cannot accept on your behalf (`req safety` is not on the MCP surface and refuses `REQ_ACTOR_KIND=agent`). Read this before using it for safety-related work:
 
 - **`req` is NOT a qualified safety tool.** Under IEC 61508-3 §7.4.4 (and ISO 26262-8), a tool whose output you rely on without independent verification needs a tool-confidence/qualification argument. `req` provides none. If you work to a functional-safety standard, qualifying it — or independently verifying every classification it computes — is **your** responsibility.
 - **The SIL is a *candidate*.** It is derived from the qualitative risk parameters you enter. The "derive, never type" design prevents casual fudging; it does **not** make the result objective or remove the need for competent review. The risk-graph table is the **worked example** from IEC 61508-5 Annex D — the standard requires a risk graph to be *calibrated per project/sector*, so confirm or recalibrate the SIL-band boundaries against your own scheme before relying on the result.

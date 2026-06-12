@@ -220,6 +220,7 @@ fn req_0016_serve_html_escapes_user_supplied_strings() {
 fn req_0134_serve_safety_view_and_api() {
     let s = Sandbox::new();
     s.init("p");
+    let _ = s.run(&["safety", "accept", "--name", "Test", "--yes"]);
     let _ = s.run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "operator could be hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
     let _ = s.run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
     let port = pick_free_port();

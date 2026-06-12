@@ -85,6 +85,8 @@ impl Command {
             Command::Sreq(SreqCmd::Realize(a)) => a.json,
             Command::Sreq(SreqCmd::Verify(a)) => a.json,
             Command::Trace(a) => a.json,
+            Command::Safety(SafetyCmd::Status(a)) => a.json,
+            Command::Safety(SafetyCmd::Calibrate(a)) => a.json,
             _ => false,
         }
     }
@@ -193,6 +195,57 @@ pub enum Command {
     /// REQ-0136: print the end-to-end safety case for a HAZ/SF/SR id —
     /// hazard → safety function → safety requirements → verification.
     Trace(TraceArgs),
+    /// REQ-0138: human-only functional-safety governance — accept the
+    /// liability disclaimer (which activates the safety features) and
+    /// manage the risk-graph calibration.
+    #[command(subcommand)]
+    Safety(SafetyCmd),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SafetyCmd {
+    /// Accept the safety disclaimer, writing the acceptance file that
+    /// activates hazards / safety functions / safety requirements.
+    Accept(SafetyAcceptArgs),
+    /// Show whether safety features are enabled and the calibration in use.
+    Status(SafetyStatusArgs),
+    /// View or edit the per-project risk-graph calibration (SIL bands).
+    Calibrate(SafetyCalibrateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SafetyAcceptArgs {
+    /// Who is accepting — recorded in the committed acceptance file.
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Skip the interactive confirmation (for a human scripting setup).
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SafetyStatusArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SafetyCalibrateArgs {
+    /// Set the human label for the calibration in use.
+    #[arg(long)]
+    pub label: Option<String>,
+    /// Override one leaf, repeatable: --set "C_D/F_B/P_B=W3:4,W2:3,W1:2".
+    /// Leaves not set keep the IEC 61508-5 Annex D default.
+    #[arg(long = "set")]
+    pub set: Vec<String>,
+    /// Clear all overrides and the label, reverting to the Annex D default.
+    #[arg(long)]
+    pub reset: bool,
+    /// Print the current calibration without changing it.
+    #[arg(long)]
+    pub show: bool,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Debug)]

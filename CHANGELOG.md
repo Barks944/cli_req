@@ -56,6 +56,28 @@ features keeps a byte-identical file.
   point at an upgrade; `req migrate` / auto-migrate carry v1 and v2 files
   forward.
 
+### Added (post-review safety surfaces)
+- **REQ-0138 (human-only safety governance + overridable calibration):**
+  the safety features are now **disabled until a human accepts the
+  liability disclaimer**. `req safety accept --name "..."` writes a
+  committed `req-safety-acceptance.json` whose presence (for the current
+  disclaimer version) activates hazards/SF/SR; an agent cannot accept —
+  `req safety` is off the MCP/TUI surface and `accept` refuses
+  `REQ_ACTOR_KIND=agent` and requires a TTY (or explicit `--yes`). `req
+  safety calibrate` makes the IEC 61508-5 Annex D risk-graph table a
+  **per-project, leaf-overridable default** (`--set "C_D/F_B/P_B=W3:4,
+  W2:3,W1:2"`, `--label`, `--show`, `--reset`); every derived SIL then
+  uses your calibration. `req safety status` reports both.
+- **Evidence-honesty loop:** `req test run` maps `sr_NNNN_*` tests to
+  safety requirements (commit-stamped, content-hashed), and `req stale`
+  now flags a SIL 3/4 SR whose linked code moved — so an "automated"
+  claim means a test actually ran against this code state.
+- **`// SR-NNNN` coverage** in `req coverage` (orphans / ghosts, folded
+  into `--strict`).
+- **Read-only safety web views** (`GET /safety` HARA table + disclaimer,
+  `GET /api/safety`) and a **HARA section** in the markdown/HTML export.
+- A TUI safety-review entry and its smoke test.
+
 ### Hardened (pre-publish code review)
 - **Honesty over assurance.** `req` does not pretend to be a qualified
   safety tool. `req trace` now reports a *traceability* roll-up

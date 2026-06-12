@@ -63,7 +63,56 @@ pub struct ProjectConfig {
     pub gate: Option<GateConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lint: Option<LintConfig>,
+    /// REQ-0138: functional-safety governance — the risk-graph
+    /// calibration in use and the one-time liability acknowledgement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety: Option<SafetyConfig>,
 }
+
+/// REQ-0138: per-project functional-safety governance. Both fields are
+/// set deliberately by a human via `req safety` (never an agent).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SafetyConfig {
+    /// A human label for the risk-graph calibration in use, e.g.
+    /// "IEC 61508-5 Annex D (default)" or "AcmeRail scheme rev 3".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calibration_label: Option<String>,
+    /// Per-leaf SIL overrides. Leaf key is "C_x/F_x/P_x" (e.g.
+    /// "C_D/F_B/P_B"); leaves absent here fall back to the Annex D
+    /// worked-example default, so this is "override only what differs".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calibration: Option<BTreeMap<String, CalibrationRow>>,
+}
+
+/// REQ-0138: the three SIL outcomes for one (C,F,P) leaf, indexed by the
+/// W parameter. This is the unit a calibration overrides.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct CalibrationRow {
+    pub w1: Sil,
+    pub w2: Sil,
+    pub w3: Sil,
+}
+
+/// REQ-0138: a recorded, dated acknowledgement of the safety disclaimer.
+/// Serialised to a sibling acceptance FILE in the repo (not into the
+/// integrity-hashed spec), so it shows up in PR diffs and a reviewer can
+/// see who turned the safety features on. `disclaimer_version` lets a
+/// future wording change re-require sign-on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisclaimerAcceptance {
+    /// Human-readable notice carried in the file so anyone reading the
+    /// repo sees what was accepted, not just that something was.
+    #[serde(rename = "_notice", default, skip_serializing_if = "String::is_empty")]
+    pub notice: String,
+    pub accepted_by: String,
+    pub at: DateTime<Utc>,
+    pub tool_version: String,
+    pub disclaimer_version: String,
+}
+
+/// REQ-0138: bump when the substance of the safety disclaimer changes so
+/// existing projects are prompted to re-acknowledge.
+pub const SAFETY_DISCLAIMER_VERSION: &str = "1";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CoverageConfig {
@@ -150,6 +199,26 @@ impl Project {
     /// the IEC 61508 allocation rule — a function protecting against two
     /// hazards inherits the worse of the two. Returns `None` when the SF
     /// mitigates no hazards, or none of them are assessed yet.
+    /// REQ-0138: the project's calibration override table, if any.
+    pub fn calibration(&self) -> Option<&BTreeMap<String, CalibrationRow>> {
+        self.config
+            .as_ref()
+            .and_then(|c| c.safety.as_ref())
+            .and_then(|s| s.calibration.as_ref())
+    }
+
+    /// REQ-0138: a hazard's required SIL under THIS project's calibration
+    /// (falling back to Annex D per-leaf). Prefer this over
+    /// `Hazard::required_sil`, which always uses the default calibration.
+    pub fn required_sil(&self, h: &Hazard) -> Option<Sil> {
+        match (h.consequence, h.frequency, h.avoidance, h.probability) {
+            (Some(c), Some(f), Some(p), Some(w)) => {
+                Some(determine_sil_calibrated(c, f, p, w, self.calibration()))
+            }
+            _ => None,
+        }
+    }
+
     pub fn allocated_sil(&self, sf: &SafetyFunction) -> Option<Sil> {
         sf.links
             .iter()
@@ -159,7 +228,8 @@ impl Project {
             // into a live function's allocation — that would disagree
             // with the validator, which only counts live mitigations.
             .filter(|h| !matches!(h.status, HazardStatus::Obsolete))
-            .filter_map(|h| h.required_sil())
+            // REQ-0138: use the project's calibration, not the default.
+            .filter_map(|h| self.required_sil(h))
             .max_by_key(|s| s.rank())
     }
 
@@ -741,6 +811,22 @@ impl Sil {
         }
     }
 
+    /// REQ-0138: parse a SIL from a calibration token. Accepts the
+    /// canonical forms plus shorthands: `1..4`, `SIL1..SIL4`, `a`, `b`,
+    /// and `none`/`-`/`—` for "no safety requirement". Case-insensitive.
+    pub fn parse(s: &str) -> Option<Sil> {
+        match s.trim().to_lowercase().as_str() {
+            "none" | "-" | "—" | "" => Some(Sil::NoneRequired),
+            "a" => Some(Sil::A),
+            "1" | "sil1" => Some(Sil::Sil1),
+            "2" | "sil2" => Some(Sil::Sil2),
+            "3" | "sil3" => Some(Sil::Sil3),
+            "4" | "sil4" => Some(Sil::Sil4),
+            "b" => Some(Sil::B),
+            _ => None,
+        }
+    }
+
 }
 
 /// REQ-0134: the IEC 61508-5 Annex D risk graph — the standard's WORKED
@@ -790,6 +876,37 @@ pub fn determine_sil(
         W2 => row[1],
         W1 => row[2],
     }
+}
+
+/// REQ-0138: the canonical calibration-leaf key for a (C,F,P) triple,
+/// e.g. "C_D/F_B/P_B". This is how a per-project calibration addresses
+/// the cell it overrides.
+pub fn calibration_leaf(c: Consequence, f: Frequency, p: Avoidance) -> String {
+    format!("{}/{}/{}", c.as_str(), f.as_str(), p.as_str())
+}
+
+/// REQ-0138: resolve a SIL for the four risk parameters, honouring a
+/// per-project calibration override for the matching leaf and falling
+/// back to the Annex D worked-example default (`determine_sil`) for any
+/// leaf the calibration does not override. The "sensible defaults" half
+/// of full-overridable calibration.
+pub fn determine_sil_calibrated(
+    c: Consequence,
+    f: Frequency,
+    p: Avoidance,
+    w: Probability,
+    calibration: Option<&BTreeMap<String, CalibrationRow>>,
+) -> Sil {
+    if let Some(table) = calibration {
+        if let Some(row) = table.get(&calibration_leaf(c, f, p)) {
+            return match w {
+                Probability::W1 => row.w1,
+                Probability::W2 => row.w2,
+                Probability::W3 => row.w3,
+            };
+        }
+    }
+    determine_sil(c, f, p, w)
 }
 
 /// Lifecycle of a hazard. Mirrors the requirement ladder's shape but
@@ -857,17 +974,10 @@ pub struct Hazard {
 }
 
 impl Hazard {
-    /// The required SIL, derived from the risk graph. `None` until all
-    /// four risk parameters are present (i.e. until the hazard is
-    /// assessed). This is the only way a hazard's SIL is ever produced.
-    pub fn required_sil(&self) -> Option<Sil> {
-        match (self.consequence, self.frequency, self.avoidance, self.probability) {
-            (Some(c), Some(f), Some(p), Some(w)) => Some(determine_sil(c, f, p, w)),
-            _ => None,
-        }
-    }
-
-    /// True once every risk parameter is set.
+    /// True once every risk parameter is set. (The required SIL itself is
+    /// derived via `Project::required_sil`, which also applies the
+    /// project's calibration — there is no hazard-local SIL getter so a
+    /// caller can't accidentally bypass the calibration.)
     pub fn is_assessed(&self) -> bool {
         self.consequence.is_some()
             && self.frequency.is_some()

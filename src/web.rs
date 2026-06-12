@@ -180,7 +180,7 @@ async fn safety_html(
                 }
             }
         }
-        let adequate = match (hz.required_sil(), allocated) {
+        let adequate = match (project.required_sil(hz), allocated) {
             (Some(r), Some(a)) => a.rank() >= r.rank(),
             (Some(_), None) => false,
             (None, _) => true,
@@ -191,7 +191,7 @@ async fn safety_html(
             id = h(id),
             title = h(&hz.title),
             harm = h(&hz.harm),
-            req = sil_s(hz.required_sil()),
+            req = sil_s(project.required_sil(hz)),
             alloc = sil_s(allocated),
             v = verified,
             t = total,

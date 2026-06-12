@@ -65,6 +65,9 @@ fn text_of(response: &serde_json::Value) -> String {
 const HUMANS_ONLY_TUI: &[&str] = &[
     "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "migrate", "schema", "batch",
     "import", "test", "verify", "check", "help", "setup", "precheck", "purpose", "adopt",
+    // REQ-0138: `req safety` (disclaimer acceptance + calibration) is a
+    // deliberate governance action driven from the shell, not the menu.
+    "safety",
 ];
 
 #[test]
@@ -147,6 +150,10 @@ fn req_0083_tui_menu_covers_every_agent_relevant_cli_command() {
 const HUMANS_ONLY_CLI: &[&str] = &[
     "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "setup", "precheck", "purpose",
     "adopt",
+    // REQ-0138: accepting the liability disclaimer and recalibrating risk
+    // are deliberate human governance actions — `req safety` is kept off
+    // the agent/MCP surface on purpose.
+    "safety",
 ];
 
 #[test]
