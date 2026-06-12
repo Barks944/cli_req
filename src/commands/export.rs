@@ -6,7 +6,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::cli::{ExportArgs, ExportFormat};
-use crate::model::{LinkKind, Project, Requirement, SafetyFunction, SafetyRequirement, Sil, Status};
+use crate::model::{
+    LinkKind, Project, Requirement, SafetyFunction, SafetyRequirement, Sil, Status,
+};
 use crate::storage::load_resolved;
 
 pub fn run(args: ExportArgs, file: &Option<PathBuf>) -> Result<()> {
@@ -52,7 +54,10 @@ fn safety_markdown(p: &Project) -> String {
     if p.hazards.is_empty() {
         return String::new();
     }
-    let sil = |s: Option<Sil>| s.map(|s| s.as_str().to_string()).unwrap_or_else(|| "—".into());
+    let sil = |s: Option<Sil>| {
+        s.map(|s| s.as_str().to_string())
+            .unwrap_or_else(|| "—".into())
+    };
     let mut s = String::new();
     s.push_str("# Functional safety (IEC 61508)\n\n");
     s.push_str(&format!(
@@ -74,7 +79,9 @@ engineer's responsibility.\n\n",
 
     // HARA overview table.
     s.push_str("## Hazard analysis & risk assessment\n\n");
-    s.push_str("| Hazard | Harm | C/F/P/W | Required SIL | Allocated SIL | SRs verified | Case |\n");
+    s.push_str(
+        "| Hazard | Harm | C/F/P/W | Required SIL | Allocated SIL | SRs verified | Case |\n",
+    );
     s.push_str("|---|---|---|---|---|---|---|\n");
     for (id, h) in &p.hazards {
         let sfs: Vec<&SafetyFunction> = p
@@ -95,7 +102,13 @@ engineer's responsibility.\n\n",
         let complete = adequate && total > 0 && verified == total && !sfs.is_empty();
         let cfpw = match (h.consequence, h.frequency, h.avoidance, h.probability) {
             (Some(c), Some(f), Some(a), Some(w)) => {
-                format!("{}·{}·{}·{}", c.as_str(), f.as_str(), a.as_str(), w.as_str())
+                format!(
+                    "{}·{}·{}·{}",
+                    c.as_str(),
+                    f.as_str(),
+                    a.as_str(),
+                    w.as_str()
+                )
             }
             _ => "—".into(),
         };
@@ -109,24 +122,37 @@ engineer's responsibility.\n\n",
             sil(allocated),
             verified,
             total,
-            if complete { "✓ complete" } else { "⚠ incomplete" },
+            if complete {
+                "✓ complete"
+            } else {
+                "⚠ incomplete"
+            },
         ));
     }
     s.push('\n');
 
+    // REQ-0136: per-hazard safety-case section of the HARA export.
     // Per-hazard safety case.
     s.push_str("## Safety cases\n\n");
     for (id, h) in &p.hazards {
         s.push_str(&format!("### {} — {}\n\n", id, h.title));
         s.push_str(&format!("- **Harm.** {}\n", h.harm));
         if !h.operating_context.is_empty() {
-            s.push_str(&format!("- **Operating context.** {}\n", h.operating_context));
+            s.push_str(&format!(
+                "- **Operating context.** {}\n",
+                h.operating_context
+            ));
         }
         s.push_str(&format!(
             "- **Risk.** {} → required **{}**\n",
             match (h.consequence, h.frequency, h.avoidance, h.probability) {
-                (Some(c), Some(f), Some(a), Some(w)) =>
-                    format!("{} · {} · {} · {}", c.as_str(), f.as_str(), a.as_str(), w.as_str()),
+                (Some(c), Some(f), Some(a), Some(w)) => format!(
+                    "{} · {} · {} · {}",
+                    c.as_str(),
+                    f.as_str(),
+                    a.as_str(),
+                    w.as_str()
+                ),
                 _ => "not yet assessed".into(),
             },
             sil(p.required_sil(h))
@@ -146,14 +172,23 @@ engineer's responsibility.\n\n",
                 sf.title,
                 sil(p.allocated_sil(sf)),
                 sf.status.as_str(),
-                if sf.safe_state.is_empty() { "—" } else { &sf.safe_state }
+                if sf.safe_state.is_empty() {
+                    "—"
+                } else {
+                    &sf.safe_state
+                }
             ));
+            // REQ-0136: render each realizing safety requirement under its SF.
             for sr in p
                 .safety_requirements
                 .values()
                 .filter(|sr| sr_realizes(sr, &sf.id))
             {
-                let mark = if matches!(sr.status, Status::Verified) { "✓" } else { "⚠" };
+                let mark = if matches!(sr.status, Status::Verified) {
+                    "✓"
+                } else {
+                    "⚠"
+                };
                 s.push_str(&format!(
                     "  - {} {} {} — _{}_ (inherits {})\n",
                     mark,

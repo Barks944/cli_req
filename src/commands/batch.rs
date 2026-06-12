@@ -230,6 +230,8 @@ fn apply_one(
                     reason.clone().or_else(|| default_reason.clone()),
                 )],
                 tests: Vec::new(),
+                // REQ-0139: new requirements start without a validation dossier.
+                validation: None,
             };
             let findings = validate::validate_requirement(&req);
             let errs = validate::errors_only(&findings);

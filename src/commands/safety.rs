@@ -165,6 +165,7 @@ fn hazard_add(args: HazardAddArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+// REQ-0134: list hazards with their derived required SIL.
 fn hazard_list(args: HazardListArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_path, project) = load_resolved(file)?;
     let status_filter: Option<HazardStatus> = args.status.map(Into::into);
@@ -178,7 +179,8 @@ fn hazard_list(args: HazardListArgs, file: &Option<PathBuf>) -> Result<()> {
             sil_filter
                 .as_ref()
                 .map(|want| {
-                    project.required_sil(h)
+                    project
+                        .required_sil(h)
                         .map(|s| s.as_str().to_uppercase() == *want)
                         .unwrap_or(false)
                 })
@@ -267,6 +269,7 @@ fn hazard_show(args: HazardShowArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+// REQ-0134: set C/F/P/W and derive the required SIL.
 fn hazard_assess(args: HazardAssessArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_haz(&project, &args.id)?;
@@ -281,7 +284,8 @@ fn hazard_assess(args: HazardAssessArgs, file: &Option<PathBuf>) -> Result<()> {
             h.status = HazardStatus::Assessed;
         }
         h.updated = now;
-        h.history.push(super::history("assessed", args.reason.clone()));
+        h.history
+            .push(super::history("assessed", args.reason.clone()));
     }
     project.updated = now;
     let derived = project.required_sil(&project.hazards[&id]);
@@ -294,6 +298,7 @@ fn hazard_assess(args: HazardAssessArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+// REQ-0134: edit a hazard's fields / lifecycle status.
 fn hazard_update(args: HazardUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_haz(&project, &args.id)?;
@@ -322,7 +327,9 @@ fn hazard_update(args: HazardUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         h.tags.retain(|t| !args.remove_tag.contains(t));
         h.updated = now;
-        h.history.push(super::history("updated", args.reason.clone()));
+        // SR-0003: record append-only reasoned history for safety mutations.
+        h.history
+            .push(super::history("updated", args.reason.clone()));
     }
     project.updated = now;
     storage::save(&path, &project)?;
@@ -529,6 +536,7 @@ fn sf_show(args: SfShowArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+// REQ-0134: edit a safety function's fields / lifecycle status.
 fn sf_update(args: SfUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_sf(&project, &args.id)?;
@@ -554,7 +562,9 @@ fn sf_update(args: SfUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         sf.tags.retain(|t| !args.remove_tag.contains(t));
         sf.updated = now;
-        sf.history.push(super::history("updated", args.reason.clone()));
+        // SR-0003: record append-only reasoned history for safety mutations.
+        sf.history
+            .push(super::history("updated", args.reason.clone()));
     }
     project.updated = now;
     storage::save(&path, &project)?;
@@ -569,6 +579,7 @@ fn sf_update(args: SfUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+// REQ-0134: link/unlink a safety function to a hazard it mitigates.
 fn sf_mitigate(args: SfMitigateArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let sf_id = resolve_sf(&project, &args.sf)?;
@@ -579,8 +590,10 @@ fn sf_mitigate(args: SfMitigateArgs, file: &Option<PathBuf>) -> Result<()> {
         if args.remove {
             sf.links
                 .retain(|l| !(l.kind == LinkKind::Mitigates && l.target == haz_id));
-            sf.history
-                .push(super::history(format!("unlinked mitigates {}", haz_id), None));
+            sf.history.push(super::history(
+                format!("unlinked mitigates {}", haz_id),
+                None,
+            ));
         } else if mitigates(sf, &haz_id) {
             return Err(anyhow!("{} already mitigates {}", sf_id, haz_id));
         } else {
@@ -677,6 +690,8 @@ fn sreq_add(args: SreqAddArgs, file: &Option<PathBuf>) -> Result<()> {
         updated: now,
         history: vec![super::history("created", None)],
         tests: Vec::new(),
+        // REQ-0139: a new safety requirement starts without a validation dossier.
+        validation: None,
     };
     project.safety_requirements.insert(id.clone(), sr.clone());
     project.updated = now;
@@ -741,6 +756,7 @@ fn sreq_list(args: SreqListArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+// REQ-0134: show a safety requirement with its inherited SIL and evidence.
 fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_path, project) = load_resolved(file)?;
     let id = resolve_sr(&project, &args.id)?;
@@ -783,7 +799,11 @@ fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
         Some(t) => println!(
             "  evidence:     {} · {} · {}",
             t.kind.as_str(),
-            if t.commit.is_empty() { "—" } else { &t.commit[..t.commit.len().min(8)] },
+            if t.commit.is_empty() {
+                "—"
+            } else {
+                &t.commit[..t.commit.len().min(8)]
+            },
             t.outcome.as_str()
         ),
         None => println!("  evidence:     none"),
@@ -792,6 +812,7 @@ fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+// REQ-0134: edit a safety requirement's fields / lifecycle status.
 fn sreq_update(args: SreqUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_sr(&project, &args.id)?;
@@ -826,7 +847,9 @@ fn sreq_update(args: SreqUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         sr.tags.retain(|t| !args.remove_tag.contains(t));
         sr.updated = now;
-        sr.history.push(super::history("updated", args.reason.clone()));
+        // SR-0003: record append-only reasoned history for safety mutations.
+        sr.history
+            .push(super::history("updated", args.reason.clone()));
     }
     project.updated = now;
     storage::save(&path, &project)?;
@@ -892,6 +915,10 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     // overrides them and records a structured, audited exception.
     let mut gate_exception = false;
     if args.promote {
+        // REQ-0139: a passing validation dossier is the precondition for a
+        // safety requirement to reach Verified. There is no tag exemption
+        // for safety (only an audited `req validation backfill`).
+        super::validation::gate_safety_requirement(&project.safety_requirements[&id])?;
         // Status-ladder guard, mirroring ordinary `req verify`: promote
         // only from Implemented (or re-affirming Verified); never resurrect
         // an Obsolete requirement, except under an explicit --force.
@@ -906,6 +933,7 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         // SIL-rigour gate: a SIL 3/4 requirement cannot be VERIFIED on
         // inspection-only evidence.
+        // SR-0002: gate Verified on SIL-adequate evidence.
         if let Some(sil) = inherited {
             if sil.rank() >= Sil::Sil3.rank() && matches!(kind, EvidenceKind::Inspection) {
                 if args.force {
@@ -995,10 +1023,7 @@ pub fn run_trace(args: TraceArgs, file: &Option<PathBuf>) -> Result<()> {
         let id = resolve_sr(&project, &args.id)?;
         trace_from_sr(&project, &id, args.json)
     } else {
-        Err(anyhow!(
-            "trace expects a HAZ-/SF-/SR- id; got {}",
-            args.id
-        ))
+        Err(anyhow!("trace expects a HAZ-/SF-/SR- id; got {}", args.id))
     }
 }
 
@@ -1013,6 +1038,7 @@ struct Verdict {
     blocking: Vec<String>,
 }
 
+// REQ-0136: roll up a hazard's safety case for `req trace`.
 fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
     let h = &project.hazards[haz_id];
     let required = project.required_sil(h);
@@ -1064,6 +1090,7 @@ fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
     }
 }
 
+// REQ-0136: print the end-to-end safety case for a hazard.
 fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     let h = &project.hazards[haz_id];
     let v = assess_hazard(project, haz_id);
@@ -1089,7 +1116,11 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     match (h.consequence, h.frequency, h.avoidance, h.probability) {
         (Some(c), Some(f), Some(p), Some(w)) => println!(
             "  risk:     {} · {} · {} · {}  ──►  required {}",
-            c.as_str(), f.as_str(), p.as_str(), w.as_str(), sil_str(v.required)
+            c.as_str(),
+            f.as_str(),
+            p.as_str(),
+            w.as_str(),
+            sil_str(v.required)
         ),
         _ => println!("  risk:     not yet assessed"),
     }
@@ -1140,9 +1171,15 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
             };
             println!(
                 "          {}  {}  [{}] {}",
-                sr.id, sr.title, sr.status.as_str(), mark
+                sr.id,
+                sr.title,
+                sr.status.as_str(),
+                mark
             );
-            println!("            inherits SIL {}", sil_str(project.inherited_sil(sr)));
+            println!(
+                "            inherits SIL {}",
+                sil_str(project.inherited_sil(sr))
+            );
             match sr.tests.last() {
                 Some(t) => println!(
                     "            evidence: {} · {}",
@@ -1231,7 +1268,10 @@ fn trace_from_sf(project: &Project, sf_id: &str, json: bool) -> Result<()> {
                 "{} mitigates no hazard yet — nothing to trace upward.",
                 sf_id
             );
-            println!("Run `req sf show {}` for its realizing requirements.", sf_id);
+            println!(
+                "Run `req sf show {}` for its realizing requirements.",
+                sf_id
+            );
         }
         return Ok(());
     }

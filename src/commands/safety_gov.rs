@@ -211,7 +211,11 @@ fn status(args: SafetyStatusArgs, file: &Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
 
-    println!("Functional safety: {}", if enabled { "ENABLED" } else { "disabled" });
+    // REQ-0138: report the governance state — enablement, acceptance, calibration.
+    println!(
+        "Functional safety: {}",
+        if enabled { "ENABLED" } else { "disabled" }
+    );
     match &acceptance {
         Some(a) => println!(
             "  accepted by {} on {} (req {}, disclaimer v{})",
@@ -220,13 +224,13 @@ fn status(args: SafetyStatusArgs, file: &Option<PathBuf>) -> Result<()> {
             a.tool_version,
             a.disclaimer_version
         ),
-        None => println!(
-            "  no acceptance file — run `req safety accept --name \"...\"` to enable"
-        ),
+        None => println!("  no acceptance file — run `req safety accept --name \"...\"` to enable"),
     }
     println!(
         "  calibration: {} ({} leaf override(s))",
-        cal_label.as_deref().unwrap_or("IEC 61508-5 Annex D (default)"),
+        cal_label
+            .as_deref()
+            .unwrap_or("IEC 61508-5 Annex D (default)"),
         cal_overrides
     );
     Ok(())
@@ -303,10 +307,14 @@ fn print_calibration(project: &crate::model::Project) {
 /// Parse `--set "C_D/F_B/P_B=W3:4,W2:3,W1:2"`. All three W values are
 /// required; their SIL tokens accept `1..4`, `SIL1..SIL4`, `a`, `b`, or
 /// `none`. The leaf must be a valid (C,F,P) combination.
+// REQ-0138: parse a calibration override row from the governance CLI.
 fn parse_set(spec: &str) -> Result<(String, CalibrationRow)> {
-    let (leaf_raw, rhs) = spec
-        .split_once('=')
-        .ok_or_else(|| anyhow!("--set expects LEAF=W3:x,W2:y,W1:z (missing '=' in '{}')", spec))?;
+    let (leaf_raw, rhs) = spec.split_once('=').ok_or_else(|| {
+        anyhow!(
+            "--set expects LEAF=W3:x,W2:y,W1:z (missing '=' in '{}')",
+            spec
+        )
+    })?;
     let leaf = validate_leaf(leaf_raw.trim())?;
     let (mut w1, mut w2, mut w3) = (None, None, None);
     for tok in rhs.split(',') {

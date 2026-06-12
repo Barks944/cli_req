@@ -189,6 +189,7 @@ pub fn load_with_options(path: &Path, force: bool) -> Result<Project> {
 
     let payload = Value::Object(root);
     let actual = integrity_hash(&payload);
+    // SR-0001: refuse to load a spec whose content fails its integrity hash.
     if !force && actual != stored_hash {
         return Err(anyhow!(
             "integrity check failed for {} — file appears to have been edited \
@@ -441,9 +442,18 @@ pub fn load_directory(root: &Path, force: bool) -> Result<Project> {
             .remove("safety_requirements")
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default(),
-        next_haz_id: root_obj.get("next_haz_id").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
-        next_sf_id: root_obj.get("next_sf_id").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
-        next_sr_id: root_obj.get("next_sr_id").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+        next_haz_id: root_obj
+            .get("next_haz_id")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as u32,
+        next_sf_id: root_obj
+            .get("next_sf_id")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as u32,
+        next_sr_id: root_obj
+            .get("next_sr_id")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as u32,
         purpose: root_obj
             .remove("_purpose")
             .and_then(|v| serde_json::from_value(v).ok()),
@@ -495,21 +505,30 @@ fn directory_integrity(project: &Project) -> Result<String> {
 fn insert_safety_fields(map: &mut Map<String, Value>, project: &Project) -> Result<()> {
     if !project.hazards.is_empty() {
         map.insert("hazards".into(), serde_json::to_value(&project.hazards)?);
-        map.insert("next_haz_id".into(), Value::Number(project.next_haz_id.into()));
+        map.insert(
+            "next_haz_id".into(),
+            Value::Number(project.next_haz_id.into()),
+        );
     }
     if !project.safety_functions.is_empty() {
         map.insert(
             "safety_functions".into(),
             serde_json::to_value(&project.safety_functions)?,
         );
-        map.insert("next_sf_id".into(), Value::Number(project.next_sf_id.into()));
+        map.insert(
+            "next_sf_id".into(),
+            Value::Number(project.next_sf_id.into()),
+        );
     }
     if !project.safety_requirements.is_empty() {
         map.insert(
             "safety_requirements".into(),
             serde_json::to_value(&project.safety_requirements)?,
         );
-        map.insert("next_sr_id".into(), Value::Number(project.next_sr_id.into()));
+        map.insert(
+            "next_sr_id".into(),
+            Value::Number(project.next_sr_id.into()),
+        );
     }
     Ok(())
 }

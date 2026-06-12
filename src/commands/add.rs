@@ -171,6 +171,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         updated: now,
         history: vec![super::history("created", None)],
         tests: Vec::new(),
+        validation: None,
     };
 
     let findings = validate::validate_requirement(&req);

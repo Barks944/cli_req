@@ -187,10 +187,7 @@ fn safety_flow(file: &Option<PathBuf>, theme: &ColorfulTheme) -> Result<()> {
         if id.trim().is_empty() {
             return Ok(());
         }
-        return commands::safety::run_trace(
-            crate::cli::TraceArgs { id, json: false },
-            file,
-        );
+        return commands::safety::run_trace(crate::cli::TraceArgs { id, json: false }, file);
     }
     // The three list views are non-interactive — factored out so they can
     // be smoke-tested without driving the terminal menu (REQ-0134).

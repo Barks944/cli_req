@@ -63,11 +63,32 @@ fn text_of(response: &serde_json::Value) -> String {
 /// `import` are file-driven operations users typically run from the
 /// shell.
 const HUMANS_ONLY_TUI: &[&str] = &[
-    "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "migrate", "schema", "batch",
-    "import", "test", "verify", "check", "help", "setup", "precheck", "purpose", "adopt",
+    "init",
+    "tui",
+    "serve",
+    "mcp",
+    "hooks",
+    "renumber",
+    "repair",
+    "migrate",
+    "schema",
+    "batch",
+    "import",
+    "test",
+    "verify",
+    "check",
+    "help",
+    "setup",
+    "precheck",
+    "purpose",
+    "adopt",
     // REQ-0138: `req safety` (disclaimer acceptance + calibration) is a
     // deliberate governance action driven from the shell, not the menu.
     "safety",
+    // REQ-0139: `req validation` is a multi-step, free-text dossier flow
+    // (plan/analysis/test/conclude) driven from the CLI/MCP, like `verify`
+    // and `test` above — not a single-shot human menu action.
+    "validation",
 ];
 
 #[test]

@@ -123,6 +123,14 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0031",
         "SIL 3/4 safety requirement verified on inspection-only evidence (error without an audited --force exception; warn with one)",
     ),
+    (
+        "REQ-V-0032",
+        "requirement is Verified but has no passing validation dossier and is not validation-exempt",
+    ),
+    (
+        "REQ-V-0033",
+        "safety requirement is Verified but has no passing validation dossier",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -536,6 +544,22 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     ));
                 }
             }
+            // REQ-0139 / REQ-V-0032: Verified requires a passing validation
+            // dossier (plan → analysis → testing → statement → verdict)
+            // unless the requirement carries a configured exempt tag.
+            let dossier_ok = r.validation.as_ref().map(|v| v.passed()).unwrap_or(false);
+            if !dossier_ok && !p.req_is_validation_exempt(r) {
+                findings.push(Finding::err(
+                    "REQ-V-0032",
+                    "validation",
+                    format!(
+                        "{} is Verified but has no passing validation dossier — run `req validation plan {} ...` → analysis → test → conclude, or tag it `{}`",
+                        r.id,
+                        r.id,
+                        crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                    ),
+                ));
+            }
         }
         if !findings.is_empty() {
             out.push((id.clone(), findings));
@@ -817,6 +841,7 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             updated: sr.updated,
             history: Vec::new(),
             tests: sr.tests.clone(),
+            validation: None,
         };
         for f in validate_requirement(&shim) {
             push(id, f);
@@ -834,6 +859,23 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
         }
         if matches!(sr.status, Status::Verified) {
+            // REQ-0139 / REQ-V-0033: a Verified safety requirement must
+            // carry a passing validation dossier (no tag exemption for
+            // safety; an audited back-fill counts as passing).
+            let dossier_ok = sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false);
+            if !dossier_ok {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0033",
+                        "validation",
+                        format!(
+                            "{} is Verified but has no passing validation dossier — run `req validation plan {} ...` → analysis → test → conclude",
+                            id, id
+                        ),
+                    ),
+                );
+            }
             let last_pass = sr
                 .tests
                 .iter()

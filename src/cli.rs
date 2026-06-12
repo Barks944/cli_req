@@ -87,6 +87,12 @@ impl Command {
             Command::Trace(a) => a.json,
             Command::Safety(SafetyCmd::Status(a)) => a.json,
             Command::Safety(SafetyCmd::Calibrate(a)) => a.json,
+            Command::Validation(ValidationCmd::Plan(a)) => a.json,
+            Command::Validation(ValidationCmd::Analysis(a)) => a.json,
+            Command::Validation(ValidationCmd::Test(a)) => a.json,
+            Command::Validation(ValidationCmd::Conclude(a)) => a.json,
+            Command::Validation(ValidationCmd::Show(a)) => a.json,
+            Command::Validation(ValidationCmd::Backfill(a)) => a.json,
             _ => false,
         }
     }
@@ -200,6 +206,117 @@ pub enum Command {
     /// manage the risk-graph calibration.
     #[command(subcommand)]
     Safety(SafetyCmd),
+    /// REQ-0139: the staged validation dossier (plan → analysis → testing
+    /// → statement → verdict) that gates promotion to Verified. Works on a
+    /// REQ-NNNN or SR-NNNN id.
+    #[command(subcommand)]
+    Validation(ValidationCmd),
+}
+
+/// REQ-0139: subcommands of `req validation`. Each takes a REQ-/SR- id and
+/// advances the dossier one stage; the stages must be filled in order.
+#[derive(Subcommand, Debug)]
+pub enum ValidationCmd {
+    /// Stage 1 — open the dossier and record HOW the obligation will be
+    /// validated (the analysis + testing approach).
+    Plan(ValidationPlanArgs),
+    /// Stage 2 — record validation by analysis (code review): findings and
+    /// a pass/fail outcome.
+    Analysis(ValidationActivityArgs),
+    /// Stage 3 — record validation by testing: findings and a pass/fail
+    /// outcome, citing recorded test evidence where it exists.
+    Test(ValidationActivityArgs),
+    /// Stage 4 — record the validation statement, derive the verdict, and
+    /// optionally promote to Verified.
+    Conclude(ValidationConcludeArgs),
+    /// Show the dossier for a requirement or safety requirement.
+    Show(ValidationShowArgs),
+    /// Grandfather already-Verified items that pre-date the dossier by
+    /// recording an audited exemption so a strict `req validate` passes.
+    Backfill(ValidationBackfillArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationPlanArgs {
+    /// REQ-NNNN or SR-NNNN id.
+    pub id: String,
+    /// How this obligation will be validated — the analysis (review) and
+    /// testing approach.
+    #[arg(long)]
+    pub plan: String,
+    /// Re-open a concluded dossier (clears the prior verdict/statement so
+    /// the item can be re-validated). Requires --reason.
+    #[arg(long, requires = "reason")]
+    pub reopen: bool,
+    /// Justification, required with --reopen. Recorded in history.
+    #[arg(long)]
+    pub reason: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationActivityArgs {
+    /// REQ-NNNN or SR-NNNN id.
+    pub id: String,
+    /// Findings — what was reviewed/run and what was observed.
+    #[arg(long)]
+    pub findings: String,
+    /// This dimension's outcome.
+    #[arg(long, value_enum, ignore_case = true)]
+    pub result: TestResultArg,
+    /// Supporting references — files/commits reviewed (analysis) or test
+    /// names / records cited (testing). Repeatable.
+    #[arg(long = "ref")]
+    pub references: Vec<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationConcludeArgs {
+    /// REQ-NNNN or SR-NNNN id.
+    pub id: String,
+    /// The validation statement supporting the verdict.
+    #[arg(long)]
+    pub statement: String,
+    /// Promote to Verified after concluding (only when the verdict is
+    /// Pass). Promotion is gated exactly like `req verify --promote`.
+    #[arg(long)]
+    pub promote: bool,
+    /// Override the promotion preconditions (status ladder / SIL-rigour
+    /// gate). Requires --reason; recorded as an audited exception.
+    #[arg(long, requires = "reason")]
+    pub force: bool,
+    /// Justification, required with --force.
+    #[arg(long)]
+    pub reason: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationShowArgs {
+    /// REQ-NNNN or SR-NNNN id.
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationBackfillArgs {
+    /// A single REQ-/SR- id to back-fill. Omit with --all to do every
+    /// Verified item lacking a passing dossier.
+    pub id: Option<String>,
+    /// Back-fill every Verified requirement and safety requirement that
+    /// has no passing dossier.
+    #[arg(long)]
+    pub all: bool,
+    /// Justification recorded on each back-filled exemption.
+    #[arg(long)]
+    pub reason: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -1320,6 +1437,13 @@ pub struct VerifyArgs {
     /// Skip the Implemented-status precondition on --promote.
     #[arg(long)]
     pub force: bool,
+    /// REQ-0139: promote without a validation dossier, recording an
+    /// audited exemption (ordinary requirements only). Requires --reason.
+    #[arg(long = "no-dossier", requires = "reason")]
+    pub no_dossier: bool,
+    /// Justification, required with --no-dossier; recorded on the exemption.
+    #[arg(long)]
+    pub reason: Option<String>,
     /// JSON output.
     #[arg(long)]
     pub json: bool,

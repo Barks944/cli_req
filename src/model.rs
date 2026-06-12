@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::cli::{
-    AvoidanceArg, ConsequenceArg, EvidenceArg, FrequencyArg, HazardStatusArg, KindArg,
-    LinkKindArg, PriorityArg, ProbabilityArg, SafetyFunctionStatusArg, StatusArg,
+    AvoidanceArg, ConsequenceArg, EvidenceArg, FrequencyArg, HazardStatusArg, KindArg, LinkKindArg,
+    PriorityArg, ProbabilityArg, SafetyFunctionStatusArg, StatusArg,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +67,43 @@ pub struct ProjectConfig {
     /// calibration in use and the one-time liability acknowledgement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub safety: Option<SafetyConfig>,
+    /// REQ-0139: validation-dossier policy (which tags exempt an ordinary
+    /// requirement from the mandatory dossier gate).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<ValidationConfig>,
+}
+
+/// REQ-0139: per-project validation-dossier policy.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ValidationConfig {
+    /// Tags that exempt an ordinary requirement (never a safety
+    /// requirement) from the mandatory validation-dossier gate. Defaults
+    /// to `["validation-exempt"]` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exempt_tags: Option<Vec<String>>,
+}
+
+/// REQ-0139: the default tag that exempts an ordinary requirement from the
+/// validation-dossier gate when no project override is configured.
+pub const DEFAULT_VALIDATION_EXEMPT_TAG: &str = "validation-exempt";
+
+impl Project {
+    /// REQ-0139: the tags that exempt an ordinary requirement from the
+    /// validation gate, honouring the project override.
+    pub fn validation_exempt_tags(&self) -> Vec<String> {
+        self.config
+            .as_ref()
+            .and_then(|c| c.validation.as_ref())
+            .and_then(|v| v.exempt_tags.clone())
+            .unwrap_or_else(|| vec![DEFAULT_VALIDATION_EXEMPT_TAG.to_string()])
+    }
+
+    /// REQ-0139: whether an ordinary requirement is exempt from the
+    /// validation gate by virtue of carrying a configured exempt tag.
+    pub fn req_is_validation_exempt(&self, r: &Requirement) -> bool {
+        let tags = self.validation_exempt_tags();
+        r.tags.iter().any(|t| tags.iter().any(|e| e == t))
+    }
 }
 
 /// REQ-0138: per-project functional-safety governance. Both fields are
@@ -274,6 +311,12 @@ pub struct Requirement {
     /// load forward-compatibly.
     #[serde(default)]
     pub tests: Vec<TestRecord>,
+    /// REQ-0139: the structured validation dossier — plan → analysis →
+    /// testing → statement → verdict. Absent until a validation is
+    /// opened; serialised only when present so projects that never use
+    /// it keep a byte-identical file (and integrity hash).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<Validation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -327,6 +370,121 @@ impl TestOutcome {
         match self {
             TestOutcome::Pass => "pass",
             TestOutcome::Fail => "fail",
+        }
+    }
+}
+
+// ============================================================================
+// REQ-0139: the validation dossier
+//
+// A requirement (or safety requirement) reaches Verified only after a
+// staged validation an agent must fill IN ORDER:
+//
+//   1. plan      — how the obligation will be validated (analysis + testing).
+//   2. analysis  — validation by analysis (code review): findings + pass/fail.
+//   3. testing   — validation by testing: findings + pass/fail, referencing
+//                  recorded TestRecords when they exist, else structured prose.
+//   4. statement — the written validation statement and the final verdict.
+//
+// The verdict is DERIVED (Pass only when both activity outcomes pass), never
+// free-typed, and a passing dossier is the precondition for promotion to
+// Verified. The dossier anchors a content hash of the linked source at
+// conclude time so a later code change drifts it STALE — the verification
+// does not stand forever once the code it covers moves.
+// ============================================================================
+
+/// REQ-0139: one validation activity (the analysis stage or the testing
+/// stage). Carries the findings, this dimension's pass/fail outcome, and
+/// supporting references (files/commits reviewed, or test names / test
+/// records cited).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationActivity {
+    pub summary: String,
+    pub outcome: TestOutcome,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<String>,
+    pub at: DateTime<Utc>,
+    pub actor: String,
+}
+
+/// REQ-0139: the staged validation dossier attached to a requirement or
+/// safety requirement. Stages fill in order; `verdict` stays `None` until
+/// `conclude` derives it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Validation {
+    pub plan: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis: Option<ValidationActivity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub testing: Option<ValidationActivity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statement: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<TestOutcome>,
+    /// True when this dossier is an audited `--no-dossier` exemption
+    /// (ordinary requirements only); the justification is in `statement`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub exempt: bool,
+    pub opened: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub opened_commit: String,
+    pub actor: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concluded: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concluded_commit: Option<String>,
+    /// Hash of the linked source files at conclude time — the staleness
+    /// anchor that lets `req stale` invalidate the verification when the
+    /// covered code later changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_files: Option<Vec<String>>,
+}
+
+impl Validation {
+    /// A fresh dossier holding only the plan.
+    pub fn opened(plan: String, actor: String, commit: String, at: DateTime<Utc>) -> Self {
+        Self {
+            plan,
+            analysis: None,
+            testing: None,
+            statement: None,
+            verdict: None,
+            exempt: false,
+            opened: at,
+            opened_commit: commit,
+            actor,
+            concluded: None,
+            concluded_commit: None,
+            content_hash: None,
+            linked_files: None,
+        }
+    }
+
+    pub fn is_concluded(&self) -> bool {
+        self.verdict.is_some()
+    }
+
+    /// Whether this dossier satisfies the promotion / validation gate: a
+    /// concluded Pass verdict, or an audited exemption.
+    pub fn passed(&self) -> bool {
+        self.exempt || matches!(self.verdict, Some(TestOutcome::Pass))
+    }
+
+    /// The verdict the two activity outcomes imply: Pass only when both
+    /// stages passed; Fail otherwise. `None` when either stage is missing.
+    pub fn derive_verdict(&self) -> Option<TestOutcome> {
+        match (&self.analysis, &self.testing) {
+            (Some(a), Some(t)) => {
+                if matches!(a.outcome, TestOutcome::Pass) && matches!(t.outcome, TestOutcome::Pass)
+                {
+                    Some(TestOutcome::Pass)
+                } else {
+                    Some(TestOutcome::Fail)
+                }
+            }
+            _ => None,
         }
     }
 }
@@ -826,7 +984,6 @@ impl Sil {
             _ => None,
         }
     }
-
 }
 
 /// REQ-0134: the IEC 61508-5 Annex D risk graph — the standard's WORKED
@@ -839,17 +996,12 @@ impl Sil {
 /// The table is read as: pick the (C, F, P) leaf to get a row of three
 /// outcomes ordered `[W3, W2, W1]`, then index by W. C_A short-circuits
 /// to "no safety requirement" before F/P/W are even consulted.
-pub fn determine_sil(
-    c: Consequence,
-    f: Frequency,
-    p: Avoidance,
-    w: Probability,
-) -> Sil {
+pub fn determine_sil(c: Consequence, f: Frequency, p: Avoidance, w: Probability) -> Sil {
     use Avoidance::*;
     use Consequence::*;
     use Frequency::*;
     use Probability::*;
-    use Sil::{Sil1, Sil2, Sil3, A, B, NoneRequired as N};
+    use Sil::{NoneRequired as N, Sil1, Sil2, Sil3, A, B};
 
     if let Ca = c {
         return N;
@@ -1056,6 +1208,10 @@ pub struct SafetyRequirement {
     pub history: Vec<HistoryEntry>,
     #[serde(default)]
     pub tests: Vec<TestRecord>,
+    /// REQ-0139: the staged validation dossier. Mandatory (no tag
+    /// exemption) before a safety requirement may reach Verified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<Validation>,
 }
 
 #[cfg(test)]
@@ -1071,7 +1227,7 @@ mod sil_tests {
         use Consequence::*;
         use Frequency::*;
         use Probability::*;
-        use Sil::{Sil1, Sil2, Sil3, A, B, NoneRequired as N};
+        use Sil::{NoneRequired as N, Sil1, Sil2, Sil3, A, B};
 
         // (C, F, P) -> [W3, W2, W1]
         let table: &[((Consequence, Frequency, Avoidance), [Sil; 3])] = &[
@@ -1089,9 +1245,30 @@ mod sil_tests {
             ((Cd, Fb, Pb), [B, Sil3, Sil2]),
         ];
         for ((c, f, p), [e3, e2, e1]) in table {
-            assert_eq!(determine_sil(*c, *f, *p, W3), *e3, "{:?}/{:?}/{:?}/W3", c, f, p);
-            assert_eq!(determine_sil(*c, *f, *p, W2), *e2, "{:?}/{:?}/{:?}/W2", c, f, p);
-            assert_eq!(determine_sil(*c, *f, *p, W1), *e1, "{:?}/{:?}/{:?}/W1", c, f, p);
+            assert_eq!(
+                determine_sil(*c, *f, *p, W3),
+                *e3,
+                "{:?}/{:?}/{:?}/W3",
+                c,
+                f,
+                p
+            );
+            assert_eq!(
+                determine_sil(*c, *f, *p, W2),
+                *e2,
+                "{:?}/{:?}/{:?}/W2",
+                c,
+                f,
+                p
+            );
+            assert_eq!(
+                determine_sil(*c, *f, *p, W1),
+                *e1,
+                "{:?}/{:?}/{:?}/W1",
+                c,
+                f,
+                p
+            );
         }
     }
 

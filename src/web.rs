@@ -14,7 +14,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cli::ServeArgs;
-use crate::model::{LinkKind, Project, Requirement, SafetyFunction, SafetyRequirement, Sil, Status};
+use crate::model::{
+    LinkKind, Project, Requirement, SafetyFunction, SafetyRequirement, Sil, Status,
+};
 use crate::storage::{self, resolve_path};
 
 #[derive(Clone)]
@@ -139,7 +141,8 @@ async fn index_html(
 }
 
 fn sil_s(s: Option<Sil>) -> String {
-    s.map(|s| s.as_str().to_string()).unwrap_or_else(|| "—".into())
+    s.map(|s| s.as_str().to_string())
+        .unwrap_or_else(|| "—".into())
 }
 
 /// REQ-0134: read-only HARA-style web view of the functional-safety
@@ -157,10 +160,14 @@ async fn safety_html(
         )));
     }
     let mitigates = |sf: &SafetyFunction, hid: &str| {
-        sf.links.iter().any(|l| l.kind == LinkKind::Mitigates && l.target == hid)
+        sf.links
+            .iter()
+            .any(|l| l.kind == LinkKind::Mitigates && l.target == hid)
     };
     let realizes = |sr: &SafetyRequirement, sfid: &str| {
-        sr.links.iter().any(|l| l.kind == LinkKind::Realizes && l.target == sfid)
+        sr.links
+            .iter()
+            .any(|l| l.kind == LinkKind::Realizes && l.target == sfid)
     };
 
     let mut rows = String::new();
@@ -170,10 +177,17 @@ async fn safety_html(
             .values()
             .filter(|sf| mitigates(sf, id))
             .collect();
-        let allocated = sfs.iter().filter_map(|sf| project.allocated_sil(sf)).max_by_key(|s| s.rank());
+        let allocated = sfs
+            .iter()
+            .filter_map(|sf| project.allocated_sil(sf))
+            .max_by_key(|s| s.rank());
         let (mut verified, mut total) = (0usize, 0usize);
         for sf in &sfs {
-            for sr in project.safety_requirements.values().filter(|sr| realizes(sr, &sf.id)) {
+            for sr in project
+                .safety_requirements
+                .values()
+                .filter(|sr| realizes(sr, &sf.id))
+            {
                 total += 1;
                 if matches!(sr.status, Status::Verified) {
                     verified += 1;

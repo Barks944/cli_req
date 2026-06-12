@@ -62,6 +62,10 @@ Approved/Implemented/Verified functional reqs cannot lack acceptance.",
   * functional requirements need acceptance criteria
   * link targets must exist; no self-links; parent links cannot cycle
   * approved/implemented/verified functional reqs need acceptance
+  * Verified requirements (REQ + SR) need a passing validation dossier
+    (REQ-0139: plan → analysis → testing → statement → verdict). An
+    ordinary requirement may instead carry a `validation-exempt` tag;
+    safety requirements have no exemption. See REQ-V-0032 / REQ-V-0033.
 
 Warned (saved but flagged):
   * weasel words: etc, and/or, user-friendly, fast, robust, TBD, ...
@@ -198,11 +202,31 @@ WORKING WITH AN EXISTING PROJECT (RETROFIT)
 WHEN YOU FINISH SOMETHING
 
   req update <id> --status implemented --reason \"...\"
-  req verify <id> --by inspection --notes \"...\" --promote
 
-  These advance the requirement up the lifecycle. The post-commit
-  hook nudges you about this — if you cited a REQ but didn't advance
-  its status, the hook prints a suggestion.
+  Then VALIDATE it before claiming Verified. Don't one-shot it — walk
+  the validation dossier so the pass/fail is backed by real analysis
+  and testing (REQ-0139):
+
+    req validation plan     <id> --plan \"how I'll review + test this\"
+    req validation analysis <id> --findings \"code-review notes\" --result pass
+    req validation test     <id> --findings \"what I ran\" --result pass
+    req validation conclude <id> --statement \"why this passes\" --promote
+
+  `conclude` derives the verdict (Pass only when BOTH analysis and
+  testing passed) and `--promote` flips status to Verified. Promotion
+  is BLOCKED without a passing dossier — this holds for `req verify`
+  and `req sreq verify --promote` too. A trivial ordinary requirement
+  can carry a `validation-exempt` tag (or use `req verify --no-dossier
+  --reason \"...\"`); safety requirements have no exemption. Works on
+  both REQ-NNNN and SR-NNNN ids.
+
+  The post-commit hook nudges you about advancing status — if you
+  cited a REQ but didn't advance it, the hook prints a suggestion.
+
+  CODE CHANGED LATER? The dossier anchors a hash of the linked source,
+  so `req stale` flags a Verified item whose code moved since you
+  validated it. Re-validate with `req validation plan <id> --reopen
+  --reason \"...\"`.
 
 HOW THE FILE IS PROTECTED
 
