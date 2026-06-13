@@ -1101,12 +1101,44 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     let h = &project.hazards[haz_id];
     let v = assess_hazard(project, haz_id);
     if json {
+        // REQ-0146: include the full safety-function → safety-requirement chain
+        // with each SR's validation dossier so --json carries the same chain
+        // the human view renders, not just roll-up counts.
+        let chain: Vec<_> = project
+            .safety_functions
+            .values()
+            .filter(|sf| mitigates(sf, haz_id))
+            .map(|sf| {
+                let srs: Vec<_> = project
+                    .safety_requirements
+                    .values()
+                    .filter(|sr| realizes(sr, &sf.id))
+                    .map(|sr| {
+                        serde_json::json!({
+                            "id": sr.id,
+                            "title": sr.title,
+                            "status": sr.status.as_str(),
+                            "inherited_sil": project.inherited_sil(sr).map(|s| s.as_str()),
+                            "validation": sr.validation,
+                        })
+                    })
+                    .collect();
+                serde_json::json!({
+                    "id": sf.id,
+                    "title": sf.title,
+                    "status": sf.status.as_str(),
+                    "allocated_sil": project.allocated_sil(sf).map(|s| s.as_str()),
+                    "safety_requirements": srs,
+                })
+            })
+            .collect();
         let out = serde_json::json!({
             "hazard": h,
             "required_sil": v.required.map(|s| s.as_str()),
             "allocated_sil": v.allocated.map(|s| s.as_str()),
             "adequate": v.adequate,
             "complete": v.complete,
+            "chain": chain,
             "safety_requirements": { "total": v.sr_total, "verified": v.sr_verified },
             "blocking": v.blocking,
         });
@@ -1197,6 +1229,39 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                     }
                 ),
                 None => println!("            evidence: none                       ✗ unverified"),
+            }
+            // REQ-0146: inline the validation dossier so a reviewer sees how
+            // each safety requirement was validated within the chain, not just
+            // its status.
+            match &sr.validation {
+                Some(val) => {
+                    let verdict = val.verdict.map(|o| o.as_str()).unwrap_or("open");
+                    let a = val
+                        .analysis
+                        .as_ref()
+                        .map(|x| x.outcome.as_str())
+                        .unwrap_or("—");
+                    let t = val
+                        .testing
+                        .as_ref()
+                        .map(|x| x.outcome.as_str())
+                        .unwrap_or("—");
+                    println!("            dossier: verdict {verdict} (analysis {a}, testing {t})");
+                    match &val.human_confirmation {
+                        Some(hc) => println!(
+                            "            human-confirmed: {} @ {}",
+                            hc.actor,
+                            hc.at.format("%Y-%m-%d %H:%M UTC")
+                        ),
+                        None => println!(
+                            "            human-confirmed: ⚠ awaiting human confirmation (REQ-V-0034)"
+                        ),
+                    }
+                    if let Some(st) = &val.statement {
+                        println!("            statement: {st}");
+                    }
+                }
+                None => println!("            dossier: (none recorded)"),
             }
         }
     }

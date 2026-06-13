@@ -983,7 +983,7 @@ HUMAN CONFIRMATION OF SAFETY VALIDATION (REQ-0145). An agent may author and
 validate a safety requirement's dossier (analysis + testing), but the result
 is NOT considered passed until a HUMAN co-signs it:
 
-  req validation confirm SR-0007
+  req validation confirm SR-0001
 
 `confirm` refuses `REQ_ACTOR_KIND=agent`. A Verified safety requirement that
 carries an agent's dossier but no human confirmation is flagged `REQ-V-0034`

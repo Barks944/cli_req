@@ -1090,3 +1090,156 @@ fn req_0145_safety_validation_needs_human_confirmation() {
         String::from_utf8_lossy(&v2.stderr)
     );
 }
+
+/// REQ-0146: `req trace` from a safety requirement resolves upward to the
+/// mitigated hazard and inlines the validation dossier (human output and
+/// --json carry the same chain).
+#[test]
+fn req_0146_trace_from_sr_shows_chain_and_dossier() {
+    use std::process::Command;
+    let dir = tempfile::Builder::new()
+        .prefix("req-0146-")
+        .tempdir()
+        .unwrap();
+    let root = dir.path();
+    let bin = env!("CARGO_BIN_EXE_req");
+    let run = |args: &[&str], kind: Option<&str>| {
+        let mut c = Command::new(bin);
+        c.args(args).current_dir(root).env_remove("REQ_FILE");
+        match kind {
+            Some(k) => {
+                c.env("REQ_ACTOR_KIND", k);
+            }
+            None => {
+                c.env_remove("REQ_ACTOR_KIND");
+            }
+        }
+        c.output().expect("run req")
+    };
+    assert!(run(&["init", "-n", "p"], None).status.success());
+    std::fs::write(
+        root.join("req-safety-acceptance.json"),
+        r#"{"accepted_by":"H","at":"2026-01-01T00:00:00Z","tool_version":"t","disclaimer_version":"2"}"#,
+    )
+    .unwrap();
+    run(
+        &[
+            "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+            "-W", "W3",
+        ],
+        None,
+    );
+    run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"], None);
+    run(
+        &[
+            "sreq",
+            "add",
+            "-t",
+            "Stop the blade",
+            "-s",
+            "The system shall stop the blade on demand.",
+            "-r",
+            "operator safety",
+            "-a",
+            "blade stops within 200ms",
+            "--realizes",
+            "SF-0001",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq", "update", "SR-0001", "--status", "approved", "--reason", "r",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            "implemented",
+            "--reason",
+            "r",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq",
+            "verify",
+            "SR-0001",
+            "--by",
+            "automated",
+            "--notes",
+            "bench",
+        ],
+        None,
+    );
+    run(
+        &["validation", "plan", "SR-0001", "--plan", "review+bench"],
+        None,
+    );
+    run(
+        &[
+            "validation",
+            "analysis",
+            "SR-0001",
+            "--findings",
+            "reviewed",
+            "--result",
+            "pass",
+        ],
+        None,
+    );
+    run(
+        &[
+            "validation",
+            "test",
+            "SR-0001",
+            "--findings",
+            "bench",
+            "--result",
+            "pass",
+        ],
+        None,
+    );
+    run(
+        &[
+            "validation",
+            "conclude",
+            "SR-0001",
+            "--statement",
+            "meets the obligation",
+            "--promote",
+        ],
+        None,
+    );
+    run(&["validation", "confirm", "SR-0001"], Some("human"));
+
+    // Human output: tracing from the SR resolves UP to the hazard and inlines
+    // the dossier.
+    let human = String::from_utf8_lossy(&run(&["trace", "SR-0001"], None).stdout).to_string();
+    assert!(
+        human.contains("HAZ-0001"),
+        "trace from an SR must resolve upward to the mitigated hazard:\n{human}"
+    );
+    assert!(
+        human.contains("dossier: verdict pass"),
+        "trace must inline the validation dossier verdict:\n{human}"
+    );
+    assert!(
+        human.contains("human-confirmed"),
+        "trace must show the human confirmation:\n{human}"
+    );
+
+    // --json carries the chain with each SR's validation dossier.
+    let j = String::from_utf8_lossy(&run(&["trace", "SR-0001", "--json"], None).stdout).to_string();
+    let v: serde_json::Value = serde_json::from_str(&j).expect("trace --json parses");
+    let val = &v["chain"][0]["safety_requirements"][0]["validation"];
+    assert!(
+        val.get("verdict").is_some() && val.get("human_confirmation").is_some(),
+        "--json chain must include the SR's validation dossier:\n{j}"
+    );
+}
