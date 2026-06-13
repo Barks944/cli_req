@@ -1151,6 +1151,8 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     if !h.operating_context.is_empty() {
         println!("  context:  {}", h.operating_context);
     }
+    // REQ-0136: render the hazard's risk and its mitigating safety-function
+    // → safety-requirement chain (the end-to-end safety case).
     match (h.consequence, h.frequency, h.avoidance, h.probability) {
         (Some(c), Some(f), Some(p), Some(w)) => println!(
             "  risk:     {} · {} · {} · {}  ──►  required {}",
