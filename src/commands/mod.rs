@@ -19,6 +19,9 @@ pub mod list;
 pub mod migrate;
 pub mod next;
 pub mod precheck;
+// REQ-0142: verification-provenance classifier, kept in its own small module
+// so the safety requirement that depends on it anchors a stable file.
+pub mod provenance;
 pub mod purpose;
 pub mod renumber;
 pub mod repair;

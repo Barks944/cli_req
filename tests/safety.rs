@@ -441,7 +441,7 @@ fn req_0135_sr_evidence_from_test_run_goes_stale_on_code_change() {
         "SF-0001",
     ]);
 
-    // Implementing source carries the // SR-0001 marker.
+    // Implementing source carries the safety-requirement comment marker.
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(
         root.join("src/interlock.rs"),
@@ -1246,8 +1246,8 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
 
 // ---------- REQ-0148 / REQ-0149: SR staleness rigor + dependency scoping ----------
 
-// Build a confirmed SR-0001 whose only genuine dependency is a code-comment
-// marker in src/safety_impl.rs, plus a prose mention of the id in notes.md.
+// Build a confirmed safety requirement whose only genuine dependency is a
+// code-comment marker in src/safety_impl.rs, plus a prose mention in notes.md.
 fn setup_marked_confirmed_sr(root: &std::path::Path) {
     use std::process::Command;
     let bin = env!("CARGO_BIN_EXE_req");

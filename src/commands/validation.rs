@@ -61,139 +61,12 @@ pub struct ConcludeOutcome {
     pub promoted: bool,
 }
 
-// --------------------------------------------------------------------------
-// REQ-0142: verification provenance — the *true* status behind a Verified
-// item. `Validation::passed()` short-circuits on `exempt`, so a backfilled
-// or `--no-dossier` waiver is indistinguishable from a genuine concluded
-// dossier in every headline surface. This classifier recovers that
-// distinction so an agent (or auditor) can tell real validation from a
-// grandfathered exemption in one query.
-// --------------------------------------------------------------------------
-
-/// How a *Verified* item's verification stands up to scrutiny. Ordered loosely
-/// from weakest to strongest trust.
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum Provenance {
-    /// Verified with no validation dossier at all (pre-gate residue, or a
-    /// status forced by other means). The weakest possible standing.
-    Ungated,
-    /// A passing dossier exists but its `exempt` flag is set: an audited
-    /// `req validation backfill` (grandfathered) waiver.
-    ExemptBackfilled,
-    /// A passing dossier exists but its `exempt` flag is set: an audited
-    /// `req verify --no-dossier` waiver (ordinary requirements only).
-    ExemptNoDossier,
-    /// A genuine concluded Pass dossier whose anchored source has since
-    /// drifted — the verification no longer stands until re-validated.
-    Stale,
-    /// A genuine concluded dossier: real analysis + testing + statement,
-    /// Pass verdict, anchor still fresh (or no git context to judge).
-    Genuine,
-}
-
-impl Provenance {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Provenance::Ungated => "ungated",
-            Provenance::ExemptBackfilled => "exempt:backfilled",
-            Provenance::ExemptNoDossier => "exempt:no-dossier",
-            Provenance::Stale => "stale",
-            Provenance::Genuine => "genuine",
-        }
-    }
-
-    /// True only for a genuine, non-stale passing dossier — the bar the
-    /// headline "verified" number should really be measuring.
-    pub fn is_genuine(self) -> bool {
-        matches!(self, Provenance::Genuine)
-    }
-}
-
-/// Classify a single dossier's provenance. `source_root` is where linked
-/// files are hashed to judge staleness; pass `None` to skip the staleness
-/// probe (treats a genuine dossier as Genuine regardless of drift).
-pub fn classify(v: Option<&Validation>, source_root: Option<&Path>, id: &str) -> Provenance {
-    let v = match v {
-        None => return Provenance::Ungated,
-        Some(v) => v,
-    };
-    if v.exempt {
-        // Distinguish the two waiver kinds by the plan prefix stamped at
-        // backfill / no-dossier time (see op_backfill / exemption_dossier).
-        return if v.plan.starts_with("[--no-dossier") {
-            Provenance::ExemptNoDossier
-        } else {
-            Provenance::ExemptBackfilled
-        };
-    }
-    // A non-exempt dossier only counts as genuine if it actually concluded
-    // Pass with both activity stages and a statement recorded.
-    let genuine = matches!(v.verdict, Some(TestOutcome::Pass))
-        && v.analysis.is_some()
-        && v.testing.is_some()
-        && v.statement.is_some();
-    if !genuine {
-        return Provenance::Ungated;
-    }
-    if let (Some(root), Some(hash)) = (source_root, v.content_hash.as_deref()) {
-        let s = crate::commands::test_cmd::staleness_by_content(
-            hash,
-            v.linked_files.as_ref(),
-            id,
-            root,
-        );
-        if matches!(s, crate::commands::test_cmd::Staleness::Stale { .. }) {
-            return Provenance::Stale;
-        }
-    }
-    Provenance::Genuine
-}
-
-/// One row of the provenance report.
-pub struct ProvenanceRow {
-    pub id: String,
-    pub family: &'static str,
-    pub provenance: Provenance,
-    pub sil: Option<String>,
-}
-
-/// REQ-0142: classify every *Verified* requirement and safety requirement.
-/// SR-0004: this classification is the tool-confidence control for HAZ-0002 —
-/// it makes non-genuine verification (fabricated/shallow dossier, exemption,
-/// stale evidence, ungated) visible rather than letting it pass as trustworthy.
-/// Rows are sorted by id within family (requirements first, then safety).
-pub fn provenance_report(project: &Project, source_root: Option<&Path>) -> Vec<ProvenanceRow> {
-    let mut rows = Vec::new();
-    let mut reqs: Vec<_> = project
-        .requirements
-        .values()
-        .filter(|r| matches!(r.status, Status::Verified))
-        .collect();
-    reqs.sort_by(|a, b| a.id.cmp(&b.id));
-    for r in reqs {
-        rows.push(ProvenanceRow {
-            id: r.id.clone(),
-            family: "requirement",
-            provenance: classify(r.validation.as_ref(), source_root, &r.id),
-            sil: None,
-        });
-    }
-    let mut srs: Vec<_> = project
-        .safety_requirements
-        .values()
-        .filter(|sr| matches!(sr.status, Status::Verified))
-        .collect();
-    srs.sort_by(|a, b| a.id.cmp(&b.id));
-    for sr in srs {
-        rows.push(ProvenanceRow {
-            id: sr.id.clone(),
-            family: "safety-requirement",
-            provenance: classify(sr.validation.as_ref(), source_root, &sr.id),
-            sil: project.inherited_sil(sr).map(|s| s.as_str().to_string()),
-        });
-    }
-    rows
-}
+// REQ-0142: the verification-provenance classifier now lives in its own module
+// (src/commands/provenance.rs) so the safety requirement that depends on it
+// anchors a small, stable file rather than this whole surface. Re-exported here
+// so existing call sites (`validation::classify`, `validation::Provenance`, …)
+// keep working.
+pub use crate::commands::provenance::{classify, provenance_report, Provenance, ProvenanceRow};
 
 // --------------------------------------------------------------------------
 // CLI dispatch
@@ -915,6 +788,8 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut backfilled = 0usize;
     let mut no_dossier = 0usize;
     let mut stale = 0usize;
+    // REQ-0150: count the unconfirmed (genuine dossier, no human co-sign) bucket.
+    let mut unconfirmed = 0usize;
     let mut ungated = 0usize;
     for r in &rows {
         match r.provenance {
@@ -922,6 +797,7 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
             Provenance::ExemptBackfilled => backfilled += 1,
             Provenance::ExemptNoDossier => no_dossier += 1,
             Provenance::Stale => stale += 1,
+            Provenance::Unconfirmed => unconfirmed += 1,
             Provenance::Ungated => ungated += 1,
         }
     }
@@ -953,6 +829,8 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
                     "exempt_backfilled": backfilled,
                     "exempt_no_dossier": no_dossier,
                     "stale": stale,
+                    // REQ-0150: expose the unconfirmed-SR count in JSON too.
+                    "unconfirmed": unconfirmed,
                     "ungated": ungated,
                 },
                 "items": items,
@@ -977,6 +855,11 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     println!(
         "  stale            : {:>4}   (genuine dossier whose anchored source drifted)",
         stale
+    );
+    // REQ-0150: surface the unconfirmed safety-requirement bucket in the report.
+    println!(
+        "  unconfirmed      : {:>4}   (safety req: genuine dossier, no human co-sign — REQ-0145)",
+        unconfirmed
     );
     println!(
         "  ungated          : {:>4}   (Verified with no passing dossier)",

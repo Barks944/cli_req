@@ -374,7 +374,7 @@ fn req_0139_reopen_clears_the_verdict() {
 // ---------------------------------------------------------------------------
 
 /// Build a SIL-bearing SR realized through a hazard/SF and walk it to
-/// Implemented. Returns nothing; the SR is SR-0001.
+/// Implemented. Returns nothing; the realized safety requirement is the first one.
 fn implemented_sr(s: &Sandbox, sil_high: bool) {
     s.init("p");
     s.enable_safety();
@@ -678,5 +678,84 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
     assert!(
         !s.run(&["validate"]).status.success(),
         "SR error must persist — --all does not exempt safety requirements"
+    );
+}
+
+/// REQ-0150: a Verified safety requirement with a genuine passing dossier but
+/// no human confirmation is reported as `unconfirmed` (not `genuine`), and is
+/// excluded from the genuine count. A human co-sign flips it to `genuine`.
+#[test]
+fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
+    let s = Sandbox::new();
+    implemented_sr(&s, false);
+    s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
+    s.run(&[
+        "validation",
+        "analysis",
+        "SR-0001",
+        "--findings",
+        "logic ok",
+        "--result",
+        "pass",
+    ]);
+    s.run(&[
+        "validation",
+        "test",
+        "SR-0001",
+        "--findings",
+        "bench ok",
+        "--result",
+        "pass",
+    ]);
+    // Promote to Verified WITHOUT the human co-sign.
+    let done = s.run(&[
+        "validation",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "stop obligation met",
+        "--promote",
+    ]);
+    assert!(done.status.success(), "conclude: {}", stderr(&done));
+
+    // The dossier is genuine, but the missing co-sign must show as `unconfirmed`,
+    // NOT `genuine` — mirroring the REQ-V-0034 validate error.
+    let rep = stdout(&s.run(&["validation", "report", "--json"]));
+    assert!(
+        rep.contains("\"unconfirmed\": 1"),
+        "expected unconfirmed=1; got {}",
+        rep
+    );
+    assert!(
+        rep.contains("\"genuine\": 0"),
+        "an un-co-signed SR must not count as genuine; got {}",
+        rep
+    );
+    let human = stdout(&s.run(&["validation", "report"]));
+    assert!(
+        human.contains("unconfirmed"),
+        "human report should label it unconfirmed; got {}",
+        human
+    );
+    // --not-genuine surfaces it (it is not genuine standing).
+    let only_bad = stdout(&s.run(&["validation", "report", "--not-genuine"]));
+    assert!(
+        only_bad.contains("SR-0001"),
+        "unconfirmed SR must appear under --not-genuine; got {}",
+        only_bad
+    );
+
+    // A human co-sign (REQ_ACTOR_KIND unset in tests = human) flips it genuine.
+    assert!(
+        s.run(&["validation", "confirm", "SR-0001"])
+            .status
+            .success(),
+        "human confirmation of the SR validation"
+    );
+    let rep2 = stdout(&s.run(&["validation", "report", "--json"]));
+    assert!(
+        rep2.contains("\"genuine\": 1") && rep2.contains("\"unconfirmed\": 0"),
+        "after co-sign the SR is genuine; got {}",
+        rep2
     );
 }

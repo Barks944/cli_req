@@ -40,6 +40,48 @@ fn req_0001_help_lists_every_subcommand() {
     }
 }
 
+/// REQ-0151: user-facing help (top-level and every subcommand) must not leak
+/// an implementation-marker id of the form `(REQ|HAZ|SF|SR)-NNNN:`. Inline
+/// examples of the id format (without the trailing colon) remain allowed.
+#[test]
+fn req_0151_help_does_not_leak_requirement_id_markers() {
+    let marker = regex::Regex::new(r"(REQ|HAZ|SF|SR)-\d{4}:").unwrap();
+    // Top-level help plus every subcommand's help, including the safety/
+    // validation command groups whose descriptions carried markers.
+    let targets: &[&[&str]] = &[
+        &["--help"],
+        &["lint", "--help"],
+        &["brief", "--help"],
+        &["setup", "--help"],
+        &["precheck", "--help"],
+        &["purpose", "--help"],
+        &["adopt", "--help"],
+        &["hazard", "--help"],
+        &["sf", "--help"],
+        &["sreq", "--help"],
+        &["trace", "--help"],
+        &["safety", "--help"],
+        &["validation", "--help"],
+        &["hooks", "--help"],
+        &["review", "--help"],
+        &["test", "--help"],
+        &["export", "--help"],
+        &["verify", "--help"],
+        &["coverage", "--help"],
+        &["schema", "--help"],
+    ];
+    for args in targets {
+        let out = common::req(args);
+        let body = stdout(&out);
+        assert!(
+            !marker.is_match(&body),
+            "`req {}` help leaks an id marker:\n{}",
+            args.join(" "),
+            body,
+        );
+    }
+}
+
 // ---------- REQ-0114: req precheck ----------
 
 #[test]
