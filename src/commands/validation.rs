@@ -19,7 +19,8 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{
     TestResultArg, ValidationActivityArgs, ValidationBackfillArgs, ValidationCmd,
-    ValidationConcludeArgs, ValidationPlanArgs, ValidationReportArgs, ValidationShowArgs,
+    ValidationConcludeArgs, ValidationConfirmArgs, ValidationPlanArgs, ValidationReportArgs,
+    ValidationShowArgs,
 };
 use crate::commands::test_cmd::{auto_linked_files, current_head_sha_opt, hash_files, short};
 use crate::model::{
@@ -204,6 +205,7 @@ pub fn run(cmd: ValidationCmd, file: &Option<PathBuf>) -> Result<()> {
         ValidationCmd::Analysis(a) => activity(a, file, Stage::Analysis),
         ValidationCmd::Test(a) => activity(a, file, Stage::Testing),
         ValidationCmd::Conclude(a) => conclude(a, file),
+        ValidationCmd::Confirm(a) => confirm(a, file),
         ValidationCmd::Show(a) => show(a, file),
         ValidationCmd::Backfill(a) => backfill(a, file),
         ValidationCmd::Report(a) => report(a, file),
@@ -816,6 +818,69 @@ fn conclude(args: ValidationConcludeArgs, file: &Option<PathBuf>) -> Result<()> 
             out.verdict.as_str().to_uppercase(),
             if out.promoted { " → Verified" } else { "" }
         );
+    }
+    Ok(())
+}
+
+/// REQ-0145: a human co-signs the validation result. Refuses an agent actor so
+/// an agent cannot confirm on a person's behalf; requires a concluded Pass
+/// verdict; records the confirmation on the dossier. For a safety requirement
+/// this human confirmation is REQUIRED (REQ-V-0034) before the verification
+/// counts as passed — the agent's analysis + testing alone do not suffice.
+pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String> {
+    if matches!(super::current_actor_kind(), crate::model::ActorKind::Agent) {
+        return Err(anyhow!(
+            "confirming a validation result must be done by a human, but REQ_ACTOR_KIND=agent. \
+             A person must run `req validation confirm`."
+        ));
+    }
+    let (id, fam) = resolve(project, raw)?;
+    let now = Utc::now();
+    let actor = super::current_actor();
+    {
+        let it = item_mut(project, &id, fam);
+        let v = it.validation.as_mut().ok_or_else(|| {
+            anyhow!(
+                "{} has no validation dossier to confirm — run `req validation plan {} ...` first.",
+                id,
+                id
+            )
+        })?;
+        if !matches!(v.verdict, Some(TestOutcome::Pass)) {
+            return Err(anyhow!(
+                "{} has no concluded Pass verdict to confirm — record analysis, testing, and \
+                 `req validation conclude` first.",
+                id
+            ));
+        }
+        v.human_confirmation = Some(ValidationActivity {
+            summary: if note.is_empty() {
+                "human confirmation of the validation result".to_string()
+            } else {
+                note.to_string()
+            },
+            outcome: TestOutcome::Pass,
+            references: Vec::new(),
+            at: now,
+            actor: actor.clone(),
+        });
+        *it.updated = now;
+        it.history
+            .push(super::history("validation result confirmed by human", None));
+    }
+    project.updated = now;
+    Ok(id)
+}
+
+fn confirm(args: ValidationConfirmArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let id = op_confirm(&mut project, &args.id, &args.note)?;
+    let (_cid, fam) = resolve(&project, &id)?;
+    storage::save(&path, &project)?;
+    if args.json {
+        emit_json(&project, &id, fam)?;
+    } else {
+        println!("Confirmed validation result for {id} — human co-sign recorded.");
     }
     Ok(())
 }

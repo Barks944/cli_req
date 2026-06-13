@@ -924,3 +924,169 @@ fn req_0144_stale_disclaimer_version_blocks_safety_features() {
         String::from_utf8_lossy(&ok.stderr)
     );
 }
+
+/// REQ-0145: a safety requirement validated by an agent is NOT passed until a
+/// human confirms the result. REQ-V-0034 flags the unconfirmed SR; an agent
+/// cannot confirm; a human's confirmation clears the finding.
+#[test]
+fn req_0145_safety_validation_needs_human_confirmation() {
+    use std::process::Command;
+    let dir = tempfile::Builder::new()
+        .prefix("req-0145-")
+        .tempdir()
+        .unwrap();
+    let root = dir.path();
+    let bin = env!("CARGO_BIN_EXE_req");
+    let run = |args: &[&str], kind: Option<&str>| {
+        let mut c = Command::new(bin);
+        c.args(args).current_dir(root).env_remove("REQ_FILE");
+        match kind {
+            Some(k) => {
+                c.env("REQ_ACTOR_KIND", k);
+            }
+            None => {
+                c.env_remove("REQ_ACTOR_KIND");
+            }
+        }
+        c.output().expect("run req")
+    };
+    assert!(run(&["init", "-n", "p"], None).status.success());
+    std::fs::write(
+        root.join("req-safety-acceptance.json"),
+        r#"{"accepted_by":"H","at":"2026-01-01T00:00:00Z","tool_version":"t","disclaimer_version":"2"}"#,
+    )
+    .unwrap();
+    run(
+        &[
+            "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+            "-W", "W3",
+        ],
+        None,
+    );
+    run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"], None);
+    run(
+        &[
+            "sreq",
+            "add",
+            "-t",
+            "Stop the blade",
+            "-s",
+            "The system shall stop the blade on demand.",
+            "-r",
+            "operator safety during cleaning",
+            "-a",
+            "blade stops within 200ms",
+            "--realizes",
+            "SF-0001",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq", "update", "SR-0001", "--status", "approved", "--reason", "r",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            "implemented",
+            "--reason",
+            "r",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq",
+            "verify",
+            "SR-0001",
+            "--by",
+            "automated",
+            "--notes",
+            "bench",
+        ],
+        None,
+    );
+    run(
+        &["validation", "plan", "SR-0001", "--plan", "review+bench"],
+        None,
+    );
+    run(
+        &[
+            "validation",
+            "analysis",
+            "SR-0001",
+            "--findings",
+            "reviewed",
+            "--result",
+            "pass",
+        ],
+        None,
+    );
+    run(
+        &[
+            "validation",
+            "test",
+            "SR-0001",
+            "--findings",
+            "bench",
+            "--result",
+            "pass",
+        ],
+        None,
+    );
+    assert!(run(
+        &[
+            "validation",
+            "conclude",
+            "SR-0001",
+            "--statement",
+            "meets the obligation",
+            "--promote"
+        ],
+        None
+    )
+    .status
+    .success());
+
+    // Verified on the agent's dossier, but REQ-V-0034 flags it as not-yet-passed.
+    let v1 = run(&["validate"], None);
+    assert!(
+        !v1.status.success(),
+        "an agent-only SR validation must not pass a clean validate"
+    );
+    let v1out = format!(
+        "{}{}",
+        String::from_utf8_lossy(&v1.stdout),
+        String::from_utf8_lossy(&v1.stderr)
+    );
+    assert!(
+        v1out.contains("REQ-V-0034"),
+        "REQ-V-0034 must flag the unconfirmed safety requirement: {v1out}"
+    );
+
+    // An agent cannot confirm on a human's behalf.
+    let by_agent = run(&["validation", "confirm", "SR-0001"], Some("agent"));
+    assert!(
+        !by_agent.status.success(),
+        "an agent must not be able to confirm a safety validation"
+    );
+
+    // A human confirms — and the project validates clean.
+    assert!(
+        run(&["validation", "confirm", "SR-0001"], Some("human"))
+            .status
+            .success(),
+        "a human confirmation must succeed"
+    );
+    let v2 = run(&["validate"], None);
+    assert!(
+        v2.status.success(),
+        "after human confirmation the project validates clean: {}",
+        String::from_utf8_lossy(&v2.stderr)
+    );
+}

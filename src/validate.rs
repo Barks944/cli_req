@@ -133,6 +133,10 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0033",
         "safety requirement is Verified but lacks a genuine validation dossier (exemptions are not allowed for safety requirements)",
     ),
+    (
+        "REQ-V-0034",
+        "safety requirement is Verified on an agent's dossier but lacks a human confirmation of the validation result (run `req validation confirm`)",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -883,6 +887,28 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                         format!(
                             "{} is Verified but {} — safety requirements need a genuine dossier; run `req validation plan {} ...` → analysis → test → conclude --promote",
                             id, why, id
+                        ),
+                    ),
+                );
+            }
+            // REQ-0145: a Verified safety requirement also needs a HUMAN
+            // confirmation of the validation result, recorded in addition to
+            // the agent's analysis + testing. The agent's dossier alone does
+            // not make a safety requirement passed.
+            let human_confirmed = sr
+                .validation
+                .as_ref()
+                .map(|v| v.human_confirmation.is_some())
+                .unwrap_or(false);
+            if genuine && !human_confirmed {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0034",
+                        "validation",
+                        format!(
+                            "{} is Verified on an agent's dossier but lacks a human confirmation of the validation result — a person must run `req validation confirm {}` to co-sign it",
+                            id, id
                         ),
                     ),
                 );

@@ -91,6 +91,7 @@ impl Command {
             Command::Validation(ValidationCmd::Analysis(a)) => a.json,
             Command::Validation(ValidationCmd::Test(a)) => a.json,
             Command::Validation(ValidationCmd::Conclude(a)) => a.json,
+            Command::Validation(ValidationCmd::Confirm(a)) => a.json,
             Command::Validation(ValidationCmd::Show(a)) => a.json,
             Command::Validation(ValidationCmd::Backfill(a)) => a.json,
             // REQ-0142: provenance report honours --json like the rest.
@@ -231,6 +232,10 @@ pub enum ValidationCmd {
     /// Stage 4 — record the validation statement, derive the verdict, and
     /// optionally promote to Verified.
     Conclude(ValidationConcludeArgs),
+    /// REQ-0145: a human co-signs the validation result. Required for a
+    /// safety requirement (SR-NNNN) before it counts as passed; refuses
+    /// REQ_ACTOR_KIND=agent so an agent cannot confirm on a person's behalf.
+    Confirm(ValidationConfirmArgs),
     /// Show the dossier for a requirement or safety requirement.
     Show(ValidationShowArgs),
     /// Grandfather already-Verified items that pre-date the dossier by
@@ -296,6 +301,19 @@ pub struct ValidationConcludeArgs {
     /// Justification, required with --force.
     #[arg(long)]
     pub reason: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// REQ-0145: a human's confirmation of a validation result.
+#[derive(Args, Debug)]
+pub struct ValidationConfirmArgs {
+    /// REQ-NNNN or SR-NNNN id. Required for safety requirements before they
+    /// count as passed.
+    pub id: String,
+    /// Optional note recorded with the confirmation.
+    #[arg(long, default_value = "")]
+    pub note: String,
     #[arg(long)]
     pub json: bool,
 }

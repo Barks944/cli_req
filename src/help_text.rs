@@ -979,6 +979,16 @@ on the agent/MCP surface, and `accept` refuses when REQ_ACTOR_KIND=agent.
 An agent can author hazards/SF/SR once a human has signed on, but it can
 never accept on your behalf. `req safety status` shows the current state.
 
+HUMAN CONFIRMATION OF SAFETY VALIDATION (REQ-0145). An agent may author and
+validate a safety requirement's dossier (analysis + testing), but the result
+is NOT considered passed until a HUMAN co-signs it:
+
+  req validation confirm SR-0007
+
+`confirm` refuses `REQ_ACTOR_KIND=agent`. A Verified safety requirement that
+carries an agent's dossier but no human confirmation is flagged `REQ-V-0034`
+until a person runs it — so safety verification always has a human in the loop.
+
 CALIBRATION — the risk-graph table is the IEC 61508-5 Annex D worked
 example, which the standard says you must calibrate per project/sector.
 Override only the leaves that differ; the rest keep the default:

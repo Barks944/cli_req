@@ -471,6 +471,14 @@ fn req_0139_full_dossier_promotes_a_safety_requirement() {
     assert!(stdout(&s.run(&["sreq", "show", "SR-0001"]))
         .to_lowercase()
         .contains("verified"));
+    // REQ-0145: a Verified safety requirement also needs a human confirmation
+    // of the validation result before the safety case validates clean.
+    assert!(
+        s.run(&["validation", "confirm", "SR-0001"])
+            .status
+            .success(),
+        "human confirmation of the SR validation"
+    );
     assert!(
         s.run(&["validate"]).status.success(),
         "safety case validates clean"

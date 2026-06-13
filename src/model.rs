@@ -455,6 +455,13 @@ pub struct Validation {
     pub content_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_files: Option<Vec<String>>,
+    /// REQ-0145: a human's confirmation of the validation result. For a
+    /// safety requirement this is REQUIRED in addition to the agent's
+    /// analysis + testing before the verification counts as passed; an
+    /// agent cannot record it (`req validation confirm` refuses
+    /// REQ_ACTOR_KIND=agent). None until a human confirms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human_confirmation: Option<ValidationActivity>,
 }
 
 impl Validation {
@@ -474,6 +481,7 @@ impl Validation {
             concluded_commit: None,
             content_hash: None,
             linked_files: None,
+            human_confirmation: None,
         }
     }
 
