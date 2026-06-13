@@ -39,6 +39,9 @@ struct LintReport {
     validator_findings: Vec<(String, Vec<validate::Finding>)>,
     markerless_active: Vec<String>,
     short_rationale: Vec<(String, usize)>,
+    /// REQ-0110: resolved short-rationale threshold (_config over default) so
+    /// the printed message reflects the per-project setting.
+    short_rationale_words: usize,
     single_acceptance_functional: Vec<String>,
     no_test_record: Vec<String>,
     /// REQ-0125: Verified requirements whose latest test record is a Fail.
@@ -49,6 +52,21 @@ struct LintReport {
 
 fn build_report(project: &Project, src_path: &Path) -> LintReport {
     let total = project.requirements.len();
+    // REQ-0110: lint thresholds resolve _config over the built-in defaults.
+    let short_rationale_words = project
+        .config
+        .as_ref()
+        .and_then(|c| c.lint.as_ref())
+        .and_then(|l| l.short_rationale_words)
+        .map(|v| v as usize)
+        .unwrap_or(SHORT_RATIONALE_WORDS);
+    let inspection_only_tags: Vec<String> = project
+        .config
+        .as_ref()
+        .and_then(|c| c.lint.as_ref())
+        .and_then(|l| l.inspection_only_tags.clone())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| vec!["inspection-only".to_string()]);
     let mut by_status = [0usize; 6];
     for r in project.requirements.values() {
         let i = match r.status {
@@ -111,7 +129,7 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
                 return None;
             }
             let words = r.rationale.split_whitespace().count();
-            if words < SHORT_RATIONALE_WORDS {
+            if words < short_rationale_words {
                 Some((id.clone(), words))
             } else {
                 None
@@ -143,7 +161,7 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         .filter(|(_, r)| {
             !matches!(r.status, Status::Obsolete | Status::Draft)
                 && r.tests.is_empty()
-                && !r.tags.iter().any(|t| t == "inspection-only")
+                && !r.tags.iter().any(|t| inspection_only_tags.contains(t))
         })
         .map(|(id, _)| id.clone())
         .collect();
@@ -172,6 +190,7 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         validator_findings,
         markerless_active,
         short_rationale,
+        short_rationale_words,
         single_acceptance_functional,
         no_test_record,
         verified_but_defective,
@@ -325,9 +344,11 @@ impl LintReport {
                 out.push('\n');
             }
             if !self.short_rationale.is_empty() {
+                // REQ-0110: the threshold shown here is the per-project
+                // _config value (lint.short_rationale_words), not a constant.
                 out.push_str(&format!(
                     "### Rationales under {} words ({})\n\nA useful rationale names a cause or constraint, not just a consequence. Expand with `req update <id> -r \"...\" --reason \"...\"`.\n\n",
-                    SHORT_RATIONALE_WORDS, self.short_rationale.len()
+                    self.short_rationale_words, self.short_rationale.len()
                 ));
                 for (id, w) in &self.short_rationale {
                     out.push_str(&format!("- **{}** — {} word(s)\n", id, w));

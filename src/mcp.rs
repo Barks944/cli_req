@@ -1746,7 +1746,12 @@ fn tool_help(args: &Value) -> Result<String> {
         return Ok(serde_json::to_string_pretty(&json!({ "sections": list }))?);
     }
     match help_text::section(&section) {
-        Some(s) => Ok(json!({ "name": s.name, "summary": s.summary, "body": s.body }).to_string()),
+        // REQ-0045: render the rule-code catalogue into the body so agents
+        // reading help over MCP see every validator code, not a placeholder.
+        Some(s) => Ok(
+            json!({ "name": s.name, "summary": s.summary, "body": help_text::render_body(s.body) })
+                .to_string(),
+        ),
         None => Err(anyhow!("unknown section: {}", section)),
     }
 }

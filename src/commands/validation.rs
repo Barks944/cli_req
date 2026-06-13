@@ -157,6 +157,9 @@ pub struct ProvenanceRow {
 }
 
 /// REQ-0142: classify every *Verified* requirement and safety requirement.
+/// SR-0004: this classification is the tool-confidence control for HAZ-0002 —
+/// it makes non-genuine verification (fabricated/shallow dossier, exemption,
+/// stale evidence, ungated) visible rather than letting it pass as trustworthy.
 /// Rows are sorted by id within family (requirements first, then safety).
 pub fn provenance_report(project: &Project, source_root: Option<&Path>) -> Vec<ProvenanceRow> {
     let mut rows = Vec::new();

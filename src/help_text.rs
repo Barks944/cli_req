@@ -17,6 +17,25 @@ pub fn section(name: &str) -> Option<&'static Section> {
     SECTIONS.iter().find(|s| s.name.eq_ignore_ascii_case(name))
 }
 
+/// REQ-0045 / REQ-0089 / REQ-0093: render the validator rule catalogue from the
+/// single source of truth (`crate::validate::RULES`) so the `errors` and
+/// `best-practice` help sections list every code the validator can emit and
+/// cannot silently drift behind it.
+pub fn rule_code_table() -> String {
+    crate::validate::RULES
+        .iter()
+        .map(|(code, desc)| format!("  {code}  {desc}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Expand dynamic placeholders in a section body before it is printed,
+/// installed into AGENTS.md, or emitted as JSON. Currently substitutes the
+/// `{{RULE_CODES}}` token with the live validator rule catalogue.
+pub fn render_body(body: &str) -> String {
+    body.replace("{{RULE_CODES}}", &rule_code_table())
+}
+
 const SECTIONS: &[Section] = &[
     Section {
         name: "overview",
@@ -88,7 +107,11 @@ BACKTICK ESCAPE (use sparingly)
   enumerations of identifiers, CLI flags, or REQ-IDs without
   tripping the heuristics. Use it for descriptive code citations,
   NOT to launder genuinely compound obligations into a single
-  statement — that would game the validator and weaken the spec.",
+  statement — that would game the validator and weaken the spec.
+
+VALIDATOR RULE CODES (every code the validator can emit, with its meaning)
+
+{{RULE_CODES}}",
     },
     Section {
         name: "workflow",
@@ -409,6 +432,10 @@ CI / BUILD INTEGRATION
     --allow REQ-XXXX --allow REQ-YYYY              # orphan/ghost gate;
                                                    # whitelist verification-only
                                                    # or policy-only requirements
+  req review --gate --no-defects                   # fail if ANY requirement's
+                                                   # latest test record is a Fail
+                                                   # (REQ-0126) — blocks shipping
+                                                   # known-broken behaviour
 
   # ADVISORY — print but don't fail
   req doctor                                       # per-clone health
@@ -837,8 +864,9 @@ skips records for REQ-IDs that no longer exist in project.req
     Section {
         name: "errors",
         summary: "Stable error and rule codes for agents and tooling.",
-        body: "Every CLI subcommand that supports --json emits errors on stderr
-as a single JSON object with three fields:
+        body: "Every CLI subcommand that supports --json emits its error envelope
+as a single JSON object on stdout (the conventional channel for
+tool-readable data — REQ-0039), with three fields:
 
   { \"code\": \"REQ-E-...\", \"message\": \"...\", \"hint\": \"...\" }
 
@@ -855,24 +883,7 @@ ERROR CODES (stable)
 
 VALIDATOR RULE CODES (stable)
 
-  REQ-V-0001  title is required
-  REQ-V-0002  title is too short (min 5 characters)
-  REQ-V-0003  title is too long (max 120 characters)
-  REQ-V-0004  title ends with a period (warn)
-  REQ-V-0005  statement is required
-  REQ-V-0006  statement must be a complete sentence (>=5 words)
-  REQ-V-0007  statement is too long (>80 words, warn)
-  REQ-V-0008  statement must contain a normative modal verb
-  REQ-V-0009  statement contains a weasel word (warn)
-  REQ-V-0010  statement looks compound (warn)
-  REQ-V-0011  statement must not be a question
-  REQ-V-0012  rationale is required
-  REQ-V-0013  rationale is very short (warn)
-  REQ-V-0014  functional requirement is missing acceptance criteria
-  REQ-V-0015  acceptance criterion is too vague (warn)
-  REQ-V-0016  link target does not exist
-  REQ-V-0017  self-link not allowed
-  REQ-V-0018  status requires acceptance for functional requirement
+{{RULE_CODES}}
 
 Codes are append-only — adding a code is backwards compatible; renumbering
 existing codes is NOT. Agents may match on codes and treat messages as
@@ -1107,3 +1118,69 @@ WHAT REQ DOES NOT DO — and you must not let it imply otherwise:
   as the assessment.",
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // REQ-0045: `req help best-practice` (and `errors`) list EVERY validator
+    // rule code with its meaning, rendered from the single source of truth so
+    // they cannot drift behind the rules the validator emits.
+    #[test]
+    fn req_0045_help_lists_every_validator_rule_code() {
+        let errors = render_body(section("errors").unwrap().body);
+        let bp = render_body(section("best-practice").unwrap().body);
+        for (code, _desc) in crate::validate::RULES.iter() {
+            assert!(errors.contains(*code), "errors help is missing {code}");
+            assert!(bp.contains(*code), "best-practice help is missing {code}");
+        }
+    }
+
+    // REQ-0093: the REQ-V-0019 catalogue entry documents the Implemented-or-later
+    // precondition (the rule is suppressed below Implemented).
+    #[test]
+    fn req_0093_help_documents_v0019_precondition() {
+        let errors = render_body(section("errors").unwrap().body);
+        let line = errors
+            .lines()
+            .find(|l| l.contains("REQ-V-0019"))
+            .expect("REQ-V-0019 is listed");
+        assert!(
+            line.to_lowercase().contains("implemented"),
+            "REQ-V-0019 entry must document the Implemented precondition: {line}"
+        );
+    }
+
+    // REQ-0089: REQ-V-0022 (stacked uncertainty hedges) appears in the errors
+    // catalogue.
+    #[test]
+    fn req_0089_help_lists_v0022_stacked_hedges() {
+        let errors = render_body(section("errors").unwrap().body);
+        assert!(
+            errors.contains("REQ-V-0022"),
+            "errors help must list REQ-V-0022"
+        );
+    }
+
+    // REQ-0126: `--no-defects` is documented alongside `req help integration`.
+    #[test]
+    fn req_0126_integration_help_documents_no_defects() {
+        let integ = render_body(section("integration").unwrap().body);
+        assert!(
+            integ.contains("--no-defects"),
+            "integration help must document --no-defects"
+        );
+    }
+
+    // REQ-0039: the errors section states the --json envelope goes to stdout,
+    // matching the implementation (it must not claim stderr).
+    #[test]
+    fn req_0039_errors_help_says_stdout_not_stderr() {
+        let errors = render_body(section("errors").unwrap().body);
+        assert!(errors.contains("stdout"), "errors help must say stdout");
+        assert!(
+            !errors.contains("on stderr"),
+            "errors help must not claim the envelope goes to stderr"
+        );
+    }
+}

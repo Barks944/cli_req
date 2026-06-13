@@ -996,9 +996,17 @@ pub struct HooksArgs {
     /// inside an already-marked file still need a marker near the
     /// changed hunk. Default (no flag) writes the file-level hook
     /// that catches markerless new files but lets in-file edits
-    /// through. Re-run with or without the flag to swap modes.
-    #[arg(long)]
+    /// through. On a bare re-run (neither flag) the existing mode is
+    /// preserved; pass `--strict` to upgrade or `--no-strict` to
+    /// downgrade deterministically.
+    #[arg(long, conflicts_with = "no_strict")]
     pub strict: bool,
+    /// Explicitly install the DEFAULT (file-level) pre-commit hook,
+    /// downgrading a clone that was previously on strict mode. Without
+    /// this flag a bare re-run keeps the existing mode (no accidental
+    /// downgrade).
+    #[arg(long)]
+    pub no_strict: bool,
 }
 
 #[derive(Args, Debug)]

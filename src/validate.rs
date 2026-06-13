@@ -74,9 +74,11 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0018",
         "status requires acceptance for functional requirement",
     ),
+    // REQ-0093: REQ-V-0019 is gated on status >= Implemented; the description
+    // documents that precondition (rendered into `req help errors`).
     (
         "REQ-V-0019",
-        "verifies-link source has no test record (verification claim without evidence)",
+        "verifies-link source at Implemented status or later has no test record (verification claim without evidence; suppressed below Implemented)",
     ),
     (
         "REQ-V-0020",
