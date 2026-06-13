@@ -221,11 +221,29 @@ fn req_0134_serve_safety_view_and_api() {
     let s = Sandbox::new();
     s.init("p");
     s.enable_safety();
-    let _ = s.run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "operator could be hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Hazardous mode",
+        "--harm",
+        "operator could be hurt",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3",
+    ]);
     let _ = s.run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
     let port = pick_free_port();
     let child = spawn_server(&s, port);
-    assert!(wait_for_bind(port, Duration::from_secs(10)), "serve did not bind");
+    assert!(
+        wait_for_bind(port, Duration::from_secs(10)),
+        "serve did not bind"
+    );
     let _guard = GuardedChild(Some(child));
 
     // The index links to the safety view when hazards exist.
@@ -238,7 +256,10 @@ fn req_0134_serve_safety_view_and_api() {
     assert_eq!(code, 200, "/safety should return 200");
     assert!(body.contains("HAZ-0001"), "/safety should list the hazard");
     assert!(body.contains("SIL3"), "/safety should show the derived SIL");
-    assert!(body.contains("not qualified per IEC 61508-3"), "/safety must carry the disclaimer");
+    assert!(
+        body.contains("not qualified per IEC 61508-3"),
+        "/safety must carry the disclaimer"
+    );
 
     // The JSON API returns the safety artifacts.
     let (code, body) = http_get(port, "/api/safety");

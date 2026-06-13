@@ -63,6 +63,38 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         });
     }
 
+    // 1b. post-commit hook present + managed by req (REQ-0103). The
+    // post-commit hook is the calm impact summary — informational, never a
+    // gate — so it is advisory: doctor surfaces its state but its absence
+    // does not fail the health check.
+    let post_commit = crate::commands::hooks::resolve_hooks_dir(std::path::Path::new("."))
+        .map(|d| d.join("post-commit"))
+        .unwrap_or_else(|_| PathBuf::from(".git/hooks/post-commit"));
+    if post_commit.exists() {
+        let body = std::fs::read_to_string(&post_commit).unwrap_or_default();
+        let managed = body.contains("# managed-by: req-hooks");
+        let runs_review = body.contains("req review");
+        checks.push(Check {
+            name: "post-commit hook".into(),
+            ok: managed && runs_review,
+            detail: if managed && runs_review {
+                format!("present at {} (impact summary)", post_commit.display())
+            } else {
+                "present but not managed by req — run `req hooks install --force`".into()
+            },
+            advisory: true,
+        });
+    } else {
+        checks.push(Check {
+            name: "post-commit hook".into(),
+            ok: false,
+            detail:
+                "missing — run `req hooks install` (prints a calm impact summary after each commit)"
+                    .into(),
+            advisory: true,
+        });
+    }
+
     // 2. .gitattributes pin
     let attrs = std::fs::read_to_string(".gitattributes").unwrap_or_default();
     let has_merge = attrs.lines().any(|l| l.trim() == "*.req merge=req-merge");

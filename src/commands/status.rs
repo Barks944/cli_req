@@ -64,6 +64,24 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
     } else {
         100.0 * done as f64 / non_obsolete as f64
     };
+    // REQ-0142: of the verified bucket, how many rest on a GENUINE validation
+    // dossier vs an audited exemption (backfill / no-dossier waiver) or no
+    // dossier at all. `passed()` short-circuits on `exempt`, so without this
+    // split the headline "verified" count is misleading. Staleness is not
+    // probed here (no source root, and `req status` should stay cheap) — use
+    // `req validation report` for the staleness-aware breakdown.
+    let mut verified_genuine = 0usize;
+    let mut verified_exempt = 0usize;
+    for r in &scope {
+        if !matches!(r.status, Status::Verified) {
+            continue;
+        }
+        match crate::commands::validation::classify(r.validation.as_ref(), None, &r.id) {
+            crate::commands::validation::Provenance::Genuine => verified_genuine += 1,
+            _ => verified_exempt += 1,
+        }
+    }
+
     // REQ-0125: defects are Verified reqs whose latest test record is a Fail.
     // Filtered through the same tag scope as the rest of the report.
     let defective: Vec<String> = verified_but_defective(&project)
@@ -89,6 +107,11 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
                     "implemented": counts[3],
                     "verified":    counts[4],
                     "obsolete":    counts[5],
+                },
+                // REQ-0142: genuine-vs-exempt split of the verified bucket.
+                "verified_provenance": {
+                    "genuine": verified_genuine,
+                    "exempt": verified_exempt,
                 },
                 "delivery_progress_pct": (delivery_pct * 10.0).round() / 10.0,
                 "non_obsolete": non_obsolete,
@@ -130,6 +153,19 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
         counts[4],
         pct(counts[4])
     );
+    // REQ-0142: surface the genuine-vs-exempt split under the verified line.
+    if counts[4] > 0 {
+        println!(
+            "    └─ genuine dossier: {}  ·  exempt/ungated: {}{}",
+            verified_genuine,
+            verified_exempt,
+            if verified_exempt > 0 {
+                "  (run `req validation report` for provenance)"
+            } else {
+                ""
+            }
+        );
+    }
     println!(
         "  obsolete    : {:>4}  ({:>5.1}%)",
         counts[5],

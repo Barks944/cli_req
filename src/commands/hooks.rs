@@ -187,12 +187,14 @@ pub fn run(args: HooksArgs) -> Result<()> {
             ));
         }
     }
-    // REQ-0100: strict-sticky — when re-installing, inherit the existing
-    // hook's mode unless --strict was explicitly passed. Avoids the
-    // footgun of `req hooks install` (no flag) silently downgrading a
-    // previously-strict project to default mode.
+    // REQ-0100: mode swap is deterministic via the flags, with a safe
+    // bare-re-run default. `--strict` upgrades; `--no-strict` downgrades;
+    // a bare re-run inherits the existing hook's mode so `req hooks install`
+    // (to refresh) never silently downgrades a previously-strict clone.
     let strict = if args.strict {
         true
+    } else if args.no_strict {
+        false
     } else if hook.exists() {
         let existing = fs::read_to_string(&hook).unwrap_or_default();
         existing.contains(HOOK_MODE_STRICT)

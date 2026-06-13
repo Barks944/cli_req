@@ -85,6 +85,14 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         linked_files: None,
         sil_gate_exception: false,
     };
+    // REQ-0139: evaluate the validation-dossier gate before taking the
+    // mutable borrow (the gate needs to read project config + the dossier).
+    let dossier_ok = project.requirements[&args.id]
+        .validation
+        .as_ref()
+        .map(|v| v.passed())
+        .unwrap_or(false);
+    let exempt_by_tag = project.req_is_validation_exempt(&project.requirements[&args.id]);
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
     r.history.push(super::history(
@@ -105,6 +113,27 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         let eligible = matches!(r.status, Status::Implemented);
         if eligible || args.force {
             if !matches!(r.status, Status::Verified | Status::Obsolete) {
+                // REQ-0139: a passing dossier (or a tag/`--no-dossier`
+                // exemption) is the precondition for Verified.
+                if !dossier_ok && !exempt_by_tag {
+                    if args.no_dossier {
+                        let reason = args.reason.clone().unwrap_or_default();
+                        r.validation = Some(super::validation::exemption_dossier(
+                            &reason,
+                            super::current_actor(),
+                            commit.clone(),
+                        ));
+                    } else {
+                        return Err(anyhow!(
+                            "{} cannot be promoted to Verified without a passing validation \
+                             dossier. Run `req validation plan {} ...` → analysis → test → \
+                             conclude, tag it `{}` to exempt it, or pass --no-dossier --reason \"...\".",
+                            args.id,
+                            args.id,
+                            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                        ));
+                    }
+                }
                 r.status = Status::Verified;
                 r.history.push(super::history(
                     format!(
@@ -633,14 +662,13 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         for (req_id, record) in &records_to_apply {
             // REQ-0135: route to the requirements or the safety-requirements
             // map, so `sr_NNNN_*` tests attach automated evidence to SRs.
-            let (tests, history, updated) =
-                if let Some(r) = project.requirements.get_mut(req_id) {
-                    (&mut r.tests, &mut r.history, &mut r.updated)
-                } else if let Some(sr) = project.safety_requirements.get_mut(req_id) {
-                    (&mut sr.tests, &mut sr.history, &mut sr.updated)
-                } else {
-                    continue;
-                };
+            let (tests, history, updated) = if let Some(r) = project.requirements.get_mut(req_id) {
+                (&mut r.tests, &mut r.history, &mut r.updated)
+            } else if let Some(sr) = project.safety_requirements.get_mut(req_id) {
+                (&mut sr.tests, &mut sr.history, &mut sr.updated)
+            } else {
+                continue;
+            };
             tests.push(record.clone());
             history.push(super::history(
                 format!(
@@ -655,8 +683,33 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         // Auto-promote pass after writing records, so the latest record is
         // already on tests when we evaluate "is there fresh evidence?".
         if args.promote {
+            // REQ-0139: a bulk test run promotes only items that already
+            // carry a passing validation dossier (or, for ordinary reqs, a
+            // tag exemption). Items without one are left for the explicit
+            // `req validation` flow rather than erroring the whole run.
+            let dossier_ok: std::collections::BTreeSet<String> = records_to_apply
+                .iter()
+                .filter_map(|(id, _)| {
+                    let ok = if let Some(r) = project.requirements.get(id) {
+                        r.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                            || project.req_is_validation_exempt(r)
+                    } else if let Some(sr) = project.safety_requirements.get(id) {
+                        sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                    } else {
+                        false
+                    };
+                    if ok {
+                        Some(id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             let head = current_head_sha_opt();
             for (req_id, _) in &records_to_apply {
+                if !dossier_ok.contains(req_id) {
+                    continue;
+                }
                 let (status, tests, history): (&mut Status, &Vec<TestRecord>, &mut Vec<_>) =
                     if let Some(r) = project.requirements.get_mut(req_id) {
                         (&mut r.status, &r.tests, &mut r.history)

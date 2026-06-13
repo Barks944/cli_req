@@ -86,6 +86,7 @@ Requirements rot when they live in wikis, drift when they live in code comments,
 - **Code traceability** via `// REQ-NNNN` markers and `req coverage`.
 - **Git-native**: pre-commit / post-commit hooks, merge driver for ID collisions, signature-based audit trail.
 - **Agent-shaped**: a session-start `req brief`, an MCP server (`req mcp`), and an AGENTS.md template that explains the workflow in the agent's voice.
+- **Optional IEC 61508 safety layer**: hazards, safety functions, and safety requirements with a *derived* SIL — off until a human signs on (see [Functional safety](#functional-safety-optional)).
 
 The validator IS the product. The CLI is the only legitimate way to mutate the file.
 
@@ -274,15 +275,18 @@ That command writes a managed block, between sentinel markers, into `AGENTS.md`.
 ```
 Project lifecycle
   req init -n <name> [--layout directory]   Create project.req (file or dir layout)
+  req setup [--strict] [--no-hooks]         One-shot bootstrap: init + hooks + AGENTS.md
   req tui                                   Interactive menu (mirrors CLI surface)
   req validate                              Run all rules; 0 errors to ship
-  req status                                Per-status counts + delivery_progress_pct
+  req status [--tag ...]                     Per-status counts + delivery_progress_pct
+  req brief [--full]                        Session-start "where are we now?" summary
+  req purpose ["..."] --reason "..."        Set/print the one-paragraph project purpose
   req version                               Print binary version (--json for tooling)
   req export -f markdown -o reqs.md         Publish (markdown / json / csv / html)
   req serve [--read-only]                   Local web UI (HTML + /api/* JSON)
   req mcp                                   JSON-RPC stdio server for agents
   req mcp --init-config                     Write .mcp.json for MCP-capable clients
-  req schema [add|batch|import]             JSON Schema for structured CLI inputs
+  req schema [add|batch|import|test-map]    JSON Schema for structured CLI inputs
 
 Day-to-day
   req add ...                               Add a requirement (also: --from-json)
@@ -293,33 +297,52 @@ Day-to-day
   req link <from> <to> -k <kind>            parent | depends-on | verifies | …
   req delete REQ-0007 --reason "..."        Soft by default; --hard if no inbound links
   req next [--status ... --tag ...]         Suggest one requirement to work on
+  req split REQ-0007 --into "..." --into "..."  Break a compound req into atomic parts
   req batch path/to/changes.json            Transactional multi-mutation
   req import -f markdown spec.md            Bulk ingest through the validator
+  req adopt --all-drafts --to verified      Retroactive backfill of existing work
+  req lint [--path src]                     Quality audit beyond the validator
 
 Evidence & verification
   req test record REQ-0007 --result pass --notes "..."
-  req test run [--from-file <log>] [--promote]
+  req test run [--from-file <log>] [--map <file>] [--promote]
                                             Drive cargo test, attach records,
                                             optionally flip Implemented -> Verified
+  req test list REQ-0007                    Test-record history for one requirement
   req verify REQ-0007 --by composition --cites REQ-0003 --notes "..." [--promote]
   req verify REQ-0007 --by inspection --notes "reviewed src/..."        [--promote]
   req stale [--only-stale]                  Records vs HEAD; three-state staleness
 
 Integration & review
-  req hooks install [--claude-code]         Pre-commit + merge driver
+  req hooks install [--strict] [--claude-code]
+                                            Pre-commit (validate + marker gate) +
+                                            post-commit summary + merge driver
                                             (+ .claude/settings.json allowlist)
   req doctor                                Per-clone setup audit (gates 5 checks)
+  req precheck [--skip STEP]                Run the CI gate suite locally
   req renumber --base origin/main           Post-merge ID collisions
   req coverage [--path src]                 Orphans / ghosts / test-only / obsolete-in-code
   req coverage --by-file                    Per-file -> REQ IDs
+  req coverage --by-req                     Per-REQ -> files
   req coverage --unlinked-files             Code files with zero markers
   req coverage --remap REQ-OLD=REQ-NEW --apply
   req coverage --strict --allow REQ-NNNN... CI gate; non-zero on findings
+  req review [--gate] [--staged] [--new]    One-shot PR-style spec review report
   req diff origin/main..HEAD                Per-requirement changes between revs
   req check origin/main                     Incremental validate + scoped coverage
   req audit [--gate --require-good-signature --require-signer NAME]
                                             Git signature trail / CI gate
-  req migrate                               Schema migration (currently a no-op stub)
+  req migrate                               Migrate project.req to the current _format
+
+Functional safety (opt-in — see Functional safety section)
+  req safety accept --name "..."            Human signs on; activates the safety surface
+  req safety status / calibrate             Show state / edit the risk-graph SIL bands
+  req hazard add ... && req hazard assess HAZ-0001 -C ... -F ... -P ... -W ...
+                                            Log a hazard; derive its required SIL
+  req sf add ... --mitigates HAZ-0001       Safety function (inherits worst-hazard SIL)
+  req sreq add ... --realizes SF-0001       Safety requirement (inherits its SF's SIL)
+  req sreq verify SR-0001 --by automated [--promote]   SIL-gated verification
+  req trace HAZ-0001                        Whole hazard -> SF -> SR -> evidence case
 
 Recovery
   req repair --confirm-direct-edit          After intentional hand edits
@@ -330,7 +353,8 @@ Docs
                                             workflow | integration | version-control |
                                             agents | mcp | audit | testing |
                                             verification | format-policy | errors |
-                                            env | file-format | tui | web | export
+                                            env | file-format | tui | web | export |
+                                            lint | safety
   req help <section> --install              Inject the section into AGENTS.md
   req help <section> --json                 Structured form for tooling
   req help all                              Everything
@@ -392,6 +416,49 @@ The hash gives **integrity** ("the CLI wrote this last"). For **authenticity** (
 Single static binary, Rust, no runtime dependencies. `req serve` runs a local web view of the spec; `req mcp` exposes the same operations as MCP tools over JSON-RPC, and `req mcp --init-config` writes a `.mcp.json` so MCP-capable clients (Claude Code, etc.) can launch the server automatically.
 
 Issues and contributions: <https://github.com/Barks944/cli_req/issues>
+
+---
+
+## Functional safety (optional)
+
+`req` has an opt-in mode for recording a functional-safety argument on the
+IEC 61508 model. It is **off by default** and stays off until a human runs
+`req safety accept` — an agent cannot (the command refuses `REQ_ACTOR_KIND=agent`,
+and `req safety` is not on the MCP surface). Acceptance writes a committed
+`req-safety-acceptance.json` beside `project.req`; its presence activates the
+feature, deleting it switches the feature back off.
+
+Four linked artifacts, each with its own ID space:
+
+```
+HAZ-NNNN  Hazard             a hazardous event, risk-assessed to a SIL
+SF-NNNN   Safety function    the measure that reaches/keeps a safe state
+SR-NNNN   Safety requirement a normative `shall` realizing a function
+REQ-NNNN  Requirement        ordinary requirements, unchanged
+```
+
+The defining rule: **you never type a SIL — it is derived.** A hazard's
+risk-graph parameters (C/F/P/W) derive its required SIL; a safety function
+inherits the worst of the hazards it mitigates; a safety requirement inherits
+its function's SIL, which then governs how rigorously it must be verified — a
+SIL 3/4 safety requirement cannot reach Verified on inspection alone. The
+risk-graph table is the IEC 61508-5 Annex D *worked example*; the standard
+requires you to calibrate it per project/sector via `req safety calibrate`.
+
+```sh
+req safety accept --name "Your Name <you@example.com>"   # human signs on; commit the file
+req hazard add --title "Blade restarts during cleaning" \
+  --harm "an operator's hand could be severed" --context "guard removed"
+req hazard assess HAZ-0001 -C C_D -F F_B -P P_B -W W2    # derives the required SIL
+req sf   add --title "Guard interlock halts blade" --mitigates HAZ-0001
+req sreq add --title "Interlock cuts power <=200ms" \
+  --statement "The interlock shall cut blade power within 200 ms of guard opening." \
+  --rationale "Bounds exposure to a moving blade." --realizes SF-0001
+req trace HAZ-0001                                        # whole hazard -> SF -> SR -> evidence
+```
+
+The full guide is `req help safety`. **Read the scope & disclaimer below before
+using it for any safety-related work.**
 
 ---
 

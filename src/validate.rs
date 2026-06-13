@@ -74,9 +74,11 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0018",
         "status requires acceptance for functional requirement",
     ),
+    // REQ-0093: REQ-V-0019 is gated on status >= Implemented; the description
+    // documents that precondition (rendered into `req help errors`).
     (
         "REQ-V-0019",
-        "verifies-link source has no test record (verification claim without evidence)",
+        "verifies-link source at Implemented status or later has no test record (verification claim without evidence; suppressed below Implemented)",
     ),
     (
         "REQ-V-0020",
@@ -122,6 +124,18 @@ pub const RULES: &[(&str, &str)] = &[
     (
         "REQ-V-0031",
         "SIL 3/4 safety requirement verified on inspection-only evidence (error without an audited --force exception; warn with one)",
+    ),
+    (
+        "REQ-V-0032",
+        "requirement is Verified but has no passing validation dossier and is not validation-exempt",
+    ),
+    (
+        "REQ-V-0033",
+        "safety requirement is Verified but lacks a genuine validation dossier (exemptions are not allowed for safety requirements)",
+    ),
+    (
+        "REQ-V-0034",
+        "safety requirement is Verified on an agent's dossier but lacks a human confirmation of the validation result (run `req validation confirm`)",
     ),
 ];
 
@@ -536,6 +550,22 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     ));
                 }
             }
+            // REQ-0139 / REQ-V-0032: Verified requires a passing validation
+            // dossier (plan → analysis → testing → statement → verdict)
+            // unless the requirement carries a configured exempt tag.
+            let dossier_ok = r.validation.as_ref().map(|v| v.passed()).unwrap_or(false);
+            if !dossier_ok && !p.req_is_validation_exempt(r) {
+                findings.push(Finding::err(
+                    "REQ-V-0032",
+                    "validation",
+                    format!(
+                        "{} is Verified but has no passing validation dossier — run `req validation plan {} ...` → analysis → test → conclude, or tag it `{}`",
+                        r.id,
+                        r.id,
+                        crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                    ),
+                ));
+            }
         }
         if !findings.is_empty() {
             out.push((id.clone(), findings));
@@ -817,6 +847,8 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             updated: sr.updated,
             history: Vec::new(),
             tests: sr.tests.clone(),
+            validation: None,
+            extra: Default::default(),
         };
         for f in validate_requirement(&shim) {
             push(id, f);
@@ -834,6 +866,53 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
         }
         if matches!(sr.status, Status::Verified) {
+            // REQ-0139 / REQ-0143 / REQ-V-0033: a Verified safety requirement
+            // must carry a GENUINE concluded passing dossier. Unlike an
+            // ordinary requirement there is no exemption — neither a tag nor
+            // an audited back-fill counts. An `exempt` dossier is flagged.
+            let genuine = crate::commands::validation::classify(sr.validation.as_ref(), None, id)
+                .is_genuine();
+            if !genuine {
+                let exempt = sr.validation.as_ref().map(|v| v.exempt).unwrap_or(false);
+                let why = if exempt {
+                    "rests on an audited exemption, which safety requirements may not use"
+                } else {
+                    "has no passing validation dossier"
+                };
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0033",
+                        "validation",
+                        format!(
+                            "{} is Verified but {} — safety requirements need a genuine dossier; run `req validation plan {} ...` → analysis → test → conclude --promote",
+                            id, why, id
+                        ),
+                    ),
+                );
+            }
+            // REQ-0145: a Verified safety requirement also needs a HUMAN
+            // confirmation of the validation result, recorded in addition to
+            // the agent's analysis + testing. The agent's dossier alone does
+            // not make a safety requirement passed.
+            let human_confirmed = sr
+                .validation
+                .as_ref()
+                .map(|v| v.human_confirmation.is_some())
+                .unwrap_or(false);
+            if genuine && !human_confirmed {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0034",
+                        "validation",
+                        format!(
+                            "{} is Verified on an agent's dossier but lacks a human confirmation of the validation result — a person must run `req validation confirm {}` to co-sign it",
+                            id, id
+                        ),
+                    ),
+                );
+            }
             let last_pass = sr
                 .tests
                 .iter()

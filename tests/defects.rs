@@ -48,6 +48,11 @@ fn init_with_one_failing_verified(s: &Sandbox) {
         "constraint",
         "--priority",
         "could",
+        // REQ-0139: this fixture is about a failing-test-record (REQ-V-0024),
+        // not the validation dossier — exempt it from the dossier gate so
+        // only the intended warning fires.
+        "--tag",
+        "validation-exempt",
     ]);
     for status in ["proposed", "approved", "implemented", "verified"] {
         let _ = s.run(&[

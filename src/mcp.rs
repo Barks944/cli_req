@@ -153,11 +153,17 @@ fn handle(method: &str, params: &Value, file: &Path) -> Result<Value> {
     }
 }
 
+// REQ-0139: the agent guidance steers verification through the dossier.
 const SERVER_GUIDANCE: &str = "\
 This is the `req` MCP server for managed requirements. When the user describes \
 new behaviour the system should have, call `req_add`. Before starting work on \
 a feature call `req_list` and `req_show`. Before declaring work complete call \
-`req_validate`. Never read project.req directly — its integrity hash will \
+`req_validate`. To VALIDATE a requirement (REQ-NNNN or SR-NNNN) and move it to \
+Verified, do NOT one-shot it: walk the validation dossier — `req_validation_plan` \
+(how you'll validate), then `req_validation_analysis` (code review + result), then \
+`req_validation_test` (testing + result), then `req_validation_conclude` (statement \
++ derived verdict, promote=true to flip to Verified). Promotion is BLOCKED without a \
+passing dossier. Never read project.req directly — its integrity hash will \
 block the next CLI operation if you do. For full triggers and rules call \
 `req_help` with `{\"section\":\"agents\"}` or `{\"section\":\"best-practice\"}`.";
 
@@ -275,8 +281,13 @@ const TOOLS: &[ToolDef] = &[
         schema: test_run_schema,
     },
     ToolDef {
+        name: "req_test_list",
+        description: "List the test-record history attached to one requirement: each record's timestamp, commit SHA, outcome (pass/fail), evidence kind (test/composition/inspection), and notes, oldest first. Read-only — the agent-facing counterpart to `req_test_record`/`req_test_run`. Use to see what verification a requirement already carries before re-testing or promoting it.",
+        schema: test_list_schema,
+    },
+    ToolDef {
         name: "req_verify",
-        description: "Record a composition or inspection evidence record on a requirement, optionally promoting to Verified. Composition cites another requirement's tests; inspection records a human review. Use composition when the behaviour is covered by another test you can name; use inspection sparingly.",
+        description: "Record a composition or inspection evidence record on a requirement, optionally promoting to Verified. Composition cites another requirement's tests; inspection records a human review. NOTE: promote=true now REQUIRES a passing validation dossier (see req_validation_*) — for the full staged validation prefer req_validation_conclude. An ordinary requirement may instead carry a `validation-exempt` tag, or you may pass no_dossier=true with a reason to record an audited exemption.",
         schema: verify_schema,
     },
     ToolDef {
@@ -417,6 +428,39 @@ const TOOLS: &[ToolDef] = &[
         name: "req_trace",
         description: "Print the end-to-end safety case for a HAZ/SF/SR id: hazard -> required SIL -> safety function -> allocated SIL (adequate?) -> safety requirements -> verification evidence, with a roll-up verdict (complete / incomplete and what's blocking). The single best call to review whether a hazard is fully mitigated and verified.",
         schema: id_schema,
+    },
+    // REQ-0139: the staged validation dossier. This is the path to Verified
+    // for both REQ-NNNN and SR-NNNN — promotion is BLOCKED without a passing
+    // dossier. Walk the stages in order: plan -> analysis -> test -> conclude.
+    ToolDef {
+        name: "req_validation_plan",
+        description: "STAGE 1 of validating a requirement. Open the validation dossier for a REQ-NNNN or SR-NNNN by recording the PLAN: how you will validate it — what you will review (analysis) and how you will test it. A passing dossier is REQUIRED before that requirement can be promoted to Verified. Pass id and plan. Use reopen=true with a reason to re-validate a concluded dossier (e.g. after code changed).",
+        schema: validation_plan_schema,
+    },
+    ToolDef {
+        name: "req_validation_analysis",
+        description: "STAGE 2. Record validation BY ANALYSIS (code review): your findings from reading the implementation against the requirement, plus a pass/fail result. Pass id, findings, result (pass|fail), and optional references (files/commits reviewed). Requires the plan to exist first.",
+        schema: validation_activity_schema,
+    },
+    ToolDef {
+        name: "req_validation_test",
+        description: "STAGE 3. Record validation BY TESTING: what you ran/observed and a pass/fail result. Recorded TestRecords on the requirement are auto-referenced; cite extra evidence via references. Pass id, findings, result (pass|fail). Requires the analysis stage first. Prefer real tests (req_test_record / req_test_run) over prose where they exist.",
+        schema: validation_activity_schema,
+    },
+    ToolDef {
+        name: "req_validation_conclude",
+        description: "STAGE 4. Record the validation STATEMENT and derive the verdict (Pass only when BOTH analysis and testing passed). Set promote=true to flip the requirement to Verified — gated exactly like req_verify (and the SIL-rigour gate for safety requirements). A FAIL verdict cannot be promoted. Pass id, statement.",
+        schema: validation_conclude_schema,
+    },
+    ToolDef {
+        name: "req_validation_show",
+        description: "Return the validation dossier (plan, analysis, testing, statement, verdict, staleness anchor) for a REQ-NNNN or SR-NNNN. Read-only.",
+        schema: id_schema,
+    },
+    ToolDef {
+        name: "req_validation_backfill",
+        description: "Grandfather already-Verified items that pre-date the dossier requirement by recording an AUDITED exemption, so a strict req_validate passes. Pass id (one item) or all=true (every Verified item lacking a passing dossier), with a reason. Use sparingly — prefer a real dossier.",
+        schema: validation_backfill_schema,
     },
 ];
 
@@ -670,6 +714,17 @@ fn test_run_schema() -> Value {
     })
 }
 
+// REQ-0129: read-only history of a requirement's attached test records.
+fn test_list_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+            "id": { "type": "string", "description": "REQ-NNNN (any case/pad form accepted)." }
+        }
+    })
+}
+
 fn verify_schema() -> Value {
     json!({
         "type": "object",
@@ -679,7 +734,10 @@ fn verify_schema() -> Value {
             "by":      { "type": "string", "enum": ["composition","inspection"] },
             "notes":   { "type": "string" },
             "cites":   { "type": "array", "items": { "type": "string" }, "description": "Test names or REQ-IDs supporting the claim; prepended to notes." },
-            "promote": { "type": "boolean", "default": false }
+            "promote": { "type": "boolean", "default": false },
+            "force":   { "type": "boolean", "default": false, "description": "Skip the Implemented-status precondition on promote." },
+            "no_dossier": { "type": "boolean", "default": false, "description": "REQ-0139: promote without a validation dossier, recording an audited exemption. Requires reason. Ordinary requirements only." },
+            "reason":  { "type": "string", "description": "Justification, required with no_dossier." }
         }
     })
 }
@@ -728,6 +786,60 @@ fn id_schema() -> Value {
         "type": "object",
         "properties": { "id": { "type": "string", "description": "HAZ-/SF-/SR-NNNN id" } },
         "required": ["id"]
+    })
+}
+
+// REQ-0139: input schemas for the validation-dossier MCP tools.
+fn validation_plan_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "REQ-NNNN or SR-NNNN" },
+            "plan": { "type": "string", "description": "How you will validate this — the analysis (review) and testing approach." },
+            "reopen": { "type": "boolean", "description": "Re-open a concluded dossier to re-validate (clears the prior verdict). Requires reason." },
+            "reason": { "type": "string" }
+        },
+        "required": ["id", "plan"]
+    })
+}
+
+fn validation_activity_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "REQ-NNNN or SR-NNNN" },
+            "findings": { "type": "string", "description": "What was reviewed/run and what was observed." },
+            "result": { "type": "string", "enum": ["pass", "fail"] },
+            "references": { "type": "array", "items": { "type": "string" }, "description": "Files/commits reviewed (analysis) or test names/records cited (testing)." }
+        },
+        "required": ["id", "findings", "result"]
+    })
+}
+
+fn validation_conclude_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "REQ-NNNN or SR-NNNN" },
+            "statement": { "type": "string", "description": "The validation statement supporting the verdict." },
+            "promote": { "type": "boolean", "description": "Promote to Verified (only when the verdict is Pass; gated like req_verify)." },
+            "force": { "type": "boolean", "description": "Override the promotion preconditions (status ladder / SIL-rigour gate). Requires reason." },
+            "reason": { "type": "string" }
+        },
+        "required": ["id", "statement"]
+    })
+}
+
+// REQ-0139: schema for the validation-dossier back-fill tool.
+fn validation_backfill_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "A single REQ-/SR- id; omit with all=true." },
+            "all": { "type": "boolean", "description": "Back-fill every Verified item without a passing dossier." },
+            "reason": { "type": "string", "description": "Justification recorded on each exemption." }
+        },
+        "required": ["reason"]
     })
 }
 
@@ -967,6 +1079,7 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_audit" => tool_audit(args, file),
         "req_test_record" => tool_test_record(args, file),
         "req_test_run" => tool_test_run(args, file),
+        "req_test_list" => tool_test_list(args, file),
         "req_verify" => tool_verify(args, file),
         "req_batch" => tool_batch(args, file),
         "req_import" => tool_import(args, file),
@@ -996,6 +1109,13 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_sreq_realize" => safety_mcp::sreq_realize(args, file),
         "req_sreq_verify" => safety_mcp::sreq_verify(args, file),
         "req_trace" => safety_mcp::trace(args, file),
+        // REQ-0139: the staged validation dossier.
+        "req_validation_plan" => validation_mcp::plan(args, file),
+        "req_validation_analysis" => validation_mcp::analysis(args, file),
+        "req_validation_test" => validation_mcp::test(args, file),
+        "req_validation_conclude" => validation_mcp::conclude(args, file),
+        "req_validation_show" => validation_mcp::show(args, file),
+        "req_validation_backfill" => validation_mcp::backfill(args, file),
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
 }
@@ -1180,6 +1300,9 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         updated: now,
         history: vec![commands::history("created via MCP", None)],
         tests: Vec::new(),
+        // REQ-0139: a new requirement starts without a validation dossier.
+        validation: None,
+        extra: Default::default(),
     };
     let findings = validate::validate_requirement(&req);
     let errs = validate::errors_only(&findings);
@@ -1623,7 +1746,12 @@ fn tool_help(args: &Value) -> Result<String> {
         return Ok(serde_json::to_string_pretty(&json!({ "sections": list }))?);
     }
     match help_text::section(&section) {
-        Some(s) => Ok(json!({ "name": s.name, "summary": s.summary, "body": s.body }).to_string()),
+        // REQ-0045: render the rule-code catalogue into the body so agents
+        // reading help over MCP see every validator code, not a placeholder.
+        Some(s) => Ok(
+            json!({ "name": s.name, "summary": s.summary, "body": help_text::render_body(s.body) })
+                .to_string(),
+        ),
         None => Err(anyhow!("unknown section: {}", section)),
     }
 }
@@ -2289,6 +2417,9 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
     let (path, mut project, _lock) = crate::storage::load_for_mutation(&Some(file.to_path_buf()))?;
     let actor = crate::commands::current_actor();
     let commit = head.clone().unwrap_or_else(|| "(no git)".into());
+    // REQ-0139: a bulk test run only auto-promotes items already cleared by a
+    // passing dossier (or an ordinary-requirement tag exemption).
+    let exempt_tags = project.validation_exempt_tags();
     for (id, (passed, failed, ignored)) in &by_req {
         let exists = project.requirements.contains_key(id);
         let outcome = if !failed.is_empty() {
@@ -2340,7 +2471,11 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
                 None,
             ));
             r.updated = Utc::now();
+            // REQ-0139: only auto-promote items cleared by a passing dossier.
+            let dossier_ok = r.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                || r.tags.iter().any(|t| exempt_tags.contains(t));
             if promote
+                && dossier_ok
                 && matches!(outcome, crate::model::TestOutcome::Pass)
                 && !matches!(r.status, Status::Verified | Status::Obsolete)
             {
@@ -2361,6 +2496,19 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
         "ok": true, "dry_run": dry_run, "matched_requirements": summary.len(),
         "promoted": promoted, "results": summary,
     }))?)
+}
+
+// REQ-0129: agent-facing read of a requirement's test-record history,
+// mirroring the CLI `req test list`. Returns the `tests` vector as JSON.
+fn tool_test_list(args: &Value, file: &Path) -> Result<String> {
+    let raw = req_s(args, "id")?;
+    let project = storage::load(file)?;
+    let id = crate::commands::resolve_id(&project, &raw)?;
+    let r = project
+        .requirements
+        .get(&id)
+        .ok_or_else(|| anyhow!("no such requirement: {}", id))?;
+    Ok(serde_json::to_string_pretty(&r.tests)?)
 }
 
 fn tool_verify(args: &Value, file: &Path) -> Result<String> {
@@ -2404,10 +2552,22 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
         format!("cites: {} — ", cites.join(", "))
     };
     let (path, mut project, _lock) = crate::storage::load_for_mutation(&Some(file.to_path_buf()))?;
-    let r = project
-        .requirements
-        .get_mut(&id)
-        .ok_or_else(|| anyhow!("no such requirement: {}", id))?;
+    if !project.requirements.contains_key(&id) {
+        return Err(anyhow!("no such requirement: {}", id));
+    }
+    // REQ-0139: evaluate the validation-dossier gate before the mutable borrow.
+    let dossier_ok = project.requirements[&id]
+        .validation
+        .as_ref()
+        .map(|v| v.passed())
+        .unwrap_or(false);
+    let exempt_by_tag = project.req_is_validation_exempt(&project.requirements[&id]);
+    let no_dossier = args
+        .get("no_dossier")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let reason = args.get("reason").and_then(Value::as_str).map(String::from);
+    let r = project.requirements.get_mut(&id).unwrap();
     r.tests.push(crate::model::TestRecord {
         at: Utc::now(),
         actor: crate::commands::current_actor(),
@@ -2434,6 +2594,25 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
         let eligible = matches!(r.status, Status::Implemented);
         if eligible || force {
             if !matches!(r.status, Status::Verified | Status::Obsolete) {
+                // REQ-0139: a passing dossier (or a tag/no_dossier exemption)
+                // is the precondition for Verified.
+                if !dossier_ok && !exempt_by_tag {
+                    if no_dossier {
+                        r.validation = Some(crate::commands::validation::exemption_dossier(
+                            reason.as_deref().unwrap_or(""),
+                            crate::commands::current_actor(),
+                            commit.clone(),
+                        ));
+                    } else {
+                        return Err(anyhow!(
+                            "{} cannot be promoted to Verified without a passing validation \
+                             dossier. Use the req_validation_* tools, tag it `{}`, or pass \
+                             no_dossier=true with a reason.",
+                            id,
+                            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                        ));
+                    }
+                }
                 r.status = Status::Verified;
                 r.history.push(crate::commands::history(
                     format!("status promoted to verified ({} evidence)", kind.as_str()),
@@ -2754,6 +2933,143 @@ fn write_config(path: &Path, force: bool) -> Result<()> {
 // driving the tool over MCP. Each loads, mutates, saves, and returns a
 // JSON view. SILs are derived (never accepted as input), and the
 // SIL-rigour gate is enforced identically to the CLI.
+// REQ-0139: MCP surface for the validation dossier. Thin wrappers over the
+// IO-free `commands::validation::op_*` core, so the CLI and the MCP server
+// share the exact gate + verdict logic.
+mod validation_mcp {
+    use super::{storage, Value};
+    use crate::commands::validation::{self, Stage};
+    use crate::model::TestOutcome;
+    use anyhow::{anyhow, Result};
+    use std::path::Path;
+
+    fn s(v: &Value, k: &str) -> Option<String> {
+        v.get(k).and_then(Value::as_str).map(|s| s.to_string())
+    }
+    fn req_s(v: &Value, k: &str) -> Result<String> {
+        s(v, k).ok_or_else(|| anyhow!("'{}' is required", k))
+    }
+    fn b(v: &Value, k: &str) -> bool {
+        v.get(k).and_then(Value::as_bool).unwrap_or(false)
+    }
+    fn arr(v: &Value, k: &str) -> Vec<String> {
+        v.get(k)
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    fn outcome(a: &Value) -> Result<TestOutcome> {
+        match req_s(a, "result")?.to_lowercase().as_str() {
+            "pass" => Ok(TestOutcome::Pass),
+            "fail" => Ok(TestOutcome::Fail),
+            o => Err(anyhow!("bad result {} (pass|fail)", o)),
+        }
+    }
+    fn dossier_json(p: &crate::model::Project, id: &str) -> Result<String> {
+        let (cid, fam) = validation::resolve(p, id)?;
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "id": cid,
+            "validation": validation::dossier(p, &cid, fam),
+        }))?)
+    }
+
+    pub fn plan(a: &Value, file: &Path) -> Result<String> {
+        let _g = storage::acquire_lock(file)?;
+        let mut p = storage::load(file)?;
+        let id = validation::op_plan(
+            &mut p,
+            &req_s(a, "id")?,
+            &req_s(a, "plan")?,
+            b(a, "reopen"),
+            s(a, "reason").as_deref(),
+        )?;
+        storage::save(file, &p)?;
+        dossier_json(&p, &id)
+    }
+
+    pub fn analysis(a: &Value, file: &Path) -> Result<String> {
+        activity(a, file, Stage::Analysis)
+    }
+    pub fn test(a: &Value, file: &Path) -> Result<String> {
+        activity(a, file, Stage::Testing)
+    }
+    // REQ-0139: record a validation-by-analysis / by-testing stage.
+    fn activity(a: &Value, file: &Path, stage: Stage) -> Result<String> {
+        let _g = storage::acquire_lock(file)?;
+        let mut p = storage::load(file)?;
+        let id = validation::op_activity(
+            &mut p,
+            &req_s(a, "id")?,
+            stage,
+            &req_s(a, "findings")?,
+            outcome(a)?,
+            &arr(a, "references"),
+        )?;
+        storage::save(file, &p)?;
+        dossier_json(&p, &id)
+    }
+
+    pub fn conclude(a: &Value, file: &Path) -> Result<String> {
+        let _g = storage::acquire_lock(file)?;
+        let mut p = storage::load(file)?;
+        let force = b(a, "force");
+        let reason = s(a, "reason");
+        if force
+            && reason
+                .as_deref()
+                .map(|r| r.trim().is_empty())
+                .unwrap_or(true)
+        {
+            return Err(anyhow!("force=true requires a non-empty reason"));
+        }
+        let out = validation::op_conclude(
+            &mut p,
+            &req_s(a, "id")?,
+            &req_s(a, "statement")?,
+            b(a, "promote"),
+            force,
+            reason.as_deref(),
+            Path::new("."),
+        )?;
+        storage::save(file, &p)?;
+        let (_cid, fam) = validation::resolve(&p, &out.id)?;
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "id": out.id,
+            "verdict": out.verdict.as_str(),
+            "promoted": out.promoted,
+            "validation": validation::dossier(&p, &out.id, fam),
+        }))?)
+    }
+
+    pub fn show(a: &Value, file: &Path) -> Result<String> {
+        let p = storage::load(file)?;
+        dossier_json(&p, &req_s(a, "id")?)
+    }
+
+    // REQ-0139: back-fill an audited exemption onto a Verified item.
+    pub fn backfill(a: &Value, file: &Path) -> Result<String> {
+        let _g = storage::acquire_lock(file)?;
+        let mut p = storage::load(file)?;
+        let done = validation::op_backfill(
+            &mut p,
+            s(a, "id").as_deref(),
+            b(a, "all"),
+            &req_s(a, "reason")?,
+        )?;
+        if !done.is_empty() {
+            storage::save(file, &p)?;
+        }
+        Ok(serde_json::to_string_pretty(
+            &serde_json::json!({ "backfilled": done }),
+        )?)
+    }
+}
+
 mod safety_mcp {
     use super::{commands, json, storage, Value};
     use crate::model::{
@@ -2934,6 +3250,7 @@ mod safety_mcp {
             created: now,
             updated: now,
             history: vec![commands::history("created", None)],
+            extra: Default::default(),
         };
         let sil = p.required_sil(&h);
         p.hazards.insert(id.clone(), h);
@@ -2944,6 +3261,7 @@ mod safety_mcp {
         )?)
     }
 
+    // REQ-0134: MCP twin — list hazards with derived SIL.
     pub fn hazard_list(a: &Value, file: &Path) -> Result<String> {
         let p = storage::load(file)?;
         let status = s(a, "status").map(|x| parse_haz_status(&x)).transpose()?;
@@ -2970,13 +3288,18 @@ mod safety_mcp {
             }));
         }
         rows.sort_by(|x, y| x["id"].as_str().cmp(&y["id"].as_str()));
-        Ok(serde_json::to_string_pretty(&json!({ "count": rows.len(), "hazards": rows }))?)
+        Ok(serde_json::to_string_pretty(
+            &json!({ "count": rows.len(), "hazards": rows }),
+        )?)
     }
 
     pub fn hazard_show(a: &Value, file: &Path) -> Result<String> {
         let p = storage::load(file)?;
         let id = norm("HAZ", &req_s(a, "id")?);
-        let h = p.hazards.get(&id).ok_or_else(|| anyhow!("no such hazard: {}", id))?;
+        let h = p
+            .hazards
+            .get(&id)
+            .ok_or_else(|| anyhow!("no such hazard: {}", id))?;
         Ok(serde_json::to_string_pretty(&json!({
             "hazard": h,
             "required_sil": sil_s(p.required_sil(h)),
@@ -2986,6 +3309,7 @@ mod safety_mcp {
         }))?)
     }
 
+    // REQ-0134: MCP twin — set C/F/P/W, derive the SIL.
     pub fn hazard_assess(a: &Value, file: &Path) -> Result<String> {
         let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
@@ -3008,12 +3332,15 @@ mod safety_mcp {
                 h.status = HazardStatus::Assessed;
             }
             h.updated = now;
-            h.history.push(commands::history("assessed", s(a, "reason")));
+            h.history
+                .push(commands::history("assessed", s(a, "reason")));
         }
         p.updated = now;
         let sil = p.required_sil(&p.hazards[&id]);
         storage::save(file, &p)?;
-        Ok(serde_json::to_string_pretty(&json!({ "id": id, "required_sil": sil_s(sil) }))?)
+        Ok(serde_json::to_string_pretty(
+            &json!({ "id": id, "required_sil": sil_s(sil) }),
+        )?)
     }
 
     pub fn hazard_update(a: &Value, file: &Path) -> Result<String> {
@@ -3053,6 +3380,7 @@ mod safety_mcp {
 
     // ----- safety functions -----
 
+    // REQ-0134: MCP twin — create a safety function.
     pub fn sf_add(a: &Value, file: &Path) -> Result<String> {
         let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
@@ -3085,6 +3413,7 @@ mod safety_mcp {
             created: now,
             updated: now,
             history: vec![commands::history("created", None)],
+            extra: Default::default(),
         };
         let alloc = p.allocated_sil(&sf);
         p.safety_functions.insert(id.clone(), sf);
@@ -3100,9 +3429,12 @@ mod safety_mcp {
         }
         p.updated = now;
         storage::save(file, &p)?;
-        Ok(serde_json::to_string_pretty(&json!({ "id": id, "allocated_sil": sil_s(alloc) }))?)
+        Ok(serde_json::to_string_pretty(
+            &json!({ "id": id, "allocated_sil": sil_s(alloc) }),
+        )?)
     }
 
+    // REQ-0134: MCP twin — list safety functions with allocated SIL.
     pub fn sf_list(a: &Value, file: &Path) -> Result<String> {
         let p = storage::load(file)?;
         let status = s(a, "status").map(|x| parse_sf_status(&x)).transpose()?;
@@ -3120,7 +3452,11 @@ mod safety_mcp {
                     continue;
                 }
             }
-            if unreal && p.safety_requirements.values().any(|sr| realizes(sr, &sf.id)) {
+            if unreal
+                && p.safety_requirements
+                    .values()
+                    .any(|sr| realizes(sr, &sf.id))
+            {
                 continue;
             }
             rows.push(json!({
@@ -3129,7 +3465,9 @@ mod safety_mcp {
             }));
         }
         rows.sort_by(|x, y| x["id"].as_str().cmp(&y["id"].as_str()));
-        Ok(serde_json::to_string_pretty(&json!({ "count": rows.len(), "safety_functions": rows }))?)
+        Ok(serde_json::to_string_pretty(
+            &json!({ "count": rows.len(), "safety_functions": rows }),
+        )?)
     }
 
     pub fn sf_show(a: &Value, file: &Path) -> Result<String> {
@@ -3147,6 +3485,7 @@ mod safety_mcp {
         }))?)
     }
 
+    // REQ-0134: MCP twin — edit a safety function.
     pub fn sf_update(a: &Value, file: &Path) -> Result<String> {
         let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
@@ -3172,7 +3511,8 @@ mod safety_mcp {
             }
             apply_tags(&mut sf.tags, a);
             sf.updated = now;
-            sf.history.push(commands::history("updated", s(a, "reason")));
+            sf.history
+                .push(commands::history("updated", s(a, "reason")));
         }
         p.updated = now;
         storage::save(file, &p)?;
@@ -3230,11 +3570,14 @@ mod safety_mcp {
         }
         p.updated = now;
         storage::save(file, &p)?;
-        Ok(serde_json::to_string_pretty(&json!({ "sf": sf_id, "hazard": haz_id, "linked": !remove }))?)
+        Ok(serde_json::to_string_pretty(
+            &json!({ "sf": sf_id, "hazard": haz_id, "linked": !remove }),
+        )?)
     }
 
     // ----- safety requirements -----
 
+    // REQ-0134: MCP twin — create a safety requirement.
     pub fn sreq_add(a: &Value, file: &Path) -> Result<String> {
         let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
@@ -3269,14 +3612,19 @@ mod safety_mcp {
             updated: now,
             history: vec![commands::history("created", None)],
             tests: Vec::new(),
+            validation: None,
+            extra: Default::default(),
         };
         let sil = p.inherited_sil(&sr);
         p.safety_requirements.insert(id.clone(), sr);
         p.updated = now;
         storage::save(file, &p)?;
-        Ok(serde_json::to_string_pretty(&json!({ "id": id, "inherited_sil": sil_s(sil) }))?)
+        Ok(serde_json::to_string_pretty(
+            &json!({ "id": id, "inherited_sil": sil_s(sil) }),
+        )?)
     }
 
+    // REQ-0134: MCP twin — list safety requirements with inherited SIL.
     pub fn sreq_list(a: &Value, file: &Path) -> Result<String> {
         let p = storage::load(file)?;
         let status = s(a, "status").map(|x| parse_status(&x)).transpose()?;
@@ -3303,7 +3651,9 @@ mod safety_mcp {
             }));
         }
         rows.sort_by(|x, y| x["id"].as_str().cmp(&y["id"].as_str()));
-        Ok(serde_json::to_string_pretty(&json!({ "count": rows.len(), "safety_requirements": rows }))?)
+        Ok(serde_json::to_string_pretty(
+            &json!({ "count": rows.len(), "safety_requirements": rows }),
+        )?)
     }
 
     pub fn sreq_show(a: &Value, file: &Path) -> Result<String> {
@@ -3319,6 +3669,7 @@ mod safety_mcp {
         }))?)
     }
 
+    // REQ-0134: MCP twin — edit a safety requirement.
     pub fn sreq_update(a: &Value, file: &Path) -> Result<String> {
         let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
@@ -3354,13 +3705,15 @@ mod safety_mcp {
             }
             apply_tags(&mut sr.tags, a);
             sr.updated = now;
-            sr.history.push(commands::history("updated", s(a, "reason")));
+            sr.history
+                .push(commands::history("updated", s(a, "reason")));
         }
         p.updated = now;
         storage::save(file, &p)?;
         Ok(serde_json::to_string_pretty(&p.safety_requirements[&id])?)
     }
 
+    // REQ-0134: MCP twin — link a safety requirement to a safety function.
     pub fn sreq_realize(a: &Value, file: &Path) -> Result<String> {
         let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
@@ -3399,9 +3752,12 @@ mod safety_mcp {
         }
         p.updated = now;
         storage::save(file, &p)?;
-        Ok(serde_json::to_string_pretty(&json!({ "sreq": sr_id, "sf": sf_id, "linked": !remove }))?)
+        Ok(serde_json::to_string_pretty(
+            &json!({ "sreq": sr_id, "sf": sf_id, "linked": !remove }),
+        )?)
     }
 
+    // REQ-0135: MCP twin — attach evidence under the SIL-rigour gate.
     pub fn sreq_verify(a: &Value, file: &Path) -> Result<String> {
         let _guard = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
@@ -3413,12 +3769,24 @@ mod safety_mcp {
             "automated" => EvidenceKind::Automated,
             "composition" => EvidenceKind::Composition,
             "inspection" => EvidenceKind::Inspection,
-            o => return Err(anyhow!("bad evidence kind {} (automated|composition|inspection)", o)),
+            o => {
+                return Err(anyhow!(
+                    "bad evidence kind {} (automated|composition|inspection)",
+                    o
+                ))
+            }
         };
         let force = b(a, "force");
         let reason = s(a, "reason");
-        if force && reason.as_deref().map(|r| r.trim().is_empty()).unwrap_or(true) {
-            return Err(anyhow!("force=true requires a non-empty reason explaining the override"));
+        if force
+            && reason
+                .as_deref()
+                .map(|r| r.trim().is_empty())
+                .unwrap_or(true)
+        {
+            return Err(anyhow!(
+                "force=true requires a non-empty reason explaining the override"
+            ));
         }
         let promote = b(a, "promote");
         let inherited = p.inherited_sil(&p.safety_requirements[&id]);
@@ -3428,12 +3796,16 @@ mod safety_mcp {
         // overrides them and records a structured audited exception.
         let mut gate_exception = false;
         if promote {
+            // REQ-0139: a passing validation dossier is the precondition for
+            // a safety requirement to reach Verified (no tag exemption).
+            crate::commands::validation::gate_safety_requirement(&p.safety_requirements[&id])?;
             let ladder_ok = matches!(status, Status::Implemented | Status::Verified);
             if !ladder_ok && !force {
                 return Err(anyhow!(
                     "{} is {} — promoting straight to Verified is irregular. Advance it to \
                      Implemented first, or pass force=true with a reason.",
-                    id, status.as_str()
+                    id,
+                    status.as_str()
                 ));
             }
             if let Some(sil) = inherited {
@@ -3445,7 +3817,8 @@ mod safety_mcp {
                             "SIL-rigour gate: {} inherits {} — it cannot be verified on \
                              inspection-only evidence. Provide automated or composition \
                              evidence, or pass force=true with a reason for an audited exception.",
-                            id, sil.as_str()
+                            id,
+                            sil.as_str()
                         ));
                     }
                 }
@@ -3477,8 +3850,13 @@ mod safety_mcp {
                 sr.status = Status::Verified;
             }
             sr.updated = now;
+            // REQ-0135: record the verification (and promotion) on the SR.
             sr.history.push(commands::history(
-                if promote { "verified (promoted)" } else { "evidence recorded" },
+                if promote {
+                    "verified (promoted)"
+                } else {
+                    "evidence recorded"
+                },
                 reason,
             ));
         }
