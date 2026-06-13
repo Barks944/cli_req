@@ -42,6 +42,7 @@ pub fn run(args: ServeArgs, file: &Option<PathBuf>) -> Result<()> {
     let app = Router::new()
         .route("/", get(index_html))
         .route("/r/:id", get(show_html))
+        .route("/s/:id", get(safety_entity_html))
         .route("/safety", get(safety_html))
         .route("/api/list", get(api_list))
         .route("/api/r/:id", get(api_show))
@@ -200,9 +201,11 @@ async fn safety_html(
             (None, _) => true,
         };
         let complete = adequate && total > 0 && verified == total && !sfs.is_empty();
+        // REQ-0147: the hazard id links to its detail page so a reader can walk
+        // into the full mitigation + validation chain.
         rows.push_str(&format!(
-            "<tr><td>{id}</td><td>{title}</td><td>{harm}</td><td>{req}</td><td>{alloc}</td><td>{v}/{t}</td><td>{verdict}</td></tr>",
-            id = h(id),
+            "<tr><td>{idlink}</td><td>{title}</td><td>{harm}</td><td>{req}</td><td>{alloc}</td><td>{v}/{t}</td><td>{verdict}</td></tr>",
+            idlink = alink(id),
             title = h(&hz.title),
             harm = h(&hz.harm),
             req = sil_s(project.required_sil(hz)),
@@ -269,11 +272,13 @@ async fn show_html(
         acc.push_str(&format!("<li>{}. {}</li>", i + 1, h(a)));
     }
     let mut links = String::new();
+    // REQ-0147: a requirement's links resolve across families (a link target
+    // may be a requirement or a safety entity), so navigation is unbroken.
     for l in &r.links {
         links.push_str(&format!(
-            "<li><em>{}</em> &rarr; <a href=\"/r/{tgt}\">{tgt}</a></li>",
+            "<li><em>{}</em> &rarr; {}</li>",
             l.kind.as_str(),
-            tgt = h(&l.target)
+            alink(&l.target)
         ));
     }
     let mut history = String::new();
@@ -326,6 +331,248 @@ async fn show_html(
             history = history,
         ),
     )))
+}
+
+// REQ-0147: resolve any entity id to its web detail page so related entities
+// are navigable by clicking — safety entities use /s/, requirements use /r/.
+fn elink(id: &str) -> String {
+    let up = id.to_uppercase();
+    if up.starts_with("HAZ-") || up.starts_with("SF-") || up.starts_with("SR-") {
+        format!("/s/{}", h(id))
+    } else {
+        format!("/r/{}", h(id))
+    }
+}
+
+// A hyperlink to an entity's detail page, labelled with its id.
+fn alink(id: &str) -> String {
+    format!("<a href=\"{}\">{}</a>", elink(id), h(id))
+}
+
+fn sf_mitigates(sf: &SafetyFunction, hid: &str) -> bool {
+    sf.links
+        .iter()
+        .any(|l| l.kind == LinkKind::Mitigates && l.target == hid)
+}
+fn sr_realizes(sr: &SafetyRequirement, sfid: &str) -> bool {
+    sr.links
+        .iter()
+        .any(|l| l.kind == LinkKind::Realizes && l.target == sfid)
+}
+
+// REQ-0147: render a safety requirement's validation dossier (the artifact the
+// review surfaced as un-navigable) so it's reachable from the chain.
+fn dossier_html(sr: &SafetyRequirement) -> String {
+    match &sr.validation {
+        None => "<p class=\"meta\">No validation dossier recorded.</p>".to_string(),
+        Some(v) => {
+            let verdict = v.verdict.map(|o| o.as_str()).unwrap_or("open");
+            let stage = |a: &Option<crate::model::ValidationActivity>| {
+                a.as_ref()
+                    .map(|x| format!("{} — {}", x.outcome.as_str(), h(&x.summary)))
+                    .unwrap_or_else(|| "—".to_string())
+            };
+            let conf = match &v.human_confirmation {
+                Some(c) => format!(
+                    "human-confirmed by {} @ {}",
+                    h(&c.actor),
+                    c.at.format("%Y-%m-%d %H:%M UTC")
+                ),
+                None => "&#9888; awaiting human confirmation (REQ-V-0034)".to_string(),
+            };
+            format!(
+                "<h2>Validation dossier</h2>\
+                 <ul>\
+                   <li><strong>verdict:</strong> {verdict}</li>\
+                   <li><strong>analysis:</strong> {an}</li>\
+                   <li><strong>testing:</strong> {te}</li>\
+                   <li><strong>confirmation:</strong> {conf}</li>\
+                   {stmt}\
+                 </ul>",
+                an = stage(&v.analysis),
+                te = stage(&v.testing),
+                stmt = v
+                    .statement
+                    .as_ref()
+                    .map(|s| format!("<li><strong>statement:</strong> {}</li>", h(s)))
+                    .unwrap_or_default(),
+            )
+        }
+    }
+}
+
+// REQ-0147: a hazard's detail page renders its full mitigation chain (each SF
+// and SR a clickable link), so a reader can walk HAZ → SF → SR → validation.
+fn render_hazard(project: &Project, raw: &str) -> Option<String> {
+    let id = raw.to_uppercase();
+    let hz = project.hazards.get(&id)?;
+    let mut chain = String::new();
+    for sf in project
+        .safety_functions
+        .values()
+        .filter(|sf| sf_mitigates(sf, &id))
+    {
+        chain.push_str(&format!(
+            "<li>{} — {} <span class=\"meta\">[{}, allocated {}]</span><ul>",
+            alink(&sf.id),
+            h(&sf.title),
+            sf.status.as_str(),
+            sil_s(project.allocated_sil(sf))
+        ));
+        for sr in project
+            .safety_requirements
+            .values()
+            .filter(|sr| sr_realizes(sr, &sf.id))
+        {
+            let conf = match sr
+                .validation
+                .as_ref()
+                .and_then(|v| v.human_confirmation.as_ref())
+            {
+                Some(c) => format!("human-confirmed by {}", h(&c.actor)),
+                None => "&#9888; unconfirmed".to_string(),
+            };
+            chain.push_str(&format!(
+                "<li>{} — {} <span class=\"meta\">[{}] · {}</span></li>",
+                alink(&sr.id),
+                h(&sr.title),
+                sr.status.as_str(),
+                conf
+            ));
+        }
+        chain.push_str("</ul></li>");
+    }
+    if chain.is_empty() {
+        chain.push_str("<li class=\"meta\">no mitigating safety function</li>");
+    }
+    Some(format!(
+        "<p><a href=\"/safety\">&larr; functional safety</a></p>\
+         <h1>{id} <small>{title}</small></h1>\
+         <ul class=\"meta\"><li><strong>Status:</strong> {status}</li> \
+         <li><strong>Required SIL:</strong> {sil}</li></ul>\
+         <h2>Harm</h2><p>{harm}</p>\
+         <h2>Mitigation chain</h2><ul>{chain}</ul>",
+        id = h(&hz.id),
+        title = h(&hz.title),
+        status = hz.status.as_str(),
+        sil = sil_s(project.required_sil(hz)),
+        harm = h(&hz.harm),
+        chain = chain,
+    ))
+}
+
+// REQ-0147: a safety-function page links up to the hazards it mitigates and
+// down to the safety requirements that realize it.
+fn render_sf(project: &Project, raw: &str) -> Option<String> {
+    let id = raw.to_uppercase();
+    let sf = project.safety_functions.get(&id)?;
+    let haz: Vec<String> = sf
+        .links
+        .iter()
+        .filter(|l| l.kind == LinkKind::Mitigates)
+        .map(|l| format!("<li>{}</li>", alink(&l.target)))
+        .collect();
+    let srs: Vec<String> = project
+        .safety_requirements
+        .values()
+        .filter(|sr| sr_realizes(sr, &id))
+        .map(|sr| {
+            format!(
+                "<li>{} — {} <span class=\"meta\">[{}]</span></li>",
+                alink(&sr.id),
+                h(&sr.title),
+                sr.status.as_str()
+            )
+        })
+        .collect();
+    Some(format!(
+        "<p><a href=\"/safety\">&larr; functional safety</a></p>\
+         <h1>{id} <small>{title}</small></h1>\
+         <ul class=\"meta\"><li><strong>Status:</strong> {status}</li> \
+         <li><strong>Allocated SIL:</strong> {sil}</li></ul>\
+         {safe}\
+         <h2>Mitigates (hazards)</h2><ul>{haz}</ul>\
+         <h2>Realized by (safety requirements)</h2><ul>{srs}</ul>",
+        id = h(&sf.id),
+        title = h(&sf.title),
+        status = sf.status.as_str(),
+        sil = sil_s(project.allocated_sil(sf)),
+        safe = if sf.safe_state.is_empty() {
+            String::new()
+        } else {
+            format!("<h2>Safe state</h2><p>{}</p>", h(&sf.safe_state))
+        },
+        haz = if haz.is_empty() {
+            "<li class=\"meta\">none</li>".into()
+        } else {
+            haz.join("")
+        },
+        srs = if srs.is_empty() {
+            "<li class=\"meta\">none</li>".into()
+        } else {
+            srs.join("")
+        },
+    ))
+}
+
+// REQ-0147: a safety-requirement page links to the function it realizes and
+// inlines its validation dossier (the artifact that was previously unreachable).
+fn render_sr(project: &Project, raw: &str) -> Option<String> {
+    let id = raw.to_uppercase();
+    let sr = project.safety_requirements.get(&id)?;
+    let sfs: Vec<String> = sr
+        .links
+        .iter()
+        .filter(|l| l.kind == LinkKind::Realizes)
+        .map(|l| format!("<li>{}</li>", alink(&l.target)))
+        .collect();
+    Some(format!(
+        "<p><a href=\"/safety\">&larr; functional safety</a></p>\
+         <h1>{id} <small>{title}</small></h1>\
+         <ul class=\"meta\"><li><strong>Status:</strong> {status}</li> \
+         <li><strong>Inherited SIL:</strong> {sil}</li></ul>\
+         <h2>Statement</h2><p>{stmt}</p>\
+         <h2>Realizes (safety functions)</h2><ul>{sfs}</ul>\
+         {dossier}",
+        id = h(&sr.id),
+        title = h(&sr.title),
+        status = sr.status.as_str(),
+        sil = sil_s(project.inherited_sil(sr)),
+        stmt = h(&sr.statement),
+        sfs = if sfs.is_empty() {
+            "<li class=\"meta\">none</li>".into()
+        } else {
+            sfs.join("")
+        },
+        dossier = dossier_html(sr),
+    ))
+}
+
+// REQ-0147: detail page for a safety entity (HAZ/SF/SR) with hyperlinks to the
+// entities it relates to, and — for a safety requirement — its validation
+// dossier, so the whole chain is navigable in the browser.
+async fn safety_entity_html(
+    State(state): State<Arc<AppState>>,
+    AxPath(id): AxPath<String>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    let project = load_project(&state)?;
+    let up = id.to_uppercase();
+    let body = if up.starts_with("HAZ") {
+        render_hazard(&project, &id)
+    } else if up.starts_with("SF") {
+        render_sf(&project, &id)
+    } else if up.starts_with("SR") {
+        render_sr(&project, &id)
+    } else {
+        None
+    };
+    match body {
+        Some(b) => Ok(Html(page(&id, &b))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("no such safety entity: {}", id),
+        )),
+    }
 }
 
 fn page(title: &str, body: &str) -> String {
