@@ -137,6 +137,10 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0034",
         "safety requirement is Verified on an agent's dossier but lacks a human confirmation of the validation result (run `req validation confirm`)",
     ),
+    (
+        "REQ-V-0035",
+        "safety requirement is Verified but its validated source has drifted (stale) — re-validate and have a human re-confirm",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[

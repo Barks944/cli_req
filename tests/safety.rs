@@ -1243,3 +1243,223 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
         "--json chain must include the SR's validation dossier:\n{j}"
     );
 }
+
+// ---------- REQ-0148 / REQ-0149: SR staleness rigor + dependency scoping ----------
+
+// Build a confirmed SR-0001 whose only genuine dependency is a code-comment
+// marker in src/safety_impl.rs, plus a prose mention of the id in notes.md.
+fn setup_marked_confirmed_sr(root: &std::path::Path) {
+    use std::process::Command;
+    let bin = env!("CARGO_BIN_EXE_req");
+    let run = |args: &[&str], kind: Option<&str>| {
+        let mut c = Command::new(bin);
+        c.args(args).current_dir(root).env_remove("REQ_FILE");
+        match kind {
+            Some(k) => {
+                c.env("REQ_ACTOR_KIND", k);
+            }
+            None => {
+                c.env_remove("REQ_ACTOR_KIND");
+            }
+        }
+        c.output().expect("run req")
+    };
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    // Genuine marker (comment) — the SR's real dependency.
+    std::fs::write(
+        root.join("src/safety_impl.rs"),
+        "// SR-0001: the interlock implementation\npub fn interlock() {}\n",
+    )
+    .unwrap();
+    // Prose mention only (no comment) — must NOT become a dependency.
+    std::fs::write(
+        root.join("notes.md"),
+        "Design notes: SR-0001 keeps the operator safe.\n",
+    )
+    .unwrap();
+    assert!(run(&["init", "-n", "p"], None).status.success());
+    std::fs::write(
+        root.join("req-safety-acceptance.json"),
+        r#"{"accepted_by":"H","at":"2026-01-01T00:00:00Z","tool_version":"t","disclaimer_version":"2"}"#,
+    )
+    .unwrap();
+    run(
+        &[
+            "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+            "-W", "W3",
+        ],
+        None,
+    );
+    run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"], None);
+    run(
+        &[
+            "sreq",
+            "add",
+            "-t",
+            "Interlock",
+            "-s",
+            "The system shall engage the interlock on demand.",
+            "-r",
+            "operator safety",
+            "-a",
+            "interlock engages",
+            "--realizes",
+            "SF-0001",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq", "update", "SR-0001", "--status", "approved", "--reason", "r",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            "implemented",
+            "--reason",
+            "r",
+        ],
+        None,
+    );
+    run(
+        &[
+            "sreq",
+            "verify",
+            "SR-0001",
+            "--by",
+            "automated",
+            "--notes",
+            "bench",
+        ],
+        None,
+    );
+    run(&["validation", "plan", "SR-0001", "--plan", "p"], None);
+    run(
+        &[
+            "validation",
+            "analysis",
+            "SR-0001",
+            "--findings",
+            "ok",
+            "--result",
+            "pass",
+        ],
+        None,
+    );
+    run(
+        &[
+            "validation",
+            "test",
+            "SR-0001",
+            "--findings",
+            "ok",
+            "--result",
+            "pass",
+        ],
+        None,
+    );
+    run(
+        &[
+            "validation",
+            "conclude",
+            "SR-0001",
+            "--statement",
+            "meets",
+            "--promote",
+        ],
+        None,
+    );
+    run(&["validation", "confirm", "SR-0001"], Some("human"));
+}
+
+fn req_in(root: &std::path::Path, args: &[&str]) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_req"))
+        .args(args)
+        .current_dir(root)
+        .env_remove("REQ_FILE")
+        .env_remove("REQ_ACTOR_KIND")
+        .output()
+        .expect("run req")
+}
+
+/// REQ-0149: a requirement's dependency is the code-comment marker, not prose.
+#[test]
+fn req_0149_staleness_scopes_to_comment_markers_not_prose() {
+    let dir = tempfile::Builder::new()
+        .prefix("req-0149-")
+        .tempdir()
+        .unwrap();
+    let root = dir.path();
+    setup_marked_confirmed_sr(root);
+
+    let shown =
+        String::from_utf8_lossy(&req_in(root, &["validation", "show", "SR-0001", "--json"]).stdout)
+            .to_string();
+    let v: serde_json::Value = serde_json::from_str(&shown).expect("validation show --json");
+    let linked: Vec<String> = v["validation"]["linked_files"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        linked.iter().any(|f| f.contains("safety_impl.rs")),
+        "the code-comment marker file must be a dependency: {linked:?}"
+    );
+    assert!(
+        !linked.iter().any(|f| f.contains("notes.md")),
+        "a prose-only mention must NOT be a dependency: {linked:?}"
+    );
+
+    // Editing the prose file must not make the safety requirement stale.
+    std::fs::write(root.join("notes.md"), "Design notes: rewritten prose.\n").unwrap();
+    assert!(
+        req_in(root, &["validate"]).status.success(),
+        "editing prose must not invalidate the safety requirement"
+    );
+}
+
+/// REQ-0148: once the validated source drifts, the SR is a hard validate error.
+#[test]
+fn req_0148_stale_safety_requirement_is_a_validate_error() {
+    let dir = tempfile::Builder::new()
+        .prefix("req-0148-")
+        .tempdir()
+        .unwrap();
+    let root = dir.path();
+    setup_marked_confirmed_sr(root);
+
+    // Confirmed + fresh → validate clean.
+    assert!(
+        req_in(root, &["validate"]).status.success(),
+        "a freshly validated + confirmed SR should pass"
+    );
+
+    // Drift the marker file → stale → REQ-V-0035 error.
+    std::fs::write(
+        root.join("src/safety_impl.rs"),
+        "// SR-0001: the interlock implementation\npub fn interlock() { /* changed */ }\n",
+    )
+    .unwrap();
+    let out = req_in(root, &["validate"]);
+    assert!(
+        !out.status.success(),
+        "a stale safety requirement must fail validate"
+    );
+    let msg = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        msg.contains("REQ-V-0035"),
+        "stale SR must be flagged REQ-V-0035:\n{msg}"
+    );
+}

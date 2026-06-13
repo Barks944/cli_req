@@ -343,9 +343,6 @@ pub fn hash_files(files: &[std::path::PathBuf]) -> String {
 }
 
 pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path::PathBuf> {
-    use once_cell::sync::Lazy;
-    use regex::Regex;
-    static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:REQ|SR)-\d{4}").unwrap());
     let exts: Vec<String> = [
         "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h",
     ]
@@ -357,12 +354,39 @@ pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path:
     // discovery doesn't pick up artefacts in tmp/, dist/, etc.
     crate::source_walk::walk_source_tree(root, &exts, |path| {
         if let Ok(text) = std::fs::read_to_string(path) {
-            if REQ_RE.find_iter(&text).any(|m| m.as_str() == req_id) {
+            // REQ-0149: an item depends on a file only when the file carries
+            // the id in a CODE COMMENT (a genuine `// SR-NNNN` / `// REQ-NNNN`
+            // marker), not when the id merely appears in prose or a string
+            // literal (README text, help-text examples, test arguments). This
+            // scopes staleness to real implementation changes, so editing
+            // unrelated prose or examples no longer invalidates a requirement.
+            if text
+                .lines()
+                .filter_map(comment_portion)
+                .any(|c| c.contains(req_id))
+            {
                 hits.push(path.to_path_buf());
             }
         }
     });
     hits
+}
+
+/// REQ-0149: return the comment text of a line that *is* a comment — i.e. the
+/// trimmed line begins with a comment delimiter (`//`, `/*`, `*` doc
+/// continuation, `#`, `--`, `;`). Returns None otherwise, so an id that merely
+/// appears mid-line inside a string literal or code (e.g. a quoted marker
+/// string, or a help-text example containing a hash) is NOT treated as a
+/// dependency marker. This keeps a requirement's dependencies to the genuine
+/// comment markers in source.
+fn comment_portion(line: &str) -> Option<&str> {
+    let trimmed = line.trim_start();
+    for delim in ["//", "/*", "*", "#", "--", ";"] {
+        if trimmed.starts_with(delim) {
+            return Some(trimmed);
+        }
+    }
+    None
 }
 
 /// Files changed in git between `record_commit` and HEAD.
