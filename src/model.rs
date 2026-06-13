@@ -156,7 +156,9 @@ pub struct DisclaimerAcceptance {
 
 /// REQ-0138: bump when the substance of the safety disclaimer changes so
 /// existing projects are prompted to re-acknowledge.
-pub const SAFETY_DISCLAIMER_VERSION: &str = "1";
+/// REQ-0144: bumped to "2" when the disclaimer gained the explicit
+/// research-tool / no-liability-whatsoever acknowledgement.
+pub const SAFETY_DISCLAIMER_VERSION: &str = "2";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CoverageConfig {

@@ -861,3 +861,66 @@ fn req_0011_safety_mutation_records_reasoned_append_only_history() {
         shown
     );
 }
+
+/// REQ-0144: the safety-feature acceptance agreement is version-stamped, so an
+/// acceptance recorded for an OLDER disclaimer version no longer satisfies the
+/// gate — the user must re-accept the updated (no-liability / research-only)
+/// terms before safety features work again.
+#[test]
+fn req_0144_stale_disclaimer_version_blocks_safety_features() {
+    use std::process::Command;
+    let dir = tempfile::Builder::new()
+        .prefix("req-0144-")
+        .tempdir()
+        .unwrap();
+    let root = dir.path();
+    let bin = env!("CARGO_BIN_EXE_req");
+    let run = |args: &[&str]| {
+        Command::new(bin)
+            .args(args)
+            .current_dir(root)
+            .env_remove("REQ_FILE")
+            .env_remove("REQ_ACTOR_KIND")
+            .output()
+            .expect("run req")
+    };
+    let hazard = [
+        "hazard", "add", "-t", "H", "--harm", "x", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W3",
+    ];
+    assert!(run(&["init", "-n", "p"]).status.success());
+
+    // Acceptance for an OUTDATED disclaimer version (1) must NOT activate.
+    std::fs::write(
+        root.join("req-safety-acceptance.json"),
+        r#"{"accepted_by":"Old","at":"2026-01-01T00:00:00Z","tool_version":"test","disclaimer_version":"1"}"#,
+    )
+    .unwrap();
+    let blocked = run(&hazard);
+    assert!(
+        !blocked.status.success(),
+        "an acceptance for an older disclaimer version must not enable safety features"
+    );
+    let msg = format!(
+        "{}{}",
+        String::from_utf8_lossy(&blocked.stderr),
+        String::from_utf8_lossy(&blocked.stdout)
+    );
+    assert!(
+        msg.to_lowercase().contains("accept"),
+        "the block should tell the user to re-accept: {msg}"
+    );
+
+    // Acceptance for the CURRENT disclaimer version (2) activates the features.
+    std::fs::write(
+        root.join("req-safety-acceptance.json"),
+        r#"{"accepted_by":"New","at":"2026-01-01T00:00:00Z","tool_version":"test","disclaimer_version":"2"}"#,
+    )
+    .unwrap();
+    let ok = run(&hazard);
+    assert!(
+        ok.status.success(),
+        "current-version acceptance must enable safety features: {}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+}

@@ -22,9 +22,12 @@ use crate::model::{
 };
 use crate::storage::{self, resolve_path};
 
-/// The acknowledgement text shown before sign-on and embedded in the
-/// acceptance file. Keep in sync with `req help safety`; bump
-/// SAFETY_DISCLAIMER_VERSION when its substance changes.
+/// REQ-0144: the agreement a user must accept before any functional-safety
+/// feature is enabled disclaims all developer liability and states that req is
+/// a research tool not intended for real safety applications. Keep this in sync
+/// with `req help safety`; bump SAFETY_DISCLAIMER_VERSION when its substance
+/// changes (a prior acceptance for an older version no longer satisfies the
+/// gate, forcing the user to re-accept the updated terms).
 pub const DISCLAIMER: &str = "\
 FUNCTIONAL-SAFETY DISCLAIMER — read before enabling these features.
 
@@ -41,12 +44,17 @@ FUNCTIONAL-SAFETY DISCLAIMER — read before enabling these features.
     achieved integrity (no PFD/PFH, diagnostic coverage, SFF, SIL
     decomposition). A \"complete\" trace means linked-and-verified, not
     safe.
+  • req is a RESEARCH / EXPERIMENTAL tool. It is NOT intended for use
+    in real safety applications and must not be relied upon for any
+    safety-related decision.
   • This software is provided \"AS IS\", without warranty of any kind.
-    The authors accept NO liability. Nothing it produces is safety
-    assurance or fitness for any safety-related purpose.
+    The authors accept NO liability whatsoever. Nothing it produces is
+    safety assurance or fitness for any safety-related purpose.
 
-By accepting you confirm you understand the above and take
-responsibility for the safety determination.";
+By accepting you confirm you understand the above — including that req
+is a research tool, not for real safety use, and carries no developer
+liability whatsoever — and take responsibility for the safety
+determination.";
 
 /// Path to the acceptance file that sits beside the project.
 pub fn acceptance_path(project_path: &Path) -> PathBuf {
@@ -379,4 +387,36 @@ fn parse_p(s: &str) -> Result<Avoidance> {
 fn atty_stdin() -> bool {
     use std::io::IsTerminal;
     std::io::stdin().is_terminal()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // REQ-0144: the agreement a user must accept before any functional-safety
+    // feature is enabled disclaims all developer liability AND states that req
+    // is a research tool not intended for real safety applications.
+    #[test]
+    fn req_0144_disclaimer_states_no_liability_and_research_scope() {
+        let d = DISCLAIMER.to_lowercase();
+        assert!(
+            d.contains("no liability whatsoever"),
+            "agreement must disclaim all developer liability: {DISCLAIMER}"
+        );
+        assert!(
+            d.contains("research"),
+            "agreement must state req is a research tool: {DISCLAIMER}"
+        );
+        assert!(
+            d.contains("real safety applications"),
+            "agreement must state it is not for real safety applications: {DISCLAIMER}"
+        );
+    }
+
+    // REQ-0144: the accepted disclaimer version is embedded so a substance
+    // change (version bump) forces re-acceptance.
+    #[test]
+    fn req_0144_disclaimer_version_is_current() {
+        assert_eq!(crate::model::SAFETY_DISCLAIMER_VERSION, "2");
+    }
 }
