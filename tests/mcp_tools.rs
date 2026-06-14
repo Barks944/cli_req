@@ -837,3 +837,88 @@ fn mcp_validate_reports_link_cycles() {
 fn _silence_unused() {
     let _ = initialize;
 }
+
+// ---------- REQ-0163/0164/0165: agent-surface improvements ----------
+
+#[test]
+fn req_0163_mcp_list_paginates_with_total() {
+    let s = Sandbox::new();
+    s.init("p");
+    for i in 0..4 {
+        let title = format!("Seed requirement number {}", i);
+        let stmt = format!("The system shall handle case number {}.", i);
+        let _ = s.run(&["add", "-t", &title, "-s", &stmt, "-r", "seed", "-k", "constraint", "-p", "could"]);
+    }
+    let responses = mcp_dialogue(
+        &s,
+        &[initialize(), call_tool(2, "req_list", serde_json::json!({ "limit": 2 }))],
+    );
+    let text = text_of(&responses[1]);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("list json");
+    assert_eq!(v["total"], 4, "total should be the full match count");
+    assert_eq!(v["count"], 2, "page capped at limit");
+    assert_eq!(v["requirements"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn req_0164_mcp_rejection_carries_rule_code() {
+    let s = Sandbox::new();
+    s.init("p");
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            call_tool(
+                2,
+                "req_add",
+                serde_json::json!({
+                    "title": "Statement without a modal verb",
+                    "statement": "the system simply does several assorted things",
+                    "rationale": "provoke a validation error",
+                    "kind": "constraint", "priority": "could"
+                }),
+            ),
+        ],
+    );
+    let r = &responses[1]["result"];
+    assert_eq!(r["isError"], true, "rejection should set isError: {}", r);
+    let code = r["code"].as_str().unwrap_or("");
+    assert!(code.starts_with("REQ-V-"), "discrete code field expected, got: {}", r);
+    assert!(
+        r["codes"].as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        "codes array expected: {}",
+        r
+    );
+}
+
+#[test]
+fn req_0165_mcp_blocked_promotion_lists_routes() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add", "-t", "Requirement awaiting evidence", "-s", "The system shall do the thing.",
+        "-r", "seed", "-k", "constraint", "-p", "could",
+    ]);
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            call_tool(
+                2,
+                "req_verify",
+                serde_json::json!({
+                    "id": "REQ-0001", "by": "inspection", "notes": "looked at it",
+                    "promote": true, "force": true
+                }),
+            ),
+        ],
+    );
+    let r = &responses[1]["result"];
+    assert_eq!(r["isError"], true, "blocked promotion should set isError: {}", r);
+    let routes = r["routes"].as_array().expect("routes array");
+    assert_eq!(routes.len(), 3, "three legal routes expected: {}", r);
+    let joined = routes.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(" ");
+    assert!(joined.contains("dossier"), "routes name the dossier flow: {}", joined);
+    assert!(joined.contains("no-dossier"), "routes name the waiver: {}", joined);
+    assert!(joined.contains("exempt"), "routes name the exempt tag: {}", joined);
+}

@@ -1245,6 +1245,12 @@ pub struct ListArgs {
     /// Full-text search across title and statement.
     #[arg(short, long)]
     pub query: Option<String>,
+    /// REQ-0163: skip this many matches before returning results.
+    #[arg(long)]
+    pub offset: Option<usize>,
+    /// REQ-0163: return at most this many matches (one page).
+    #[arg(long)]
+    pub limit: Option<usize>,
     /// Render as JSON instead of a table.
     #[arg(long)]
     pub json: bool,

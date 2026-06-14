@@ -3009,3 +3009,27 @@ fn req_0166_link_detects_cycle_through_branching_edge() {
         assert!(body.contains(id), "cycle path should mention {}, got: {}", id, body);
     }
 }
+
+// ---------- REQ-0163: list pagination ----------
+
+#[test]
+fn req_0163_list_pagination_limits_and_reports_total() {
+    let s = Sandbox::new();
+    s.init("p");
+    for i in 0..5 {
+        let title = format!("Seed requirement number {}", i);
+        let stmt = format!("The system shall handle case number {}.", i);
+        let _ = s.run(&["add", "-t", &title, "-s", &stmt, "-r", "seed", "-k", "constraint", "-p", "could"]);
+    }
+    let out = s.run(&["list", "--limit", "2", "--offset", "1", "--json"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("json object");
+    assert_eq!(v["total"], 5, "total should reflect all matches");
+    assert_eq!(v["count"], 2, "page should be capped at limit");
+    assert_eq!(v["items"].as_array().unwrap().len(), 2);
+    // Unpaged list keeps the bare-array shape for backward compatibility.
+    let plain = s.run(&["list", "--json"]);
+    let pv: serde_json::Value = serde_json::from_str(&stdout(&plain)).expect("json array");
+    assert!(pv.is_array(), "unpaged --json should stay a bare array");
+    assert_eq!(pv.as_array().unwrap().len(), 5);
+}

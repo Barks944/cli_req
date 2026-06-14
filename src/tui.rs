@@ -411,6 +411,8 @@ fn default_list() -> ListArgs {
         priority: None,
         tag: vec![],
         query: None,
+        offset: None,
+        limit: None,
         json: false,
     }
 }

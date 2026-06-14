@@ -20,6 +20,55 @@ use crate::validate;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
+/// REQ-0164: a validation rejection that carries its rule codes as discrete
+/// data, so the MCP layer can surface them in a machine-readable field
+/// instead of forcing an agent to substring-parse the prose message. The
+/// `Display` text is unchanged from the human message callers already see.
+#[derive(Debug)]
+struct RuleViolation {
+    message: String,
+    codes: Vec<String>,
+}
+
+impl std::fmt::Display for RuleViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for RuleViolation {}
+
+impl RuleViolation {
+    /// Build a rejection from validator findings (errors only), preserving
+    /// each finding's rule code and the existing `[field] message` prose.
+    fn from_findings(prefix: &str, errs: &[&validate::Finding]) -> Self {
+        let message = format!(
+            "{}: {}",
+            prefix,
+            errs.iter()
+                .map(|f| format!("[{}] {}", f.field, f.message))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        let codes = errs.iter().map(|f| f.rule_code.to_string()).collect();
+        RuleViolation { message, codes }
+    }
+}
+
+/// REQ-0165: a promotion blocked by the dossier gate, carrying the legal
+/// routes forward as discrete data so an agent need not parse them out of
+/// the prose. `Display` is the same message a CLI user sees.
+#[derive(Debug)]
+struct PromotionBlocked {
+    message: String,
+    routes: Vec<String>,
+}
+impl std::fmt::Display for PromotionBlocked {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for PromotionBlocked {}
+
 #[derive(Deserialize)]
 struct JsonRpcRequest {
     #[allow(dead_code)]
@@ -143,10 +192,27 @@ fn handle(method: &str, params: &Value, file: &Path) -> Result<Value> {
                     "content": [{ "type": "text", "text": text }],
                     "isError": false,
                 })),
-                Err(e) => Ok(json!({
-                    "content": [{ "type": "text", "text": e.to_string() }],
-                    "isError": true,
-                })),
+                Err(e) => {
+                    // REQ-0164: when the failure is a validation rejection,
+                    // expose the rule code(s) as discrete fields so an agent
+                    // can branch on them and look up the matching help
+                    // section, without changing the human-readable message.
+                    let mut result = json!({
+                        "content": [{ "type": "text", "text": e.to_string() }],
+                        "isError": true,
+                    });
+                    if let Some(rv) = e.downcast_ref::<RuleViolation>() {
+                        if let Some(first) = rv.codes.first() {
+                            result["code"] = json!(first);
+                        }
+                        result["codes"] = json!(rv.codes);
+                    }
+                    // REQ-0165: a blocked promotion carries its legal routes.
+                    if let Some(pb) = e.downcast_ref::<PromotionBlocked>() {
+                        result["routes"] = json!(pb.routes);
+                    }
+                    Ok(result)
+                }
             }
         }
         _ => Err(anyhow!("unknown method: {}", method)),
@@ -528,7 +594,9 @@ fn list_schema() -> Value {
             "kind":     { "type": "string", "enum": ["functional","non-functional","constraint","interface","business"] },
             "priority": { "type": "string", "enum": ["must","should","could","wont"] },
             "tag":      { "type": "array", "items": { "type": "string" } },
-            "query":    { "type": "string", "description": "Case-insensitive substring match against title + statement" }
+            "query":    { "type": "string", "description": "Case-insensitive substring match against title + statement" },
+            "offset":   { "type": "integer", "minimum": 0, "description": "REQ-0163: skip this many matches before returning results" },
+            "limit":    { "type": "integer", "minimum": 1, "description": "REQ-0163: return at most this many matches (one page). Response carries `total` for paging." }
         }
     })
 }
@@ -1222,10 +1290,27 @@ fn tool_list(args: &Value, file: &Path) -> Result<String> {
             "tags": r.tags,
         }));
     }
+    // REQ-0163: paginate so a large project does not return its whole
+    // requirement set in one response. `total` is the full match count;
+    // `requirements` is the requested page.
+    let total = rows.len();
+    let offset = args
+        .get("offset")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(total as u64) as usize;
+    let limit = args.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+    let page: Vec<Value> = match limit {
+        Some(l) => rows.into_iter().skip(offset).take(l).collect(),
+        None => rows.into_iter().skip(offset).collect(),
+    };
     Ok(serde_json::to_string_pretty(&json!({
         "project": project.name,
-        "count": rows.len(),
-        "requirements": rows
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "count": page.len(),
+        "requirements": page
     }))?)
 }
 
@@ -1307,11 +1392,8 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
     let findings = validate::validate_requirement(&req);
     let errs = validate::errors_only(&findings);
     if !errs.is_empty() {
-        let msgs: Vec<String> = errs
-            .iter()
-            .map(|f| format!("[{}] {}", f.field, f.message))
-            .collect();
-        return Err(anyhow!("rejected: {}", msgs.join("; ")));
+        // REQ-0164: carry the rule codes as structured data, not just prose.
+        return Err(RuleViolation::from_findings("rejected", &errs).into());
     }
     let id = project.allocate_id();
     req.id = id.clone();
@@ -2604,13 +2686,12 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
                             commit.clone(),
                         ));
                     } else {
-                        return Err(anyhow!(
-                            "{} cannot be promoted to Verified without a passing validation \
-                             dossier. Use the req_validation_* tools, tag it `{}`, or pass \
-                             no_dossier=true with a reason.",
-                            id,
-                            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
-                        ));
+                        // REQ-0165: enumerate the legal routes as discrete data.
+                        return Err(PromotionBlocked {
+                            message: commands::validation::promotion_blocked_message(&id),
+                            routes: commands::validation::promotion_routes(&id),
+                        }
+                        .into());
                     }
                 }
                 r.status = Status::Verified;

@@ -17,6 +17,31 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use std::path::{Path, PathBuf};
 
+/// REQ-0165: the three legal routes to a Verified state when the dossier
+/// gate blocks a promotion. Returned as discrete strings so the CLI and the
+/// MCP surface present identical, enumerable guidance instead of drifting
+/// prose.
+pub fn promotion_routes(id: &str) -> Vec<String> {
+    vec![
+        format!("dossier: run `req validation plan {id} ...` → analysis → test → conclude --promote"),
+        "waiver: pass --no-dossier --reason \"...\" to record an audited exemption".to_string(),
+        format!(
+            "exempt: tag {id} `{}` to exclude it from the dossier gate",
+            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+        ),
+    ]
+}
+
+/// REQ-0165: the full human-readable rejection, built from the routes so the
+/// message and the structured list can never disagree.
+pub fn promotion_blocked_message(id: &str) -> String {
+    format!(
+        "{id} cannot be promoted to Verified without a passing validation dossier. \
+         Choose one of:\n  - {}",
+        promotion_routes(id).join("\n  - ")
+    )
+}
+
 use crate::cli::{
     TestResultArg, ValidationActivityArgs, ValidationBackfillArgs, ValidationCmd,
     ValidationConcludeArgs, ValidationConfirmArgs, ValidationPlanArgs, ValidationRefreshArgs,

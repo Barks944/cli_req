@@ -124,13 +124,10 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
                             commit.clone(),
                         ));
                     } else {
+                        // REQ-0165: enumerate the legal routes (shared with MCP).
                         return Err(anyhow!(
-                            "{} cannot be promoted to Verified without a passing validation \
-                             dossier. Run `req validation plan {} ...` → analysis → test → \
-                             conclude, tag it `{}` to exempt it, or pass --no-dossier --reason \"...\".",
-                            args.id,
-                            args.id,
-                            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                            "{}",
+                            super::validation::promotion_blocked_message(&args.id)
                         ));
                     }
                 }
