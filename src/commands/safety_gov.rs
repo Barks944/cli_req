@@ -108,7 +108,7 @@ pub fn ensure_enabled_path(path: &Path) -> Result<()> {
     };
     Err(anyhow!(
         "{why}. A human must accept the safety disclaimer first:\n\n    \
-         req safety accept --name \"Your Name <you@example.com>\"\n\n\
+         req safety accept-disclaimer --name \"Your Name <you@example.com>\"\n\n\
          This writes {} (commit it) which activates hazards / safety \
          functions / safety requirements. See `req help safety`.",
         acceptance_path(path).display()
@@ -151,7 +151,7 @@ fn ensure_engaged(file: &Option<PathBuf>) -> Result<()> {
     }
     Err(anyhow!(
         "the functional-safety features have never been accepted for this project. \
-         A human must run `req safety accept --name \"...\"` first."
+         A human must run `req safety accept-disclaimer --name \"...\"` first."
     ))
 }
 
@@ -462,48 +462,16 @@ fn acknowledge(args: SafetyAckArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-/// REQ-0172: the acceptance-blocking gate, reused by `req safety accept`.
-/// Returns the list of (id, reason) that block acceptance.
-fn walkthrough_blockers(project: &Project, head: &str) -> Vec<(String, String)> {
-    in_scope_srs(project)
-        .into_iter()
-        .filter(|id| !ack_is_fresh(project.safety_requirements[id].walkthrough.as_ref(), head))
-        .map(|id| {
-            let why = match project.safety_requirements[&id].walkthrough.as_ref() {
-                None => "never acknowledged".to_string(),
-                Some(a) if a.objected => "objection on record".to_string(),
-                Some(_) => "acknowledgement stale".to_string(),
-            };
-            (id, why)
-        })
-        .collect()
-}
-
 fn accept(args: SafetyAcceptArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
     // The project must exist (so the acceptance sits beside a real spec).
-    let project =
-        storage::load(&path).context("open project before accepting (run `req init` first?)")?;
+    storage::load(&path).context("open project before accepting (run `req init` first?)")?;
 
-    // REQ-0172: acceptance cannot complete while any in-scope safety
-    // requirement lacks a fresh walkthrough acknowledgement at the current
-    // commit. On a first-time accept there are no safety requirements yet
-    // (they need the feature enabled to exist), so this is a no-op; it bites
-    // on re-acceptance once a safety case exists.
-    let blockers = walkthrough_blockers(&project, &head_sha());
-    if !blockers.is_empty() {
-        let list = blockers
-            .iter()
-            .map(|(id, why)| format!("  {} — {}", id, why))
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Err(anyhow!(
-            "safety acceptance is blocked: walk through and acknowledge every safety \
-             requirement first (`req safety walkthrough`), then `req safety acknowledge \
-             SR-NNNN` each:\n{}",
-            list
-        ));
-    }
+    // REQ-0193: accepting the disclaimer ACTIVATES the safety features and is
+    // deliberately NOT gated on safety-requirement acknowledgement. Gating
+    // activation on a case you can only build once activated was circular; the
+    // acknowledgement gate lives on the sign-off check `req safety walkthrough
+    // --gate` (REQ-0172), not here.
 
     // REQ-0138: acceptance must be a deliberate human act, as far as a
     // CLI can tell. We CANNOT cryptographically prove humanness — an
@@ -520,7 +488,7 @@ fn accept(args: SafetyAcceptArgs, file: &Option<PathBuf>) -> Result<()> {
     if matches!(super::current_actor_kind(), crate::model::ActorKind::Agent) {
         return Err(anyhow!(
             "accepting the safety disclaimer must be done by a human, but \
-             REQ_ACTOR_KIND=agent. A person must run `req safety accept`."
+             REQ_ACTOR_KIND=agent. A person must run `req safety accept-disclaimer`."
         ));
     }
     let name = match args.name {
@@ -529,7 +497,7 @@ fn accept(args: SafetyAcceptArgs, file: &Option<PathBuf>) -> Result<()> {
     };
     if !atty_stdin() {
         return Err(anyhow!(
-            "`req safety accept` needs an interactive terminal — run it at a \
+            "`req safety accept-disclaimer` needs an interactive terminal — run it at a \
              real prompt. There is deliberately no non-interactive flag. For \
              unattended setup, a human can instead create {} by hand (it is a \
              small JSON file) and commit it; see `req help safety`.",
@@ -613,7 +581,9 @@ fn status(args: SafetyStatusArgs, file: &Option<PathBuf>) -> Result<()> {
             a.tool_version,
             a.disclaimer_version
         ),
-        None => println!("  no acceptance file — run `req safety accept --name \"...\"` to enable"),
+        None => println!(
+            "  no acceptance file — run `req safety accept-disclaimer --name \"...\"` to enable"
+        ),
     }
     println!(
         "  calibration: {} ({} leaf override(s))",

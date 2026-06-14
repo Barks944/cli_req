@@ -394,8 +394,15 @@ pub struct ValidationBackfillArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum SafetyCmd {
-    /// Accept the safety disclaimer, writing the acceptance file that
-    /// activates hazards / safety functions / safety requirements.
+    // REQ-0193: named for what it does — accept the liability disclaimer,
+    // which ACTIVATES the safety features. This is feature activation, NOT the
+    // safety-case sign-off (that is the walkthrough acknowledgement gate,
+    // REQ-0172). The prior bare name `accept` is removed (pre-release) so the
+    // command name can't be mistaken for accepting the safety case.
+    /// Accept the functional-safety liability disclaimer, which activates
+    /// hazards / safety functions / safety requirements. This only enables the
+    /// feature — it does not sign off the safety case.
+    #[command(name = "accept-disclaimer")]
     Accept(SafetyAcceptArgs),
     /// Show whether safety features are enabled and the calibration in use.
     Status(SafetyStatusArgs),

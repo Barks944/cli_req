@@ -661,13 +661,16 @@ fn req_0138_governance_gate_agent_refusal_and_calibration() {
     assert!(String::from_utf8_lossy(&blocked.stderr).contains("not enabled"));
 
     // An agent cannot accept (refused on the self-identified actor kind).
-    let agent = run(&["safety", "accept", "--name", "Bot"], Some("agent"));
+    let agent = run(
+        &["safety", "accept-disclaimer", "--name", "Bot"],
+        Some("agent"),
+    );
     assert!(!agent.status.success(), "agent must not be able to accept");
     assert!(String::from_utf8_lossy(&agent.stderr).contains("human"));
 
     // Even a non-agent cannot accept without an interactive terminal —
     // there is no --yes backdoor. (Tests have no TTY.)
-    let no_tty = run(&["safety", "accept", "--name", "Tom"], None);
+    let no_tty = run(&["safety", "accept-disclaimer", "--name", "Tom"], None);
     assert!(!no_tty.status.success(), "accept must require a terminal");
     assert!(String::from_utf8_lossy(&no_tty.stderr).contains("interactive terminal"));
 
@@ -2317,4 +2320,53 @@ fn req_0172_no_deadlock_walkthrough_acknowledge_under_stale_acceptance() {
         ],
     );
     assert!(!hz.status.success(), "mutations must stay version-gated");
+}
+
+// ---------- REQ-0193: accept-disclaimer activates, decoupled from acks ----------
+
+#[test]
+fn req_0193_accept_disclaimer_not_gated_on_acknowledgement() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    // An unacknowledged safety requirement exists.
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "R",
+        "-s",
+        "The system shall stop on demand.",
+        "-r",
+        "bounds",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    // accept-disclaimer (non-interactive) must fail on the TTY requirement, NOT
+    // on the acknowledgement gate — activation is decoupled from sign-off.
+    let out = s.run(&["safety", "accept-disclaimer", "--name", "Tom"]);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(
+        err.contains("interactive terminal"),
+        "should fail on TTY, not acks: {}",
+        err
+    );
+    assert!(
+        !err.to_lowercase().contains("acknowledge"),
+        "activation must not be gated on acknowledgement: {}",
+        err
+    );
+    // The bare `accept` name is removed (pre-release) — it must not resolve.
+    assert!(
+        !s.run(&["safety", "accept", "--help"]).status.success(),
+        "bare `accept` should be gone in favour of accept-disclaimer"
+    );
 }

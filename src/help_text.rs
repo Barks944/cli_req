@@ -969,7 +969,7 @@ artifacts, each with its own id space:
 ENABLING THE FEATURES — a human signs on first. The safety features are
 OFF until a person accepts the liability disclaimer:
 
-  req safety accept --name \"Your Name <you@example.com>\"
+  req safety accept-disclaimer --name \"Your Name <you@example.com>\"
 
 This writes `req-safety-acceptance.json` beside project.req — COMMIT it.
 Its presence (for the current disclaimer version) is what activates

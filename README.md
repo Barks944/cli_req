@@ -335,7 +335,7 @@ Integration & review
   req migrate                               Migrate project.req to the current _format
 
 Functional safety (opt-in — see Functional safety section)
-  req safety accept --name "..."            Human signs on; activates the safety surface
+  req safety accept-disclaimer --name "..."            Human signs on; activates the safety surface
   req safety status / calibrate             Show state / edit the risk-graph SIL bands
   req hazard add ... && req hazard assess HAZ-0001 -C ... -F ... -P ... -W ...
                                             Log a hazard; derive its required SIL
@@ -423,7 +423,7 @@ Issues and contributions: <https://github.com/Barks944/cli_req/issues>
 
 `req` has an opt-in mode for recording a functional-safety argument on the
 IEC 61508 model. It is **off by default** and stays off until a human runs
-`req safety accept` — an agent cannot (the command refuses `REQ_ACTOR_KIND=agent`,
+`req safety accept-disclaimer` — an agent cannot (the command refuses `REQ_ACTOR_KIND=agent`,
 and `req safety` is not on the MCP surface). Acceptance writes a committed
 `req-safety-acceptance.json` beside `project.req`; its presence activates the
 feature, deleting it switches the feature back off.
@@ -446,7 +446,7 @@ risk-graph table is the IEC 61508-5 Annex D *worked example*; the standard
 requires you to calibrate it per project/sector via `req safety calibrate`.
 
 ```sh
-req safety accept --name "Your Name <you@example.com>"   # human signs on; commit the file
+req safety accept-disclaimer --name "Your Name <you@example.com>"   # human signs on; commit the file
 req hazard add --title "Blade restarts during cleaning" \
   --harm "an operator's hand could be severed" --context "guard removed"
 req hazard assess HAZ-0001 -C C_D -F F_B -P P_B -W W2    # derives the required SIL
@@ -464,7 +464,7 @@ using it for any safety-related work.**
 
 ## Functional safety — scope & disclaimer
 
-`req` can manage hazards, safety functions, and safety requirements on the IEC 61508 model (`req help safety`). **The features are off until a human signs on:** `req safety accept --name "..."` writes a committed `req-safety-acceptance.json` whose presence activates them — an agent cannot accept on your behalf (`req safety` is not on the MCP surface and refuses `REQ_ACTOR_KIND=agent`). Read this before using it for safety-related work:
+`req` can manage hazards, safety functions, and safety requirements on the IEC 61508 model (`req help safety`). **The features are off until a human signs on:** `req safety accept-disclaimer --name "..."` writes a committed `req-safety-acceptance.json` whose presence activates them — an agent cannot accept on your behalf (`req safety` is not on the MCP surface and refuses `REQ_ACTOR_KIND=agent`). Read this before using it for safety-related work:
 
 - **`req` is NOT a qualified safety tool.** Under IEC 61508-3 §7.4.4 (and ISO 26262-8), a tool whose output you rely on without independent verification needs a tool-confidence/qualification argument. `req` provides none. If you work to a functional-safety standard, qualifying it — or independently verifying every classification it computes — is **your** responsibility.
 - **The SIL is a *candidate*.** It is derived from the qualitative risk parameters you enter. The "derive, never type" design prevents casual fudging; it does **not** make the result objective or remove the need for competent review. The risk-graph table is the **worked example** from IEC 61508-5 Annex D — the standard requires a risk graph to be *calibrated per project/sector*, so confirm or recalibrate the SIL-band boundaries against your own scheme before relying on the result.
