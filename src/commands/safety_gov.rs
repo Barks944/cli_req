@@ -285,16 +285,20 @@ fn walkthrough(args: SafetyWalkthroughArgs, file: &Option<PathBuf>) -> Result<()
         println!("No in-scope safety requirements to walk through.");
         return Ok(());
     }
+    // REQ-0169: render each chain as a top-down story — hazard → harm →
+    // mitigating safety function → safety requirement → evidence → the
+    // human's call. A fixed-width label gutter with wrapped narrative keeps
+    // the long harm/statement text readable instead of running off the line.
+    let heavy = "━".repeat(74);
+    let rule = "─".repeat(70);
     for (n, id) in ids.iter().enumerate() {
         let sr = &project.safety_requirements[id];
-        println!(
-            "\n=== [{}/{}] {} — {} ===",
-            n + 1,
-            ids.len(),
-            sr.id,
-            sr.title
-        );
-        // Hazards reaching this SR through its realizing safety functions.
+        println!("\n{}", heavy);
+        println!("  [{}/{}]  {} — {}", n + 1, ids.len(), sr.id, sr.title);
+        println!("{}\n", heavy);
+
+        // Hazard → mitigating safety function, grouped per realizing SF so
+        // the "this hazard is mitigated by this function" link stays clear.
         for sf in project.safety_functions.values() {
             if !sr
                 .links
@@ -303,58 +307,116 @@ fn walkthrough(args: SafetyWalkthroughArgs, file: &Option<PathBuf>) -> Result<()
             {
                 continue;
             }
-            println!(
-                "  safety function: {} — {}  [{}]",
-                sf.id,
-                sf.title,
-                project.allocated_sil(sf).map(|s| s.as_str()).unwrap_or("—")
-            );
             for l in &sf.links {
                 if let Some(h) = project.hazards.get(&l.target) {
-                    println!("    hazard {}: {}", h.id, h.title);
-                    println!("      harm: {}", h.harm);
-                    println!(
-                        "      required SIL: {}",
-                        project.required_sil(h).map(|s| s.as_str()).unwrap_or("—")
+                    let req = project.required_sil(h).map(|s| s.as_str()).unwrap_or("—");
+                    field(
+                        "HAZARD",
+                        &format!("{}  ·  required {}  ·  {}", h.id, req, h.title),
                     );
+                    field("harm", &h.harm);
                 }
             }
+            let asil = project.allocated_sil(sf).map(|s| s.as_str()).unwrap_or("—");
+            field(
+                "MITIGATED BY",
+                &format!("{}  ·  {}  ·  {}", sf.id, asil, sf.title),
+            );
+            println!();
         }
-        println!("  requirement: {}", sr.statement);
-        println!(
-            "  inherited SIL: {}",
-            project.inherited_sil(sr).map(|s| s.as_str()).unwrap_or("—")
+
+        // The safety requirement itself, then the evidence standing behind it.
+        let inh = project.inherited_sil(sr).map(|s| s.as_str()).unwrap_or("—");
+        field(
+            "REQUIREMENT",
+            &format!("inherited {}  ·  status {}", inh, sr.status.as_str()),
         );
-        println!("  status: {}", sr.status.as_str());
+        field("", &sr.statement);
         match sr.verification.as_ref().and_then(|v| v.statement.clone()) {
-            Some(st) => println!("  verification: {}", st),
-            None => println!("  verification: (no concluded statement)"),
+            Some(st) => field("EVIDENCE", &st),
+            None => field("EVIDENCE", "(no concluded verification statement)"),
         }
+
+        // The human's call on this requirement.
+        println!("  {}", rule);
         match chain_incompleteness(&project, id) {
-            Some(why) => println!("  ⚠ chain incomplete: {} — cannot be acknowledged yet", why),
+            Some(why) => {
+                println!("  ⚠  chain incomplete — cannot be acknowledged yet");
+                println!("     {}", why);
+            }
             None => match sr.walkthrough.as_ref() {
-                Some(a) if ack_is_fresh(Some(a), &head) => {
+                Some(a) if ack_is_fresh(Some(a), &head) => println!(
+                    "  ✓  acknowledged by {} at {}",
+                    a.reviewer,
+                    a.at.format("%Y-%m-%d %H:%M UTC")
+                ),
+                Some(a) if a.objected => {
+                    println!("  ✗  objection on record by {}", a.reviewer)
+                }
+                Some(_) => {
+                    println!("  ⚠  prior acknowledgement is stale");
                     println!(
-                        "  ✓ acknowledged by {} at {}",
-                        a.reviewer,
-                        a.at.format("%Y-%m-%d %H:%M UTC")
+                        "     re-acknowledge at this commit — `req safety acknowledge {}`",
+                        sr.id
                     )
                 }
-                Some(a) if a.objected => println!("  ✗ objection on record by {}", a.reviewer),
-                Some(_) => println!(
-                    "  ⚠ prior acknowledgement is stale — re-acknowledge at the current commit"
-                ),
-                None => println!(
-                    "  ▷ awaiting acknowledgement: `req safety acknowledge {}`",
-                    sr.id
-                ),
+                None => {
+                    println!("  ▷  awaiting your acknowledgement");
+                    println!(
+                        "     run:  req safety acknowledge {}   (or --object to decline)",
+                        sr.id
+                    )
+                }
             },
         }
     }
     println!(
-        "\nReview each chain, then run `req safety acknowledge SR-NNNN` (or --object) for each."
+        "\nWalk each chain top to bottom, then acknowledge (or --object) each: \
+         `req safety acknowledge SR-NNNN`."
     );
     Ok(())
+}
+
+/// REQ-0169: word-wrap `text` to at most `width` columns on whitespace
+/// boundaries. Returns at least one (possibly empty) line so callers can
+/// rely on it for the guided-walkthrough layout.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+        } else if current.chars().count() + 1 + word.chars().count() <= width {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+/// Print a labelled, word-wrapped field for the safety walkthrough: the label
+/// sits in a fixed-width gutter on the first line and continuation lines align
+/// under the body column. An empty label continues the previous field's body.
+fn field(label: &str, body: &str) {
+    const LABEL_W: usize = 12; // fits "MITIGATED BY" / "REQUIREMENT"
+    const BODY_W: usize = 58;
+    let pad = 2 + LABEL_W + 1;
+    for (i, line) in wrap_text(body, BODY_W).iter().enumerate() {
+        if i == 0 {
+            println!("  {:<lw$} {}", label, line, lw = LABEL_W);
+        } else {
+            println!("{:pad$}{}", "", line, pad = pad);
+        }
+    }
 }
 
 /// Resolve a HAZ/SF/SR target to the set of safety requirements in its chain.
