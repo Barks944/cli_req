@@ -58,6 +58,8 @@ pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
                 Some(format!("source: {}", args.source)),
             )],
             tests: Vec::new(),
+            validation: None,
+            extra: Default::default(),
         };
         let findings = validate::validate_requirement(&req);
         let errs: Vec<String> = findings

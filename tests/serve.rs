@@ -221,11 +221,29 @@ fn req_0134_serve_safety_view_and_api() {
     let s = Sandbox::new();
     s.init("p");
     s.enable_safety();
-    let _ = s.run(&["hazard", "add", "-t", "Hazardous mode", "--harm", "operator could be hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Hazardous mode",
+        "--harm",
+        "operator could be hurt",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3",
+    ]);
     let _ = s.run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
     let port = pick_free_port();
     let child = spawn_server(&s, port);
-    assert!(wait_for_bind(port, Duration::from_secs(10)), "serve did not bind");
+    assert!(
+        wait_for_bind(port, Duration::from_secs(10)),
+        "serve did not bind"
+    );
     let _guard = GuardedChild(Some(child));
 
     // The index links to the safety view when hazards exist.
@@ -238,11 +256,134 @@ fn req_0134_serve_safety_view_and_api() {
     assert_eq!(code, 200, "/safety should return 200");
     assert!(body.contains("HAZ-0001"), "/safety should list the hazard");
     assert!(body.contains("SIL3"), "/safety should show the derived SIL");
-    assert!(body.contains("not qualified per IEC 61508-3"), "/safety must carry the disclaimer");
+    assert!(
+        body.contains("not qualified per IEC 61508-3"),
+        "/safety must carry the disclaimer"
+    );
 
     // The JSON API returns the safety artifacts.
     let (code, body) = http_get(port, "/api/safety");
     assert_eq!(code, 200, "/api/safety should return 200");
     assert!(body.contains("\"hazards\""), "api should include hazards");
     assert!(body.contains("HAZ-0001"));
+}
+
+// ---------- REQ-0147: web relationship navigation across safety + validation ----------
+
+#[test]
+fn req_0147_web_navigates_safety_chain_and_validation() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W3",
+    ]);
+    s.run(&["sf", "add", "-t", "Stop fn", "--mitigates", "HAZ-0001"]);
+    s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the blade",
+        "-s",
+        "The system shall stop the blade on demand.",
+        "-r",
+        "operator safety",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    s.run(&[
+        "sreq", "update", "SR-0001", "--status", "approved", "--reason", "r",
+    ]);
+    s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "implemented",
+        "--reason",
+        "r",
+    ]);
+    s.run(&[
+        "sreq",
+        "verify",
+        "SR-0001",
+        "--by",
+        "automated",
+        "--notes",
+        "bench",
+    ]);
+    s.run(&["validation", "plan", "SR-0001", "--plan", "p"]);
+    s.run(&[
+        "validation",
+        "analysis",
+        "SR-0001",
+        "--findings",
+        "reviewed",
+        "--result",
+        "pass",
+    ]);
+    s.run(&[
+        "validation",
+        "test",
+        "SR-0001",
+        "--findings",
+        "bench",
+        "--result",
+        "pass",
+    ]);
+    s.run(&[
+        "validation",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "meets",
+        "--promote",
+    ]);
+    s.run(&["validation", "confirm", "SR-0001"]); // human (REQ_ACTOR_KIND unset in tests)
+
+    let port = pick_free_port();
+    let _child = GuardedChild(Some(spawn_server(&s, port)));
+    assert!(
+        wait_for_bind(port, Duration::from_secs(10)),
+        "req serve did not bind"
+    );
+
+    // /safety links each hazard into its detail page.
+    let (c0, safety) = http_get(port, "/safety");
+    assert_eq!(c0, 200);
+    assert!(
+        safety.contains("/s/HAZ-0001"),
+        "safety page must link the hazard to its detail page:\n{safety}"
+    );
+
+    // The hazard page renders the full SF → SR chain (both navigable).
+    let (c1, haz) = http_get(port, "/s/HAZ-0001");
+    assert_eq!(c1, 200);
+    assert!(
+        haz.contains("/s/SF-0001") && haz.contains("/s/SR-0001"),
+        "hazard page must render the SF→SR chain as links:\n{haz}"
+    );
+
+    // The safety-function page links back to the hazard and down to the SR.
+    let (_c2, sf) = http_get(port, "/s/SF-0001");
+    assert!(
+        sf.contains("/s/HAZ-0001") && sf.contains("/s/SR-0001"),
+        "SF page must link the hazard it mitigates and the SR that realizes it:\n{sf}"
+    );
+
+    // The safety-requirement page links to its function AND shows the
+    // validation dossier with the human confirmation.
+    let (c3, sr) = http_get(port, "/s/SR-0001");
+    assert_eq!(c3, 200);
+    assert!(
+        sr.contains("/s/SF-0001"),
+        "SR page must link the safety function it realizes:\n{sr}"
+    );
+    assert!(
+        sr.contains("Validation dossier") && sr.contains("human-confirmed"),
+        "SR page must show the validation dossier with the human confirmation:\n{sr}"
+    );
 }

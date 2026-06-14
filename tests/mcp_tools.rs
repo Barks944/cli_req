@@ -63,11 +63,32 @@ fn text_of(response: &serde_json::Value) -> String {
 /// `import` are file-driven operations users typically run from the
 /// shell.
 const HUMANS_ONLY_TUI: &[&str] = &[
-    "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "migrate", "schema", "batch",
-    "import", "test", "verify", "check", "help", "setup", "precheck", "purpose", "adopt",
+    "init",
+    "tui",
+    "serve",
+    "mcp",
+    "hooks",
+    "renumber",
+    "repair",
+    "migrate",
+    "schema",
+    "batch",
+    "import",
+    "test",
+    "verify",
+    "check",
+    "help",
+    "setup",
+    "precheck",
+    "purpose",
+    "adopt",
     // REQ-0138: `req safety` (disclaimer acceptance + calibration) is a
     // deliberate governance action driven from the shell, not the menu.
     "safety",
+    // REQ-0139: `req validation` is a multi-step, free-text dossier flow
+    // (plan/analysis/test/conclude) driven from the CLI/MCP, like `verify`
+    // and `test` above — not a single-shot human menu action.
+    "validation",
 ];
 
 #[test]
@@ -465,6 +486,104 @@ fn req_0017_mcp_req_delete_soft_marks_obsolete() {
     );
     let show = stdout(&s.run(&["show", "REQ-0001"]));
     assert!(show.to_lowercase().contains("obsolete"));
+}
+
+// ---------- REQ-0129: req_test_list MCP tool ----------
+
+// The agent-facing read of a requirement's test-record history, mirroring
+// the CLI `req test list`. Closes the MCP/CLI parity gap where records
+// could be written (req_test_record / req_test_run) but not read back.
+#[test]
+fn req_0129_mcp_test_list_returns_recorded_history() {
+    let s = Sandbox::new();
+    s.init("p");
+    let dir = s.dir.path();
+    for a in [
+        vec!["init", "-q", "-b", "main"],
+        vec!["config", "user.email", "t@e.com"],
+        vec!["config", "user.name", "T"],
+        vec!["config", "commit.gpgsign", "false"],
+        vec!["add", "project.req"],
+        vec!["commit", "-q", "-m", "init"],
+    ] {
+        let _ = Command::new("git").current_dir(dir).args(&a).output();
+    }
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Carries a test record read back over MCP",
+        "--statement",
+        "The system shall expose its test-record history through req_test_list.",
+        "--rationale",
+        "REQ-0129 MCP read-path fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let rec = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(dir)
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "test",
+            "record",
+            "REQ-0001",
+            "--result",
+            "pass",
+            "--notes",
+            "smoke run for the MCP read path",
+        ])
+        .output()
+        .expect("test record");
+    assert!(
+        rec.status.success(),
+        "test record stderr: {}",
+        String::from_utf8_lossy(&rec.stderr)
+    );
+
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            call_tool(2, "req_test_list", serde_json::json!({"id": "REQ-0001"})),
+        ],
+    );
+    let body = text_of(&responses[1]);
+    let v: serde_json::Value = serde_json::from_str(&body).expect("records json");
+    let arr = v.as_array().expect("records array");
+    assert_eq!(arr.len(), 1, "one record expected, got {:?}", arr);
+    assert_eq!(arr[0]["outcome"], "Pass");
+}
+
+#[test]
+fn req_0129_mcp_test_list_empty_history_is_empty_array() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Never tested via the MCP read path",
+        "--statement",
+        "The system shall report an empty history when no record exists.",
+        "--rationale",
+        "REQ-0129 empty-history fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            // padded/short id form must resolve too.
+            call_tool(2, "req_test_list", serde_json::json!({"id": "1"})),
+        ],
+    );
+    let body = text_of(&responses[1]);
+    let v: serde_json::Value = serde_json::from_str(&body).expect("records json");
+    assert_eq!(v.as_array().expect("array").len(), 0);
 }
 
 #[test]

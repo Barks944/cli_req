@@ -168,3 +168,63 @@ fn req_0110_config_coverage_extensions_used_when_no_cli_flag() {
         body2
     );
 }
+
+// ---------- REQ-0110: _config consumed by lint ----------
+
+#[test]
+fn req_0110_config_lint_short_rationale_words_used() {
+    let s = Sandbox::new();
+    s.init("p");
+    // A 9-word rationale: flagged at the default threshold (10) but not
+    // once _config lowers the threshold to 8.
+    let add = s.run(&[
+        "add",
+        "--title",
+        "Greet the user warmly",
+        "--statement",
+        "The system shall greet the user with a clear hello message.",
+        "--rationale",
+        "Users expect a friendly greeting when the app loads.",
+        "--kind",
+        "functional",
+        "--priority",
+        "must",
+        "--accept",
+        "A greeting is shown on start",
+    ]);
+    assert!(add.status.success(), "add: {}", stderr(&add));
+
+    let short_count = |body: &str| -> usize {
+        let v: serde_json::Value = serde_json::from_str(body).unwrap();
+        v["quality"]["short_rationale"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0)
+    };
+
+    // Default threshold (10): the 9-word rationale is flagged.
+    let before = stdout(&s.run(&["lint", "--json"]));
+    assert!(
+        short_count(&before) >= 1,
+        "9-word rationale should be flagged at the default threshold; got {before}"
+    );
+
+    // Inject _config.lint.short_rationale_words = 8 and re-sign.
+    let mut json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(s.path()).unwrap()).unwrap();
+    json.as_object_mut().unwrap().insert(
+        "_config".into(),
+        serde_json::json!({ "lint": { "short_rationale_words": 8 } }),
+    );
+    fs::write(s.path(), serde_json::to_string_pretty(&json).unwrap()).unwrap();
+    let repair = s.run(&["repair", "--confirm-direct-edit"]);
+    assert!(repair.status.success(), "repair: {}", stderr(&repair));
+
+    // Threshold 8: 9 words is no longer short, so the finding drops.
+    let after = stdout(&s.run(&["lint", "--json"]));
+    assert_eq!(
+        short_count(&after),
+        0,
+        "_config.lint.short_rationale_words=8 must drop the 9-word finding; got {after}"
+    );
+}

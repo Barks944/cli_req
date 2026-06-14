@@ -64,7 +64,7 @@ pub fn enable_safety(project_file: &std::path::Path) {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::path::PathBuf::from("."))
     };
-    let body = r#"{"accepted_by":"Test","at":"2026-01-01T00:00:00Z","tool_version":"test","disclaimer_version":"1"}"#;
+    let body = r#"{"accepted_by":"Test","at":"2026-01-01T00:00:00Z","tool_version":"test","disclaimer_version":"2"}"#;
     std::fs::write(dir.join("req-safety-acceptance.json"), body).expect("write acceptance file");
 }
 

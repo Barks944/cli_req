@@ -85,6 +85,14 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         linked_files: None,
         sil_gate_exception: false,
     };
+    // REQ-0139: evaluate the validation-dossier gate before taking the
+    // mutable borrow (the gate needs to read project config + the dossier).
+    let dossier_ok = project.requirements[&args.id]
+        .validation
+        .as_ref()
+        .map(|v| v.passed())
+        .unwrap_or(false);
+    let exempt_by_tag = project.req_is_validation_exempt(&project.requirements[&args.id]);
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
     r.history.push(super::history(
@@ -105,6 +113,27 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         let eligible = matches!(r.status, Status::Implemented);
         if eligible || args.force {
             if !matches!(r.status, Status::Verified | Status::Obsolete) {
+                // REQ-0139: a passing dossier (or a tag/`--no-dossier`
+                // exemption) is the precondition for Verified.
+                if !dossier_ok && !exempt_by_tag {
+                    if args.no_dossier {
+                        let reason = args.reason.clone().unwrap_or_default();
+                        r.validation = Some(super::validation::exemption_dossier(
+                            &reason,
+                            super::current_actor(),
+                            commit.clone(),
+                        ));
+                    } else {
+                        return Err(anyhow!(
+                            "{} cannot be promoted to Verified without a passing validation \
+                             dossier. Run `req validation plan {} ...` → analysis → test → \
+                             conclude, tag it `{}` to exempt it, or pass --no-dossier --reason \"...\".",
+                            args.id,
+                            args.id,
+                            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                        ));
+                    }
+                }
                 r.status = Status::Verified;
                 r.history.push(super::history(
                     format!(
@@ -299,7 +328,38 @@ pub fn auto_linked_files(req_id: &str, root: &std::path::Path) -> Vec<std::path:
 /// concatenated with a path separator). Missing files produce an empty
 /// byte block; the path is always included so deletion vs same-content
 /// renames are distinguishable.
+///
+/// REQ-0152: the digest is platform-independent. The path component is
+/// normalized to forward slashes so a dossier anchored on Windows (which
+/// stores `.\src\x.rs`) matches the same logical file on a Linux/macOS CI
+/// checkout, and the file is also READ through that normalized path so a
+/// backslash path stored on Windows still resolves on a POSIX host. Carriage
+/// returns are stripped from the content so a CRLF working tree hashes the same
+/// as an LF one (autocrlf must not change a staleness verdict).
 pub fn hash_files(files: &[std::path::PathBuf]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for p in files {
+        let norm = p.to_string_lossy().replace('\\', "/");
+        hasher.update(norm.as_bytes());
+        hasher.update(b"\0");
+        if let Ok(bytes) = std::fs::read(&norm) {
+            // CRLF -> LF: hash logical content, not the host's line-ending style.
+            let lf: Vec<u8> = bytes.into_iter().filter(|&b| b != b'\r').collect();
+            hasher.update(&lf);
+        }
+        hasher.update(b"\n");
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// REQ-0153: the pre-REQ-0152 hashing algorithm — path string verbatim, raw
+/// file bytes, no normalization. Kept ONLY so `req validation refresh-anchors`
+/// can prove a dossier's source is byte-identical to what it anchored: if the
+/// legacy hash of the current source still equals the stored hash, the bytes
+/// have not changed since the anchor (so the new normalized hash can be
+/// substituted safely, without re-validation). Never use for new anchors.
+pub fn hash_files_legacy(files: &[std::path::PathBuf]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     for p in files {
@@ -314,9 +374,6 @@ pub fn hash_files(files: &[std::path::PathBuf]) -> String {
 }
 
 pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path::PathBuf> {
-    use once_cell::sync::Lazy;
-    use regex::Regex;
-    static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:REQ|SR)-\d{4}").unwrap());
     let exts: Vec<String> = [
         "rs", "py", "js", "ts", "tsx", "go", "java", "md", "toml", "c", "cpp", "h",
     ]
@@ -327,13 +384,54 @@ pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path:
     // REQ-0124: source_walk honours .gitignore so test-record linked-file
     // discovery doesn't pick up artefacts in tmp/, dist/, etc.
     crate::source_walk::walk_source_tree(root, &exts, |path| {
+        // REQ-0149: in a markdown file the only real comment is an HTML
+        // comment (`<!-- ... -->`); `#` starts a heading and `*`/`-` start
+        // list items, none of which are code markers. Scanning them as
+        // "comments" wrongly linked every requirement cited in a CHANGELOG
+        // heading (e.g. `### Added — … (REQ-0112)`) to CHANGELOG.md, so a
+        // release's changelog edit falsely drifted dozens of requirements.
+        let is_markdown = matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("md") | Some("markdown")
+        );
         if let Ok(text) = std::fs::read_to_string(path) {
-            if REQ_RE.find_iter(&text).any(|m| m.as_str() == req_id) {
+            // REQ-0149: an item depends on a file only when the file carries
+            // the id in a CODE COMMENT (a genuine `// SR-NNNN` / `// REQ-NNNN`
+            // marker), not when the id merely appears in prose or a string
+            // literal (README text, help-text examples, test arguments). This
+            // scopes staleness to real implementation changes, so editing
+            // unrelated prose or examples no longer invalidates a requirement.
+            if text
+                .lines()
+                .filter_map(|line| comment_portion(line, is_markdown))
+                .any(|c| c.contains(req_id))
+            {
                 hits.push(path.to_path_buf());
             }
         }
     });
     hits
+}
+
+/// REQ-0149: return the comment text of a line that *is* a comment. For code
+/// files the trimmed line must begin with a comment delimiter (`//`, `/*`, `*`
+/// doc continuation, `#`, `--`, `;`); for markdown (`is_markdown`) only an HTML
+/// comment (`<!--`) counts, because `#`/`*`/`-` there are headings and list
+/// items, not comments. Returns None otherwise, so an id that merely appears in
+/// prose, a string literal, or a markdown heading is NOT treated as a
+/// dependency marker — keeping a requirement's dependencies to genuine source
+/// comment markers.
+fn comment_portion(line: &str, is_markdown: bool) -> Option<&str> {
+    let trimmed = line.trim_start();
+    if is_markdown {
+        return trimmed.starts_with("<!--").then_some(trimmed);
+    }
+    for delim in ["//", "/*", "*", "#", "--", ";"] {
+        if trimmed.starts_with(delim) {
+            return Some(trimmed);
+        }
+    }
+    None
 }
 
 /// Files changed in git between `record_commit` and HEAD.
@@ -633,14 +731,13 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         for (req_id, record) in &records_to_apply {
             // REQ-0135: route to the requirements or the safety-requirements
             // map, so `sr_NNNN_*` tests attach automated evidence to SRs.
-            let (tests, history, updated) =
-                if let Some(r) = project.requirements.get_mut(req_id) {
-                    (&mut r.tests, &mut r.history, &mut r.updated)
-                } else if let Some(sr) = project.safety_requirements.get_mut(req_id) {
-                    (&mut sr.tests, &mut sr.history, &mut sr.updated)
-                } else {
-                    continue;
-                };
+            let (tests, history, updated) = if let Some(r) = project.requirements.get_mut(req_id) {
+                (&mut r.tests, &mut r.history, &mut r.updated)
+            } else if let Some(sr) = project.safety_requirements.get_mut(req_id) {
+                (&mut sr.tests, &mut sr.history, &mut sr.updated)
+            } else {
+                continue;
+            };
             tests.push(record.clone());
             history.push(super::history(
                 format!(
@@ -655,8 +752,33 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         // Auto-promote pass after writing records, so the latest record is
         // already on tests when we evaluate "is there fresh evidence?".
         if args.promote {
+            // REQ-0139: a bulk test run promotes only items that already
+            // carry a passing validation dossier (or, for ordinary reqs, a
+            // tag exemption). Items without one are left for the explicit
+            // `req validation` flow rather than erroring the whole run.
+            let dossier_ok: std::collections::BTreeSet<String> = records_to_apply
+                .iter()
+                .filter_map(|(id, _)| {
+                    let ok = if let Some(r) = project.requirements.get(id) {
+                        r.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                            || project.req_is_validation_exempt(r)
+                    } else if let Some(sr) = project.safety_requirements.get(id) {
+                        sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                    } else {
+                        false
+                    };
+                    if ok {
+                        Some(id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             let head = current_head_sha_opt();
             for (req_id, _) in &records_to_apply {
+                if !dossier_ok.contains(req_id) {
+                    continue;
+                }
                 let (status, tests, history): (&mut Status, &Vec<TestRecord>, &mut Vec<_>) =
                     if let Some(r) = project.requirements.get_mut(req_id) {
                         (&mut r.status, &r.tests, &mut r.history)
@@ -737,4 +859,80 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// REQ-0152: hash_files must produce an identical digest regardless of the
+    /// host's path-separator or line-ending conventions, so a dossier anchored
+    /// on Windows is not falsely STALE on a Linux/macOS CI checkout.
+    #[test]
+    fn req_0152_hash_is_platform_independent() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let file = src.join("x.rs");
+
+        // Same logical file referenced via forward-slash vs backslash path.
+        std::fs::write(&file, b"line1\nline2\n").unwrap();
+        let base = dir.path().to_string_lossy().replace('\\', "/");
+        let fwd = std::path::PathBuf::from(format!("{base}/src/x.rs"));
+        let back = std::path::PathBuf::from(format!("{base}/src/x.rs").replace('/', "\\"));
+        assert_eq!(
+            hash_files(std::slice::from_ref(&fwd)),
+            hash_files(std::slice::from_ref(&back)),
+            "path separator must not change the digest"
+        );
+
+        // Same logical content with CRLF vs LF line endings.
+        std::fs::write(&file, b"line1\r\nline2\r\n").unwrap();
+        let crlf = hash_files(std::slice::from_ref(&fwd));
+        std::fs::write(&file, b"line1\nline2\n").unwrap();
+        let lf = hash_files(std::slice::from_ref(&fwd));
+        assert_eq!(crlf, lf, "CRLF and LF content must hash identically");
+    }
+
+    /// REQ-0149: a markdown heading or list item that cites a requirement id is
+    /// NOT a code marker, so it must not make the doc a staleness dependency;
+    /// only an HTML comment (`<!-- ... -->`) counts in markdown.
+    #[test]
+    fn req_0149_markdown_headings_are_not_markers() {
+        // markdown: heading citation is not a comment; HTML comment is.
+        assert!(comment_portion("### Added — staleness (REQ-0112)", true).is_none());
+        assert!(comment_portion("- bullet mentioning REQ-0112", true).is_none());
+        assert!(comment_portion("<!-- REQ-0080: changelog marker -->", true).is_some());
+        // code files: `#`/`//` lines remain comments (toml/shell/rust).
+        assert!(comment_portion("# Implements REQ-0021 (single binary)", false).is_some());
+        assert!(comment_portion("// REQ-0001: marker", false).is_some());
+
+        // files_referencing: a heading citation does not link the markdown file,
+        // but an HTML-comment marker does. Build the test ids dynamically so the
+        // literal tokens never appear in this source (they would otherwise read
+        // as coverage ghosts — markers to non-existent requirements).
+        let heading_id = format!("REQ-{}", 9001);
+        let comment_id = format!("REQ-{}", 9002);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            format!("### Added - feature ({heading_id})\n- prose about {heading_id}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("NOTES.md"),
+            format!("<!-- {comment_id}: design note -->\n# {comment_id} heading\n"),
+        )
+        .unwrap();
+        let cl = files_referencing(&heading_id, dir.path());
+        assert!(
+            cl.is_empty(),
+            "a markdown heading citation must not link the doc: {cl:?}"
+        );
+        let nt = files_referencing(&comment_id, dir.path());
+        assert!(
+            nt.iter().any(|p| p.to_string_lossy().contains("NOTES.md")),
+            "an HTML-comment marker must link the doc: {nt:?}"
+        );
+    }
 }

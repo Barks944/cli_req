@@ -8,6 +8,80 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.5.0-rc.5] — 2026-06-14
+
+Maintenance release. Functionally identical to rc.4; cleans up the validation
+staleness anchors so the project's own dogfood stays all-green across releases.
+
+### Changed
+- **Staleness anchors re-derived to comment-only linked files (REQ-0149
+  applied to legacy dossiers):** rc.3-era validation dossiers still carried
+  broad `linked_files` from the pre-REQ-0149 prose-matching era — including
+  `CHANGELOG.md` via its `(REQ-NNNN)` mentions — so editing the changelog on a
+  release falsely drifted dozens of unrelated requirements to stale. Every
+  affected dossier was re-validated so its `linked_files` are now derived
+  solely from genuine `// REQ-NNNN:` code-comment markers; documentation and
+  release edits no longer drift implementation requirements.
+
+## [0.5.0-rc.4] — 2026-06-14
+
+Release candidate folding in the staged validation dossier, honest
+verification provenance, functional-safety governance (human co-sign + a
+liability/research agreement), the safety-case navigation surfaces, and a
+forward-compatible, platform-independent staleness anchor. The project's own
+spec is fully dogfooded: all 152 verified items rest on a genuine, fresh
+validation dossier.
+
+### Added
+- **Staged validation dossier (REQ-0139):** a requirement or safety
+  requirement reaches Verified only after an ordered `plan → analysis →
+  testing → statement → verdict` walk; the verdict is derived, never typed,
+  and a passing dossier is the precondition the promotion gate checks.
+- **Verification provenance (REQ-0142 / REQ-0143 / REQ-0150):** `req
+  validation report` classifies every Verified item as genuine vs audited
+  exemption vs stale vs `unconfirmed` (safety req with a genuine dossier but
+  no human co-sign) vs ungated, so a non-genuine verification can never read
+  as trustworthy. Safety requirements may not be exempted.
+- **Safety governance (REQ-0144 / REQ-0145):** using any safety feature
+  requires accepting an agreement disclaiming developer liability and stating
+  `req` is a research tool, not for real safety applications; and a Verified
+  safety requirement additionally requires a human to co-sign the validation
+  result (`req validation confirm`) — an agent cannot confirm on a person's
+  behalf.
+- **Safety-case navigation (REQ-0146 / REQ-0147):** `req trace` prints the
+  full HAZ → SF → SR → validation chain, and the web server links every
+  entity to its relationships, including safety entities and validation
+  dossiers.
+- **Stale-SR rigour (REQ-0148 / REQ-0149):** a Verified safety requirement
+  whose validated source drifts is a hard `req validate` error until it is
+  re-validated and re-confirmed by a human; staleness is scoped to genuine
+  `// SR-NNNN:` code-comment markers, not incidental prose mentions.
+- **`req validation refresh-anchors` (REQ-0153):** re-normalizes a dossier's
+  staleness hash only where the source is cryptographically proven unchanged
+  since the anchor, leaving genuinely-drifted dossiers stale for
+  re-validation and never auto-touching safety requirements.
+- `req_test_list` MCP tool — agent-facing read of a requirement's test-record
+  history, mirroring the CLI `req test list`. Closes the CLI/MCP parity gap
+  where test records could be written (`req_test_record` / `req_test_run`) but
+  not read back over MCP (REQ-0129).
+
+### Changed
+- **Platform-independent staleness hash (REQ-0152):** the content hash that
+  anchors validation/test-record staleness is now computed identically on
+  every platform — path separators normalized to forward slash, carriage
+  returns stripped — so a dossier anchored on Windows is not falsely STALE on
+  a Linux/macOS CI checkout.
+- **Clean `--help` (REQ-0151):** command and flag help no longer leaks
+  implementation-marker ids (e.g. `REQ-0101:`); markers live in non-rendered
+  code comments.
+- Forward-compatible storage (REQ-0140 / REQ-0141): a project record now
+  preserves any field written by a newer `req` instead of silently dropping it
+  on save (a `#[serde(flatten)]` catch-all on the requirement, project-root, and
+  safety-entity records), and the storage layer stamps a `_schema_rev` and
+  refuses to overwrite a file whose recorded revision is newer than the running
+  binary understands. Together these stop an older binary — e.g. a stale MCP
+  server — from destroying data such as the per-requirement validation dossier.
+
 ## [0.5.0-rc.2] — 2026-06-12
 
 Release candidate for functional-safety support (supersedes the unpublished

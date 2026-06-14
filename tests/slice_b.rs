@@ -93,6 +93,105 @@ fn req_0064_doctor_passes_after_hooks_install() {
     );
 }
 
+// ---------- REQ-0103: doctor surfaces post-commit hook state ----------
+
+#[test]
+fn req_0103_doctor_surfaces_post_commit_hook_state() {
+    let s = fresh_git_repo();
+    let doctor_json = || {
+        let out = Command::new(env!("CARGO_BIN_EXE_req"))
+            .current_dir(s.dir.path())
+            .args(["--file", s.path().to_str().unwrap(), "doctor", "--json"])
+            .output()
+            .expect("invoke req");
+        let v: serde_json::Value =
+            serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("doctor --json");
+        v
+    };
+    // Before install: doctor still surfaces a post-commit check, reported missing.
+    let before = doctor_json();
+    let post = before["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "post-commit hook")
+        .expect("doctor must surface the post-commit hook state");
+    assert!(
+        !post["ok"].as_bool().unwrap(),
+        "post-commit reported present before install"
+    );
+    // After install: the post-commit check passes.
+    let install = Command::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "hooks",
+            "install",
+            "--force",
+        ])
+        .output()
+        .expect("hooks install");
+    assert!(
+        install.status.success(),
+        "install: {}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let after = doctor_json();
+    let post2 = after["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "post-commit hook")
+        .unwrap();
+    assert!(
+        post2["ok"].as_bool().unwrap(),
+        "post-commit should be OK after install"
+    );
+}
+
+// ---------- REQ-0100: deterministic strict<->default hook swap ----------
+
+#[test]
+fn req_0100_no_strict_downgrades_strict_hook() {
+    let s = fresh_git_repo();
+    let hook_path = s.dir.path().join(".git/hooks/pre-commit");
+    let path = s.path();
+    let path_s = path.to_str().unwrap();
+    let install = |extra: &[&str]| {
+        let mut a = vec!["--file", path_s, "hooks", "install", "--force"];
+        a.extend_from_slice(extra);
+        let out = Command::new(env!("CARGO_BIN_EXE_req"))
+            .current_dir(s.dir.path())
+            .args(&a)
+            .output()
+            .expect("install");
+        assert!(
+            out.status.success(),
+            "install {:?}: {}",
+            extra,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        fs::read_to_string(&hook_path).unwrap()
+    };
+    assert!(
+        install(&["--strict"]).contains("# mode: strict"),
+        "--strict installs strict mode"
+    );
+    assert!(
+        install(&[]).contains("# mode: strict"),
+        "bare re-run preserves strict (no accidental downgrade)"
+    );
+    assert!(
+        install(&["--no-strict"]).contains("# mode: default"),
+        "--no-strict downgrades deterministically to default"
+    );
+    assert!(
+        install(&["--strict"]).contains("# mode: strict"),
+        "--strict upgrades again"
+    );
+}
+
 // ---------- REQ-0069: req diff ----------
 
 #[test]

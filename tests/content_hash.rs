@@ -227,3 +227,102 @@ fn req_0112_old_record_without_hash_falls_back_to_sha() {
         stderr(&out)
     );
 }
+
+/// REQ-0153: `refresh-anchors` must NEVER silently rehash a dossier whose
+/// source genuinely changed — it only re-normalizes anchors proven unchanged.
+/// A fresh anchor is left alone; a drifted one is reported (not refreshed).
+#[test]
+fn req_0153_refresh_never_rehashes_drifted_source() {
+    let s = Sandbox::new();
+    s.init("p");
+    init_git_repo(s.dir.path());
+    let abs = s.dir.path().to_path_buf();
+    let file = s.path().to_str().unwrap().to_string();
+    let run_in = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_req"))
+            .current_dir(&abs)
+            .args(["--file", &file])
+            .args(args)
+            .output()
+            .expect("req")
+    };
+
+    run_in(&[
+        "add",
+        "--title",
+        "Hashed requirement here",
+        "--statement",
+        "The system shall be referenced from a marked source file.",
+        "--rationale",
+        "Refresh fixture.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    fs::create_dir_all(abs.join("src")).unwrap();
+    fs::write(abs.join("src/lib.rs"), "// REQ-0001: impl\nfn a() {}\n").unwrap();
+    git_commit(&abs, "init");
+    for st in ["proposed", "approved", "implemented"] {
+        run_in(&["update", "REQ-0001", "--status", st, "--reason", "x"]);
+    }
+    run_in(&["validation", "plan", "REQ-0001", "--plan", "review"]);
+    run_in(&[
+        "validation",
+        "analysis",
+        "REQ-0001",
+        "--findings",
+        "ok",
+        "--result",
+        "pass",
+    ]);
+    run_in(&[
+        "validation",
+        "test",
+        "REQ-0001",
+        "--findings",
+        "ok",
+        "--result",
+        "pass",
+    ]);
+    let c = run_in(&[
+        "validation",
+        "conclude",
+        "REQ-0001",
+        "--statement",
+        "met",
+        "--promote",
+    ]);
+    assert!(
+        c.status.success(),
+        "conclude: {}",
+        String::from_utf8_lossy(&c.stderr)
+    );
+
+    // Freshly anchored (new-format hash) -> nothing to refresh, not drifted.
+    let fresh = run_in(&["validation", "refresh-anchors", "--path", ".", "--json"]);
+    let jf = String::from_utf8_lossy(&fresh.stdout);
+    assert!(
+        jf.contains("\"refreshed\": []"),
+        "a fresh anchor must not be refreshed: {jf}"
+    );
+
+    // Genuinely change the linked source.
+    fs::write(
+        abs.join("src/lib.rs"),
+        "// REQ-0001: impl\nfn a() { let _x = 1; }\n",
+    )
+    .unwrap();
+
+    // Drifted source must be reported, NOT rehashed.
+    let out = run_in(&["validation", "refresh-anchors", "--path", ".", "--json"]);
+    let j = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        j.contains("\"refreshed\": []"),
+        "a genuinely drifted source must never be refreshed: {j}"
+    );
+    assert!(
+        j.contains("REQ-0001"),
+        "the drifted requirement should be reported: {j}"
+    );
+}

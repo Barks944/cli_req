@@ -87,6 +87,15 @@ impl Command {
             Command::Trace(a) => a.json,
             Command::Safety(SafetyCmd::Status(a)) => a.json,
             Command::Safety(SafetyCmd::Calibrate(a)) => a.json,
+            Command::Validation(ValidationCmd::Plan(a)) => a.json,
+            Command::Validation(ValidationCmd::Analysis(a)) => a.json,
+            Command::Validation(ValidationCmd::Test(a)) => a.json,
+            Command::Validation(ValidationCmd::Conclude(a)) => a.json,
+            Command::Validation(ValidationCmd::Confirm(a)) => a.json,
+            Command::Validation(ValidationCmd::Show(a)) => a.json,
+            Command::Validation(ValidationCmd::Backfill(a)) => a.json,
+            // REQ-0142: provenance report honours --json like the rest.
+            Command::Validation(ValidationCmd::Report(a)) => a.json,
             _ => false,
         }
     }
@@ -167,39 +176,214 @@ pub enum Command {
     Review(ReviewArgs),
     /// Interactive split of a compound requirement into atomic ones.
     Split(SplitArgs),
-    /// REQ-0101: project-wide quality audit beyond the validator: marker
+    // REQ-0101: marker kept off the --help line (see REQ-0151).
+    /// Project-wide quality audit beyond the validator: marker
     /// coverage, rationale length, acceptance count, test-record presence.
     Lint(LintArgs),
-    /// REQ-0104: session-start brief. Where are we right now?
+    // REQ-0104: marker kept off the --help line (see REQ-0151).
+    /// Session-start brief. Where are we right now?
     Brief(BriefArgs),
-    /// REQ-0105: one-shot project bootstrap (init + hooks + AGENTS.md).
+    // REQ-0105: marker kept off the --help line (see REQ-0151).
+    /// One-shot project bootstrap (init + hooks + AGENTS.md).
     Setup(SetupArgs),
-    /// REQ-0114: run the local equivalent of the CI gate suite.
+    // REQ-0114: marker kept off the --help line (see REQ-0151).
+    /// Run the local equivalent of the CI gate suite.
     Precheck(PrecheckArgs),
-    /// REQ-0111: set or print the project's purpose statement.
+    // REQ-0111: marker kept off the --help line (see REQ-0151).
+    /// Set or print the project's purpose statement.
     Purpose(PurposeArgs),
-    /// REQ-0109: retroactive backfill — advance requirements through
+    // REQ-0109: marker kept off the --help line (see REQ-0151).
+    /// Retroactive backfill — advance requirements through
     /// the lifecycle to a target status in one invocation.
     Adopt(AdoptArgs),
-    /// REQ-0134: manage hazards (HAZ-NNNN) — the functional-safety
+    // REQ-0134: marker kept off the --help line (see REQ-0151).
+    /// Manage hazards (HAZ-NNNN) — the functional-safety
     /// entry point. Risk-assess via the IEC 61508 risk graph.
     #[command(subcommand)]
     Hazard(HazardCmd),
-    /// REQ-0134: manage safety functions (SF-NNNN) that mitigate hazards.
+    // REQ-0134: marker kept off the --help line (see REQ-0151).
+    /// Manage safety functions (SF-NNNN) that mitigate hazards.
     #[command(subcommand)]
     Sf(SfCmd),
-    /// REQ-0134: manage safety requirements (SR-NNNN) that realize
+    // REQ-0134: marker kept off the --help line (see REQ-0151).
+    /// Manage safety requirements (SR-NNNN) that realize
     /// safety functions.
     #[command(subcommand)]
     Sreq(SreqCmd),
-    /// REQ-0136: print the end-to-end safety case for a HAZ/SF/SR id —
+    // REQ-0136: marker kept off the --help line (see REQ-0151).
+    /// Print the end-to-end safety case for a HAZ/SF/SR id —
     /// hazard → safety function → safety requirements → verification.
     Trace(TraceArgs),
-    /// REQ-0138: human-only functional-safety governance — accept the
+    // REQ-0138: marker kept off the --help line (see REQ-0151).
+    /// Human-only functional-safety governance — accept the
     /// liability disclaimer (which activates the safety features) and
     /// manage the risk-graph calibration.
     #[command(subcommand)]
     Safety(SafetyCmd),
+    // REQ-0139: marker kept off the --help line (see REQ-0151).
+    /// The staged validation dossier (plan → analysis → testing
+    /// → statement → verdict) that gates promotion to Verified. Works on a
+    /// REQ-NNNN or SR-NNNN id.
+    #[command(subcommand)]
+    Validation(ValidationCmd),
+}
+
+// REQ-0139: subcommands of `req validation`. Each takes a REQ-/SR- id and
+// advances the dossier one stage; the stages must be filled in order.
+#[derive(Subcommand, Debug)]
+pub enum ValidationCmd {
+    /// Stage 1 — open the dossier and record HOW the obligation will be
+    /// validated (the analysis + testing approach).
+    Plan(ValidationPlanArgs),
+    /// Stage 2 — record validation by analysis (code review): findings and
+    /// a pass/fail outcome.
+    Analysis(ValidationActivityArgs),
+    /// Stage 3 — record validation by testing: findings and a pass/fail
+    /// outcome, citing recorded test evidence where it exists.
+    Test(ValidationActivityArgs),
+    /// Stage 4 — record the validation statement, derive the verdict, and
+    /// optionally promote to Verified.
+    Conclude(ValidationConcludeArgs),
+    // REQ-0145: marker kept off the --help line (see REQ-0151).
+    /// A human co-signs the validation result. Required for a
+    /// safety requirement (SR-NNNN) before it counts as passed; refuses
+    /// REQ_ACTOR_KIND=agent so an agent cannot confirm on a person's behalf.
+    Confirm(ValidationConfirmArgs),
+    /// Show the dossier for a requirement or safety requirement.
+    Show(ValidationShowArgs),
+    /// Grandfather already-Verified items that pre-date the dossier by
+    /// recording an audited exemption so a strict `req validate` passes.
+    Backfill(ValidationBackfillArgs),
+    // REQ-0142: marker kept off the --help line (see REQ-0151).
+    /// Report the true verification provenance of every Verified
+    /// item — genuine dossier vs audited exemption vs stale vs ungated.
+    Report(ValidationReportArgs),
+    // REQ-0153: marker kept off the --help line (see REQ-0151).
+    /// Re-normalize staleness anchors that a hash-format change invalidated,
+    /// only where the source is provably unchanged; drifted items stay stale.
+    RefreshAnchors(ValidationRefreshArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationPlanArgs {
+    /// REQ-NNNN or SR-NNNN id.
+    pub id: String,
+    /// How this obligation will be validated — the analysis (review) and
+    /// testing approach.
+    #[arg(long)]
+    pub plan: String,
+    /// Re-open a concluded dossier (clears the prior verdict/statement so
+    /// the item can be re-validated). Requires --reason.
+    #[arg(long, requires = "reason")]
+    pub reopen: bool,
+    /// Justification, required with --reopen. Recorded in history.
+    #[arg(long)]
+    pub reason: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationActivityArgs {
+    /// REQ-NNNN or SR-NNNN id.
+    pub id: String,
+    /// Findings — what was reviewed/run and what was observed.
+    #[arg(long)]
+    pub findings: String,
+    /// This dimension's outcome.
+    #[arg(long, value_enum, ignore_case = true)]
+    pub result: TestResultArg,
+    /// Supporting references — files/commits reviewed (analysis) or test
+    /// names / records cited (testing). Repeatable.
+    #[arg(long = "ref")]
+    pub references: Vec<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationConcludeArgs {
+    /// REQ-NNNN or SR-NNNN id.
+    pub id: String,
+    /// The validation statement supporting the verdict.
+    #[arg(long)]
+    pub statement: String,
+    /// Promote to Verified after concluding (only when the verdict is
+    /// Pass). Promotion is gated exactly like `req verify --promote`.
+    #[arg(long)]
+    pub promote: bool,
+    /// Override the promotion preconditions (status ladder / SIL-rigour
+    /// gate). Requires --reason; recorded as an audited exception.
+    #[arg(long, requires = "reason")]
+    pub force: bool,
+    /// Justification, required with --force.
+    #[arg(long)]
+    pub reason: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+// REQ-0145: a human's confirmation of a validation result.
+#[derive(Args, Debug)]
+pub struct ValidationConfirmArgs {
+    /// REQ-NNNN or SR-NNNN id. Required for safety requirements before they
+    /// count as passed.
+    pub id: String,
+    /// Optional note recorded with the confirmation.
+    #[arg(long, default_value = "")]
+    pub note: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationShowArgs {
+    /// REQ-NNNN or SR-NNNN id.
+    pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+// REQ-0142: arguments for the verification-provenance report.
+#[derive(Args, Debug)]
+pub struct ValidationReportArgs {
+    /// Source root used to judge dossier staleness (hashes linked files).
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Show only items whose verification is NOT a genuine passing dossier
+    /// (exemptions, stale, ungated) — the ones that need attention.
+    #[arg(long)]
+    pub not_genuine: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationRefreshArgs {
+    /// Source root used to hash linked files.
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Report what would change without writing.
+    #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationBackfillArgs {
+    /// A single REQ-/SR- id to back-fill. Omit with --all to do every
+    /// Verified item lacking a passing dossier.
+    pub id: Option<String>,
+    /// Back-fill every Verified requirement and safety requirement that
+    /// has no passing dossier.
+    #[arg(long)]
+    pub all: bool,
+    /// Justification recorded on each back-filled exemption.
+    #[arg(long)]
+    pub reason: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -700,7 +884,8 @@ pub struct SetupArgs {
     /// Overwrite an existing non-managed pre-commit hook.
     #[arg(long)]
     pub force: bool,
-    /// REQ-0117: repo path to operate on. Defaults to the current
+    // REQ-0117: marker kept off the --help line (see REQ-0151).
+    /// Repo path to operate on. Defaults to the current
     /// working directory. Useful when running inside a worktree
     /// where the main repo's hooks/ live in a different tree.
     #[arg(long)]
@@ -770,7 +955,8 @@ pub struct ReviewArgs {
     /// not after pushing. Implies `--base HEAD`.
     #[arg(long)]
     pub staged: bool,
-    /// REQ-0086: --summary mode used by the post-commit hook.
+    // REQ-0086: marker kept off the --help line (see REQ-0151).
+    /// --summary mode used by the post-commit hook.
     /// Print a one-line summary instead of the full report. Used by the
     /// pre-commit hook to confirm a passing gate with a calm reminder
     /// rather than silence. Format: `req: N source file(s) staged ·
@@ -792,13 +978,15 @@ pub struct ReviewArgs {
     /// Use in CI to gate PRs on spec hygiene.
     #[arg(long)]
     pub gate: bool,
-    /// REQ-0126: when used with --gate, also fail if any Verified
+    // REQ-0126: marker kept off the --help line (see REQ-0151).
+    /// When used with --gate, also fail if any Verified
     /// requirement carries a failing latest test record. The defect
     /// log lives next to the spec; this lets CI block merges that
     /// would ship known-broken behaviour.
     #[arg(long, requires = "gate")]
     pub no_defects: bool,
-    /// REQ-0131: scope validator findings to requirements ADDED or
+    // REQ-0131: marker kept off the --help line (see REQ-0151).
+    /// Scope validator findings to requirements ADDED or
     /// CHANGED in this range, suppressing findings on requirements the
     /// commit did not touch. `--staged` implies this. The per-commit
     /// gate stays sharp instead of reprinting the whole project's
@@ -806,7 +994,8 @@ pub struct ReviewArgs {
     /// in the dedicated `req validate` (staged-.req hook) and CI.
     #[arg(long, conflicts_with = "all")]
     pub new: bool,
-    /// REQ-0131: force the full-project validator sweep even under
+    // REQ-0131: marker kept off the --help line (see REQ-0151).
+    /// Force the full-project validator sweep even under
     /// `--staged`. This is the deliberate hygiene view — the name for
     /// the default, advisory `req review` behaviour, made explicit so
     /// it composes in scripts.
@@ -860,9 +1049,17 @@ pub struct HooksArgs {
     /// inside an already-marked file still need a marker near the
     /// changed hunk. Default (no flag) writes the file-level hook
     /// that catches markerless new files but lets in-file edits
-    /// through. Re-run with or without the flag to swap modes.
-    #[arg(long)]
+    /// through. On a bare re-run (neither flag) the existing mode is
+    /// preserved; pass `--strict` to upgrade or `--no-strict` to
+    /// downgrade deterministically.
+    #[arg(long, conflicts_with = "no_strict")]
     pub strict: bool,
+    /// Explicitly install the DEFAULT (file-level) pre-commit hook,
+    /// downgrading a clone that was previously on strict mode. Without
+    /// this flag a bare re-run keeps the existing mode (no accidental
+    /// downgrade).
+    #[arg(long)]
+    pub no_strict: bool,
 }
 
 #[derive(Args, Debug)]
@@ -891,7 +1088,8 @@ pub struct CoverageArgs {
     /// REQ IDs it references. Closes the bidirectional view.
     #[arg(long, conflicts_with_all = ["unlinked_files", "by_req", "remap"])]
     pub by_file: bool,
-    /// REQ-0127: inverse of --by-file. For every REQ-NNNN with at least
+    // REQ-0127: marker kept off the --help line (see REQ-0151).
+    /// Inverse of --by-file. For every REQ-NNNN with at least
     /// one marker in source, list the files referencing it.
     #[arg(long, conflicts_with_all = ["unlinked_files", "by_file", "remap"])]
     pub by_req: bool,
@@ -972,7 +1170,8 @@ pub struct InitArgs {
     /// plus an index file. Both preserve the integrity guarantee.
     #[arg(long, value_enum, ignore_case = true, default_value = "single")]
     pub layout: LayoutArg,
-    /// REQ-0111: one-paragraph project purpose statement. Surfaced by
+    // REQ-0111: marker kept off the --help line (see REQ-0151).
+    /// One-paragraph project purpose statement. Surfaced by
     /// `req brief` at session start. Max 500 characters.
     #[arg(long)]
     pub purpose: Option<String>,
@@ -1190,7 +1389,8 @@ pub enum SchemaWhich {
     Batch,
     /// Schema for `req import --format json` (array form).
     Import,
-    /// REQ-0128: schema for the `req test run --map` JSON file.
+    // REQ-0128: marker kept off the --help line (see REQ-0151).
+    /// Schema for the `req test run --map` JSON file.
     TestMap,
 }
 
@@ -1269,7 +1469,8 @@ pub enum TestCmd {
     /// Run `cargo test` (or a custom command) and attach pass/fail records
     /// to each requirement whose test name follows the `req_NNNN_*` convention.
     Run(TestRunArgs),
-    /// REQ-0129: list the test record history attached to one requirement.
+    // REQ-0129: marker kept off the --help line (see REQ-0151).
+    /// List the test record history attached to one requirement.
     List(TestListArgs),
 }
 
@@ -1320,6 +1521,14 @@ pub struct VerifyArgs {
     /// Skip the Implemented-status precondition on --promote.
     #[arg(long)]
     pub force: bool,
+    // REQ-0139: marker kept off the --help line (see REQ-0151).
+    /// Promote without a validation dossier, recording an
+    /// audited exemption (ordinary requirements only). Requires --reason.
+    #[arg(long = "no-dossier", requires = "reason")]
+    pub no_dossier: bool,
+    /// Justification, required with --no-dossier; recorded on the exemption.
+    #[arg(long)]
+    pub reason: Option<String>,
     /// JSON output.
     #[arg(long)]
     pub json: bool,
@@ -1345,7 +1554,8 @@ pub struct TestRunArgs {
     /// or for tests of the recorder itself.
     #[arg(long = "from-file", conflicts_with = "cmd")]
     pub from_file: Option<PathBuf>,
-    /// REQ-0128: ecosystems without the `req_NNNN_*` test-name
+    // REQ-0128: marker kept off the --help line (see REQ-0151).
+    /// Ecosystems without the `req_NNNN_*` test-name
     /// convention (Node, Python) supply a JSON map of test name →
     /// REQ-ID(s). The recorder reads this in addition to (or instead
     /// of) the regex-based name match. Schema published by

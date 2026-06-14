@@ -57,7 +57,7 @@ pub fn run(args: HelpArgs) -> Result<()> {
             let sections: Vec<_> = help_text::sections()
                 .iter()
                 .map(
-                    |s| serde_json::json!({ "name": s.name, "summary": s.summary, "body": s.body }),
+                    |s| serde_json::json!({ "name": s.name, "summary": s.summary, "body": help_text::render_body(s.body) }),
                 )
                 .collect();
             println!(
@@ -68,7 +68,7 @@ pub fn run(args: HelpArgs) -> Result<()> {
         }
         for s in help_text::sections() {
             println!("## {}\n", s.name);
-            println!("{}\n", s.body);
+            println!("{}\n", help_text::render_body(s.body));
         }
         return Ok(());
     }
@@ -84,7 +84,7 @@ pub fn run(args: HelpArgs) -> Result<()> {
         let mut body = serde_json::json!({
             "name": section.name,
             "summary": section.summary,
-            "body": section.body,
+            "body": help_text::render_body(section.body),
         });
         if section.name == "agents" {
             body["structured"] = agents_crib();
@@ -94,7 +94,7 @@ pub fn run(args: HelpArgs) -> Result<()> {
     }
 
     println!("{}\n", section.name);
-    println!("{}", section.body);
+    println!("{}", help_text::render_body(section.body));
     Ok(())
 }
 
@@ -156,7 +156,7 @@ fn install_section(section: &Section, path: &std::path::Path) -> Result<()> {
     // project and trip their coverage scanner with ghosts. The
     // coverage regex matches `REQ-\d{4}`, so a non-digit placeholder
     // (REQ-NNNN) is safe.
-    let body = sanitize_req_ids_for_agents_md(section.body);
+    let body = sanitize_req_ids_for_agents_md(&help_text::render_body(section.body));
     let block = format!(
         "{begin}\n\n\
          <!-- Managed by `req help {} --install`. Re-run to refresh; edit OUTSIDE the markers to add your own notes. -->\n\n\

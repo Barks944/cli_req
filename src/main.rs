@@ -93,5 +93,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Trace(args) => commands::safety::run_trace(args, &cli.file),
         // REQ-0138: human-only safety governance (accept / status / calibrate).
         Command::Safety(cmd) => commands::safety_gov::run(cmd, &cli.file),
+        // REQ-0139: the staged validation dossier.
+        Command::Validation(cmd) => commands::validation::run(cmd, &cli.file),
     }
 }

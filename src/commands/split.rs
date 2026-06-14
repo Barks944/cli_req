@@ -85,6 +85,9 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
                 args.reason.clone(),
             )],
             tests: Vec::new(),
+            // REQ-0139: split children start without a validation dossier.
+            validation: None,
+            extra: Default::default(),
         };
         let findings = validate::validate_requirement(&part);
         let errs = validate::errors_only(&findings);

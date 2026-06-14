@@ -62,6 +62,7 @@ pub fn run(args: SetupArgs) -> Result<()> {
             force: args.force,
             claude_code: false,
             strict: args.strict,
+            no_strict: false,
         };
         crate::commands::hooks::run(hooks_args)?;
         println!(

@@ -37,13 +37,37 @@ pub fn run(args: PrecheckArgs, project_file: &Option<PathBuf>) -> Result<()> {
         },
         Step {
             name: "clippy",
+            // Mirror CI exactly: --release --locked with warnings denied.
+            // Running clippy on the release profile (rather than a separate
+            // debug pass) also means precheck reuses the release artifacts
+            // the test step builds, and `-- -D warnings` denies the same
+            // rustc + clippy lints CI's warnings-as-errors build enforces.
             label: "cargo clippy",
-            program: ProgramSpec::Cargo(&["clippy", "--all-targets", "--", "-D", "warnings"]),
+            program: ProgramSpec::Cargo(&[
+                "clippy",
+                "--release",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ]),
         },
         Step {
             name: "test",
-            label: "cargo test",
-            program: ProgramSpec::Cargo(&["test", "--all"]),
+            // REQ-0114: mirror CI — the test job runs the RELEASE profile
+            // (`--locked`) and serialises tests within each binary
+            // (`--test-threads=1`)
+            // to avoid the fixture-config flakiness CI guards against. The
+            // debug profile would diverge from CI and can mask or invent
+            // failures (e.g. a stale debug binary lacking a new CLI flag).
+            label: "cargo test (release, serial)",
+            program: ProgramSpec::Cargo(&[
+                "test",
+                "--release",
+                "--locked",
+                "--",
+                "--test-threads=1",
+            ]),
         },
         Step {
             name: "validate",

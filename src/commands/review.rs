@@ -20,6 +20,20 @@ use crate::validate;
 pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
     let current = storage::load(&path).context("load project.req")?;
+    // REQ-0110: the hunk-proximity window resolves CLI flag > _config
+    // (gate.marker_near_hunks) > built-in default (0). This lets the
+    // pre-commit hook's `req review --staged --gate` honour a per-project
+    // strictness setting with no flag on the command line.
+    let marker_near_hunks = if args.marker_near_hunks > 0 {
+        args.marker_near_hunks
+    } else {
+        current
+            .config
+            .as_ref()
+            .and_then(|c| c.gate.as_ref())
+            .and_then(|g| g.marker_near_hunks)
+            .unwrap_or(0)
+    };
     // REQ-0126: defects are Verified requirements whose latest test
     // record outcome is Fail. With --gate --no-defects, any defect
     // flips the exit code.
@@ -227,7 +241,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                 // a marker within N lines of each changed hunk, not
                 // merely somewhere in the file. Default 0 keeps the
                 // 0.2.x file-level behaviour.
-                let marker_lines: Vec<usize> = if args.marker_near_hunks > 0 {
+                let marker_lines: Vec<usize> = if marker_near_hunks > 0 {
                     text.lines()
                         .enumerate()
                         .filter_map(|(i, line)| {
@@ -243,7 +257,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                 } else {
                     Vec::new()
                 };
-                if args.marker_near_hunks > 0 {
+                if marker_near_hunks > 0 {
                     let hunks = if args.staged {
                         git_hunks_for_staged(f)
                     } else {
@@ -251,7 +265,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                     }
                     .unwrap_or_default();
                     if !hunks.is_empty() {
-                        let window = args.marker_near_hunks as usize;
+                        let window = marker_near_hunks as usize;
                         saw_marker_in_comment = hunks.iter().all(|(start, len)| {
                             let lo = start.saturating_sub(window);
                             let hi = start.saturating_add(*len).saturating_add(window);

@@ -689,6 +689,10 @@ fn verify_promote_requires_implemented_status() {
         "constraint",
         "--priority",
         "must",
+        // REQ-0139: this test is about the status ladder, not the
+        // validation dossier — exempt it from the dossier gate.
+        "--tag",
+        "validation-exempt",
     ]);
     let out = s.run(&[
         "verify",
@@ -2469,6 +2473,9 @@ fn req_0056_verify_inspection_promotes_to_verified() {
         "constraint",
         "--priority",
         "could",
+        // REQ-0139: focus on inspection evidence; exempt from the dossier gate.
+        "--tag",
+        "validation-exempt",
     ]);
     // Walk the lifecycle naturally — Draft -> Implemented is an
     // irregular skip and would need --force.
