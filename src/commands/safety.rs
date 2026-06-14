@@ -696,6 +696,8 @@ fn sreq_add(args: SreqAddArgs, file: &Option<PathBuf>) -> Result<()> {
         tests: Vec::new(),
         // REQ-0139: a new safety requirement starts without a validation dossier.
         validation: None,
+        // REQ-0171: no walkthrough acknowledgement yet.
+        walkthrough: None,
         // REQ-0140: forward-compat catch-all preserves unknown fields.
         extra: Default::default(),
     };

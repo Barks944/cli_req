@@ -15,12 +15,16 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 
-use crate::cli::{SafetyAcceptArgs, SafetyCalibrateArgs, SafetyCmd, SafetyStatusArgs};
+use crate::cli::{
+    SafetyAcceptArgs, SafetyAckArgs, SafetyCalibrateArgs, SafetyCmd, SafetyStatusArgs,
+    SafetyWalkthroughArgs,
+};
 use crate::model::{
     calibration_leaf, Avoidance, CalibrationRow, Consequence, DisclaimerAcceptance, Frequency,
-    ProjectConfig, SafetyConfig, Sil, SAFETY_DISCLAIMER_VERSION,
+    Project, ProjectConfig, SafetyConfig, Sil, Status, TestOutcome, WalkthroughAck,
+    SAFETY_DISCLAIMER_VERSION,
 };
-use crate::storage::{self, resolve_path};
+use crate::storage::{self, load_for_mutation, resolve_path};
 
 /// REQ-0144: the agreement a user must accept before any functional-safety
 /// feature is enabled disclaims all developer liability and states that req is
@@ -116,13 +120,368 @@ pub fn run(cmd: SafetyCmd, file: &Option<PathBuf>) -> Result<()> {
         SafetyCmd::Accept(a) => accept(a, file),
         SafetyCmd::Status(a) => status(a, file),
         SafetyCmd::Calibrate(a) => calibrate(a, file),
+        // REQ-0169/0170: the guided walkthrough and per-requirement ack are
+        // human governance acts, so they live on this (non-MCP) surface.
+        SafetyCmd::Walkthrough(a) => {
+            ensure_enabled(file)?;
+            walkthrough(a, file)
+        }
+        SafetyCmd::Acknowledge(a) => {
+            ensure_enabled(file)?;
+            acknowledge(a, file)
+        }
     }
+}
+
+// ---------------------------------------------------------------------------
+// REQ-0169..0174: guided safety walkthrough + acknowledgement
+// ---------------------------------------------------------------------------
+
+/// REQ-0174: why a safety requirement's chain is not yet acknowledgeable, or
+/// `None` when the chain is complete (assessed hazard → live SF → SR with
+/// passing evidence).
+fn chain_incompleteness(project: &Project, sr_id: &str) -> Option<String> {
+    let sr = match project.safety_requirements.get(sr_id) {
+        Some(sr) => sr,
+        None => return Some("no such safety requirement".into()),
+    };
+    // A live realizing safety function that mitigates an assessed hazard is
+    // exactly what gives the SR an inherited SIL.
+    if project.inherited_sil(sr).is_none() {
+        return Some(
+            "chain has no assessed hazard reaching a live safety function (nothing to inherit a SIL from)"
+                .into(),
+        );
+    }
+    let has_pass = sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+        || sr
+            .tests
+            .iter()
+            .any(|t| matches!(t.outcome, TestOutcome::Pass));
+    if !has_pass {
+        return Some("no passing verification evidence yet".into());
+    }
+    None
+}
+
+/// REQ-0172: a fresh acknowledgement is a non-objection ack made at the
+/// current commit.
+fn ack_is_fresh(ack: Option<&WalkthroughAck>, head: &str) -> bool {
+    match ack {
+        Some(a) => !a.objected && !a.commit.is_empty() && a.commit == head,
+        None => false,
+    }
+}
+
+/// In-scope safety requirements for the project-wide gate: every
+/// non-Obsolete safety requirement.
+fn in_scope_srs(project: &Project) -> Vec<String> {
+    let mut ids: Vec<String> = project
+        .safety_requirements
+        .values()
+        .filter(|sr| !matches!(sr.status, Status::Obsolete))
+        .map(|sr| sr.id.clone())
+        .collect();
+    ids.sort();
+    ids
+}
+
+fn head_sha() -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+fn walkthrough(args: SafetyWalkthroughArgs, file: &Option<PathBuf>) -> Result<()> {
+    let path = resolve_path(file);
+    let project = storage::load(&path)?;
+    let head = head_sha();
+
+    // Resolve scope: a single chain (HAZ/SF/SR) or every in-scope SR.
+    let ids: Vec<String> = match &args.target {
+        Some(t) => srs_for_target(&project, t)?,
+        None => in_scope_srs(&project),
+    };
+
+    if args.gate {
+        // REQ-0172: report the SRs that block acceptance (missing/stale/objected).
+        let blocking: Vec<(String, String)> = ids
+            .iter()
+            .filter(|id| {
+                !ack_is_fresh(project.safety_requirements[*id].walkthrough.as_ref(), &head)
+            })
+            .map(|id| {
+                let reason = match project.safety_requirements[id].walkthrough.as_ref() {
+                    None => "never acknowledged".to_string(),
+                    Some(a) if a.objected => "objection on record".to_string(),
+                    Some(_) => "acknowledgement stale (chain changed since review)".to_string(),
+                };
+                (id.clone(), reason)
+            })
+            .collect();
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "in_scope": ids,
+                    "blocking": blocking.iter().map(|(id, why)| serde_json::json!({"id": id, "why": why})).collect::<Vec<_>>(),
+                    "ok": blocking.is_empty(),
+                }))?
+            );
+        } else if blocking.is_empty() {
+            println!(
+                "All {} in-scope safety requirement(s) carry a fresh acknowledgement.",
+                ids.len()
+            );
+        } else {
+            println!(
+                "{} safety requirement(s) are not acknowledged at the current commit:",
+                blocking.len()
+            );
+            for (id, why) in &blocking {
+                println!("  {} — {}", id, why);
+            }
+        }
+        if !blocking.is_empty() {
+            return Err(anyhow!(
+                "walkthrough gate: unacknowledged safety requirements"
+            ));
+        }
+        return Ok(());
+    }
+
+    // REQ-0169: render each chain for review.
+    if ids.is_empty() {
+        println!("No in-scope safety requirements to walk through.");
+        return Ok(());
+    }
+    for (n, id) in ids.iter().enumerate() {
+        let sr = &project.safety_requirements[id];
+        println!(
+            "\n=== [{}/{}] {} — {} ===",
+            n + 1,
+            ids.len(),
+            sr.id,
+            sr.title
+        );
+        // Hazards reaching this SR through its realizing safety functions.
+        for sf in project.safety_functions.values() {
+            if !sr
+                .links
+                .iter()
+                .any(|l| matches!(l.kind, crate::model::LinkKind::Realizes) && l.target == sf.id)
+            {
+                continue;
+            }
+            println!(
+                "  safety function: {} — {}  [{}]",
+                sf.id,
+                sf.title,
+                project.allocated_sil(sf).map(|s| s.as_str()).unwrap_or("—")
+            );
+            for l in &sf.links {
+                if let Some(h) = project.hazards.get(&l.target) {
+                    println!("    hazard {}: {}", h.id, h.title);
+                    println!("      harm: {}", h.harm);
+                    println!(
+                        "      required SIL: {}",
+                        project.required_sil(h).map(|s| s.as_str()).unwrap_or("—")
+                    );
+                }
+            }
+        }
+        println!("  requirement: {}", sr.statement);
+        println!(
+            "  inherited SIL: {}",
+            project.inherited_sil(sr).map(|s| s.as_str()).unwrap_or("—")
+        );
+        println!("  status: {}", sr.status.as_str());
+        match sr.validation.as_ref().and_then(|v| v.statement.clone()) {
+            Some(st) => println!("  validation: {}", st),
+            None => println!("  validation: (no concluded statement)"),
+        }
+        match chain_incompleteness(&project, id) {
+            Some(why) => println!("  ⚠ chain incomplete: {} — cannot be acknowledged yet", why),
+            None => match sr.walkthrough.as_ref() {
+                Some(a) if ack_is_fresh(Some(a), &head) => {
+                    println!(
+                        "  ✓ acknowledged by {} at {}",
+                        a.reviewer,
+                        a.at.format("%Y-%m-%d %H:%M UTC")
+                    )
+                }
+                Some(a) if a.objected => println!("  ✗ objection on record by {}", a.reviewer),
+                Some(_) => println!(
+                    "  ⚠ prior acknowledgement is stale — re-acknowledge at the current commit"
+                ),
+                None => println!(
+                    "  ▷ awaiting acknowledgement: `req safety acknowledge {}`",
+                    sr.id
+                ),
+            },
+        }
+    }
+    println!(
+        "\nReview each chain, then run `req safety acknowledge SR-NNNN` (or --object) for each."
+    );
+    Ok(())
+}
+
+/// Resolve a HAZ/SF/SR target to the set of safety requirements in its chain.
+fn srs_for_target(project: &Project, raw: &str) -> Result<Vec<String>> {
+    let up = raw.trim().to_uppercase();
+    let mut ids: Vec<String> = if up.starts_with("SR") {
+        let (id, _) = crate::commands::validation::resolve(project, raw)?;
+        vec![id]
+    } else if up.starts_with("SF") {
+        let sf = up;
+        project
+            .safety_requirements
+            .values()
+            .filter(|sr| {
+                sr.links
+                    .iter()
+                    .any(|l| matches!(l.kind, crate::model::LinkKind::Realizes) && l.target == sf)
+            })
+            .map(|sr| sr.id.clone())
+            .collect()
+    } else if up.starts_with("HAZ") {
+        // SRs whose realizing SF mitigates this hazard.
+        let haz = up;
+        let sfs: Vec<String> = project
+            .safety_functions
+            .values()
+            .filter(|sf| {
+                sf.links
+                    .iter()
+                    .any(|l| matches!(l.kind, crate::model::LinkKind::Mitigates) && l.target == haz)
+            })
+            .map(|sf| sf.id.clone())
+            .collect();
+        project
+            .safety_requirements
+            .values()
+            .filter(|sr| {
+                sr.links.iter().any(|l| {
+                    matches!(l.kind, crate::model::LinkKind::Realizes) && sfs.contains(&l.target)
+                })
+            })
+            .map(|sr| sr.id.clone())
+            .collect()
+    } else {
+        return Err(anyhow!("walkthrough target must be a HAZ-/SF-/SR- id"));
+    };
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
+fn acknowledge(args: SafetyAckArgs, file: &Option<PathBuf>) -> Result<()> {
+    // REQ-0173: acknowledgement is the human judgement the gate protects —
+    // an agent may not record it.
+    if matches!(super::current_actor_kind(), crate::model::ActorKind::Agent) {
+        return Err(anyhow!(
+            "a safety-walkthrough acknowledgement must be made by a human, but \
+             REQ_ACTOR_KIND=agent. A person must run `req safety acknowledge`."
+        ));
+    }
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let (id, fam) = crate::commands::validation::resolve(&project, &args.id)?;
+    if !matches!(fam, crate::commands::validation::Family::Sr) {
+        return Err(anyhow!("{} is not a safety requirement", args.id));
+    }
+    // REQ-0174: refuse to acknowledge an incomplete chain (objections allowed).
+    if !args.object {
+        if let Some(why) = chain_incompleteness(&project, &id) {
+            return Err(anyhow!(
+                "{} cannot be acknowledged: {}. Complete the chain first, or record an objection with --object.",
+                id, why
+            ));
+        }
+    }
+    let now = Utc::now();
+    let head = head_sha();
+    let reviewer = super::current_actor();
+    {
+        let sr = project.safety_requirements.get_mut(&id).unwrap();
+        sr.walkthrough = Some(WalkthroughAck {
+            reviewer: reviewer.clone(),
+            at: now,
+            commit: head.clone(),
+            objected: args.object,
+            note: args.note.clone(),
+        });
+        sr.updated = now;
+        sr.history.push(super::history(
+            if args.object {
+                "walkthrough objection"
+            } else {
+                "walkthrough acknowledged"
+            },
+            args.note.clone(),
+        ));
+    }
+    project.updated = now;
+    storage::save(&path, &project)?;
+    if args.object {
+        println!("Recorded objection on {} by {}.", id, reviewer);
+    } else {
+        println!(
+            "Acknowledged {} by {} at {}.",
+            id,
+            reviewer,
+            &head[..head.len().min(8)]
+        );
+    }
+    Ok(())
+}
+
+/// REQ-0172: the acceptance-blocking gate, reused by `req safety accept`.
+/// Returns the list of (id, reason) that block acceptance.
+fn walkthrough_blockers(project: &Project, head: &str) -> Vec<(String, String)> {
+    in_scope_srs(project)
+        .into_iter()
+        .filter(|id| !ack_is_fresh(project.safety_requirements[id].walkthrough.as_ref(), head))
+        .map(|id| {
+            let why = match project.safety_requirements[&id].walkthrough.as_ref() {
+                None => "never acknowledged".to_string(),
+                Some(a) if a.objected => "objection on record".to_string(),
+                Some(_) => "acknowledgement stale".to_string(),
+            };
+            (id, why)
+        })
+        .collect()
 }
 
 fn accept(args: SafetyAcceptArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
     // The project must exist (so the acceptance sits beside a real spec).
-    storage::load(&path).context("open project before accepting (run `req init` first?)")?;
+    let project =
+        storage::load(&path).context("open project before accepting (run `req init` first?)")?;
+
+    // REQ-0172: acceptance cannot complete while any in-scope safety
+    // requirement lacks a fresh walkthrough acknowledgement at the current
+    // commit. On a first-time accept there are no safety requirements yet
+    // (they need the feature enabled to exist), so this is a no-op; it bites
+    // on re-acceptance once a safety case exists.
+    let blockers = walkthrough_blockers(&project, &head_sha());
+    if !blockers.is_empty() {
+        let list = blockers
+            .iter()
+            .map(|(id, why)| format!("  {} — {}", id, why))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(anyhow!(
+            "safety acceptance is blocked: walk through and acknowledge every safety \
+             requirement first (`req safety walkthrough`), then `req safety acknowledge \
+             SR-NNNN` each:\n{}",
+            list
+        ));
+    }
 
     // REQ-0138: acceptance must be a deliberate human act, as far as a
     // CLI can tell. We CANNOT cryptographically prove humanness — an

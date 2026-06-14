@@ -1327,9 +1327,31 @@ pub struct SafetyRequirement {
     /// exemption) before a safety requirement may reach Verified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation: Option<Validation>,
+    /// REQ-0171: the most recent guided-walkthrough acknowledgement — a human
+    /// reviewer's confirmation that they were walked through this requirement's
+    /// hazard → SF → SR → evidence chain. Anchored to the commit it was made
+    /// against so it goes stale when the chain changes (REQ-0172).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walkthrough: Option<WalkthroughAck>,
     /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// REQ-0171: a human reviewer's per-requirement acknowledgement from the
+/// guided safety walkthrough, anchored to reviewer, time, and commit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalkthroughAck {
+    pub reviewer: String,
+    pub at: DateTime<Utc>,
+    pub commit: String,
+    /// True when the reviewer declined (raised an objection) rather than
+    /// acknowledging — this records the objection and does not satisfy the
+    /// acceptance gate (REQ-0170).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub objected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[cfg(test)]

@@ -1761,3 +1761,154 @@ fn req_0168_warns_when_author_verifies_own_safety_requirement() {
         body
     );
 }
+
+// ---------- REQ-0169..0174: guided safety walkthrough ----------
+
+use std::process::Command as PCommand;
+
+fn git_sandbox_run(s: &Sandbox, args: &[&str]) -> std::process::Output {
+    let mut full: Vec<String> = vec!["--file".into(), s.path().to_str().unwrap().into()];
+    full.extend(args.iter().map(|a| a.to_string()));
+    PCommand::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path()) // walkthrough/acknowledge anchor on git HEAD
+        .args(&full)
+        .env_remove("REQ_FILE")
+        .output()
+        .expect("invoke req")
+}
+
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let _ = PCommand::new("git").current_dir(dir).args(args).output();
+}
+
+/// A safety chain with passing evidence on SR-0001, inside a git repo so the
+/// walkthrough can anchor acknowledgements to HEAD.
+fn walkthrough_chain() -> Sandbox {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let dir = s.dir.path();
+    git(dir, &["init", "-q", "-b", "main"]);
+    git(dir, &["config", "user.email", "t@example.com"]);
+    git(dir, &["config", "user.name", "Tester"]);
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-q", "-m", "init"]);
+    let _ = s.run(&[
+        "hazard", "add", "-t", "Hazard A", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+        "-W", "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "Func", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Req",
+        "-s",
+        "The system shall stop.",
+        "-r",
+        "bounds",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    let _ = s.run(&[
+        "sreq",
+        "verify",
+        "SR-0001",
+        "--by",
+        "automated",
+        "--notes",
+        "bench pass",
+    ]);
+    s
+}
+
+#[test]
+fn req_0173_walkthrough_acknowledge_refuses_agent() {
+    let s = walkthrough_chain();
+    let out = PCommand::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "safety",
+            "acknowledge",
+            "SR-0001",
+        ])
+        .env_remove("REQ_FILE")
+        .env("REQ_ACTOR_KIND", "agent")
+        .output()
+        .expect("invoke");
+    assert!(!out.status.success(), "agent ack must be refused");
+    assert!(stderr(&out).contains("must be made by a human"));
+}
+
+#[test]
+fn req_0174_walkthrough_refuses_incomplete_chain() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let dir = s.dir.path();
+    git(dir, &["init", "-q", "-b", "main"]);
+    git(dir, &["config", "user.email", "t@example.com"]);
+    git(dir, &["config", "user.name", "Tester"]);
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-q", "-m", "init"]);
+    // Chain with no passing evidence yet.
+    let _ = s.run(&[
+        "hazard", "add", "-t", "Hazard A", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+        "-W", "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "Func", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Req",
+        "-s",
+        "The system shall stop.",
+        "-r",
+        "bounds",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    let out = git_sandbox_run(&s, &["safety", "acknowledge", "SR-0001"]);
+    assert!(
+        !out.status.success(),
+        "incomplete chain ack must be refused"
+    );
+    assert!(stderr(&out).contains("cannot be acknowledged"));
+}
+
+#[test]
+fn req_0169_172_walkthrough_gate_and_acknowledge() {
+    let s = walkthrough_chain();
+    // REQ-0169: walkthrough renders the chain.
+    let render = git_sandbox_run(&s, &["safety", "walkthrough"]);
+    assert!(render.status.success());
+    let body = stdout(&render);
+    assert!(
+        body.contains("HAZ-0001") && body.contains("SF-0001") && body.contains("SR-0001"),
+        "chain shown:\n{}",
+        body
+    );
+    // REQ-0172: gate fails before acknowledgement.
+    let before = git_sandbox_run(&s, &["safety", "walkthrough", "--gate"]);
+    assert!(!before.status.success(), "gate should fail before ack");
+    // REQ-0170/0171: acknowledge.
+    let ack = git_sandbox_run(
+        &s,
+        &["safety", "acknowledge", "SR-0001", "--note", "reviewed"],
+    );
+    assert!(ack.status.success(), "ack: {}", stderr(&ack));
+    // REQ-0172: gate passes after a fresh ack.
+    let after = git_sandbox_run(&s, &["safety", "walkthrough", "--gate"]);
+    assert!(
+        after.status.success(),
+        "gate should pass after ack: {}",
+        stderr(&after)
+    );
+}

@@ -3700,6 +3700,7 @@ mod safety_mcp {
             history: vec![commands::history("created", None)],
             tests: Vec::new(),
             validation: None,
+            walkthrough: None,
             extra: Default::default(),
         };
         let sil = p.inherited_sil(&sr);

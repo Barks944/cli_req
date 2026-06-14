@@ -395,6 +395,37 @@ pub enum SafetyCmd {
     Status(SafetyStatusArgs),
     /// View or edit the per-project risk-graph calibration (SIL bands).
     Calibrate(SafetyCalibrateArgs),
+    /// REQ-0169: walk each in-scope safety requirement's hazard → SF → SR →
+    /// evidence chain for human review. `--gate` checks acknowledgements
+    /// instead of rendering (non-zero exit if any are missing/stale).
+    Walkthrough(SafetyWalkthroughArgs),
+    /// REQ-0170/0171: a human acknowledges (or, with --object, declines) one
+    /// safety requirement after being walked through its chain.
+    Acknowledge(SafetyAckArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SafetyWalkthroughArgs {
+    /// Limit the walkthrough to one chain: a HAZ-/SF-/SR- id. Omit for all.
+    pub target: Option<String>,
+    /// Check that every in-scope safety requirement carries a fresh
+    /// acknowledgement at the current commit; exit non-zero if not.
+    #[arg(long)]
+    pub gate: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SafetyAckArgs {
+    /// The safety requirement (SR-NNNN) being acknowledged.
+    pub id: String,
+    /// Record an objection (decline) instead of an acknowledgement.
+    #[arg(long)]
+    pub object: bool,
+    /// Optional note recorded with the acknowledgement or objection.
+    #[arg(long)]
+    pub note: Option<String>,
 }
 
 #[derive(Args, Debug)]
