@@ -42,6 +42,10 @@ struct Snapshot {
     /// REQ-0125: Verified requirements whose latest test record is a
     /// Fail. Surfaced so "100% delivered" never overstates readiness.
     verified_but_defective: Vec<String>,
+    /// REQ-0157: Verified safety requirements whose inherited SIL rose above
+    /// the SIL their latest evidence was justified against — they need
+    /// re-verification at the current level.
+    sil_escalated: Vec<String>,
     hook_mode: Option<String>,
     last_change: Option<String>,
 }
@@ -140,6 +144,14 @@ fn snapshot(project: &Project) -> Snapshot {
 
     let verified_but_defective = crate::commands::status::verified_but_defective(project);
 
+    // REQ-0157: SIL-escalated safety requirements (current SIL > evidence SIL).
+    let mut sil_escalated: Vec<String> = project
+        .sil_escalated_srs()
+        .into_iter()
+        .map(|(id, ev, cur)| format!("{} ({} → {})", id, ev.as_str(), cur.as_str()))
+        .collect();
+    sil_escalated.sort();
+
     Snapshot {
         name: project.name.clone(),
         purpose: project.purpose.clone(),
@@ -151,6 +163,7 @@ fn snapshot(project: &Project) -> Snapshot {
         drafts,
         top_verified_must,
         verified_but_defective,
+        sil_escalated,
         hook_mode,
         last_change,
     }
@@ -248,6 +261,15 @@ impl Snapshot {
             ));
         }
 
+        // REQ-0157: SIL-escalated safety requirements need re-verification.
+        if !self.sil_escalated.is_empty() {
+            out.push_str(&format!(
+                "  SIL ESCALATED: {} safety req(s) inherit a higher SIL than their evidence — re-verify: {}\n",
+                self.sil_escalated.len(),
+                self.sil_escalated.join(", ")
+            ));
+        }
+
         // Loose ends
         if !self.implemented_unverified.is_empty() {
             let preview = self
@@ -336,6 +358,18 @@ impl Snapshot {
             out.push('\n');
         }
 
+        // REQ-0157: SIL-escalated safety requirements need re-verification.
+        if !self.sil_escalated.is_empty() {
+            out.push_str(&format!(
+                "## SIL escalated ({})\n\n  these Verified safety req(s) inherit a higher SIL than their evidence was justified against — re-verify at the current level\n\n",
+                self.sil_escalated.len()
+            ));
+            for s in &self.sil_escalated {
+                out.push_str(&format!("  - {}\n", s));
+            }
+            out.push('\n');
+        }
+
         out.push_str("## Tooling\n\n");
         out.push_str(&format!(
             "  pre-commit hook: {}\n",
@@ -371,6 +405,7 @@ impl Snapshot {
             "implemented_unverified": self.implemented_unverified,
             "drafts": self.drafts,
             "verified_but_defective": self.verified_but_defective,
+            "sil_escalated": self.sil_escalated,
             "hook_mode": self.hook_mode,
             "last_spec_change": self.last_change,
         })

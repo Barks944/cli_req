@@ -23,7 +23,9 @@ use std::path::{Path, PathBuf};
 /// prose.
 pub fn promotion_routes(id: &str) -> Vec<String> {
     vec![
-        format!("dossier: run `req validation plan {id} ...` → analysis → test → conclude --promote"),
+        format!(
+            "dossier: run `req validation plan {id} ...` → analysis → test → conclude --promote"
+        ),
         "waiver: pass --no-dossier --reason \"...\" to record an audited exemption".to_string(),
         format!(
             "exempt: tag {id} `{}` to exclude it from the dossier gate",
@@ -468,6 +470,8 @@ pub fn op_conclude(
                 content_hash,
                 linked_files,
                 sil_gate_exception,
+                // REQ-0154: snapshot the inherited SIL (SR only) at conclude.
+                sil_at_verification: inherited,
             });
         }
         *it.updated = now;

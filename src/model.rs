@@ -123,6 +123,35 @@ impl Project {
         r.tags.iter().any(|t| tags.iter().any(|e| e == t))
     }
 
+    /// REQ-0155 / REQ-0157: a Verified safety requirement whose current
+    /// inherited SIL is higher than the SIL its latest passing evidence was
+    /// justified against — its verification no longer stands at the current
+    /// integrity level and must be redone. Returns `(id, evidence_sil,
+    /// current_sil)` for each such requirement.
+    pub fn sil_escalated_srs(&self) -> Vec<(String, Sil, Sil)> {
+        let mut out = Vec::new();
+        for (id, sr) in &self.safety_requirements {
+            if !matches!(sr.status, Status::Verified) {
+                continue;
+            }
+            let Some(current) = self.inherited_sil(sr) else {
+                continue;
+            };
+            let evidence = sr
+                .tests
+                .iter()
+                .rev()
+                .find(|t| matches!(t.outcome, TestOutcome::Pass))
+                .and_then(|t| t.sil_at_verification);
+            if let Some(ev) = evidence {
+                if current.rank() > ev.rank() {
+                    out.push((id.clone(), ev, current));
+                }
+            }
+        }
+        out
+    }
+
     /// REQ-0161: the minimum substantive length required of a `--reason` on
     /// a forced, irregular change, honouring the project override.
     pub fn min_force_reason_len(&self) -> usize {
@@ -389,6 +418,15 @@ pub struct TestRecord {
     /// The justifying `--reason` is recorded in `notes`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub sil_gate_exception: bool,
+    /// REQ-0154: the inherited SIL in effect for this safety requirement at
+    /// the moment the evidence was captured. SILs are derived lazily on read,
+    /// so a later calibration change or a newly-linked higher-SIL hazard can
+    /// move a requirement's effective SIL away from the level its evidence
+    /// was justified against; this snapshot is what lets REQ-0155 detect that
+    /// drift. `None` for ordinary requirements (no SIL) and for records
+    /// written before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sil_at_verification: Option<Sil>,
 }
 
 fn is_false(b: &bool) -> bool {

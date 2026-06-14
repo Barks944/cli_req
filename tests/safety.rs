@@ -1473,17 +1473,45 @@ fn req_0158_safety_requirement_obeys_status_ladder() {
     s.init("p");
     s.enable_safety();
     let _ = s.run(&[
-        "hazard", "add", "-t", "H", "--harm", "someone is hurt", "-C", "C_C", "-F", "F_B", "-P",
-        "P_B", "-W", "W3",
+        "hazard",
+        "add",
+        "-t",
+        "H",
+        "--harm",
+        "someone is hurt",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3",
     ]);
     let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
     let _ = s.run(&[
-        "sreq", "add", "-t", "R", "-s", "The system shall stop.", "-r", "because", "-a", "stops",
-        "--realizes", "SF-0001",
+        "sreq",
+        "add",
+        "-t",
+        "R",
+        "-s",
+        "The system shall stop.",
+        "-r",
+        "because",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
     ]);
     // Seed a Verified state via a forced irregular jump (with a real reason).
     let up = s.run(&[
-        "sreq", "update", "SR-0001", "--status", "verified", "--force", "--reason",
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "verified",
+        "--force",
+        "--reason",
         "seed verified state for the ladder test",
     ]);
     assert!(up.status.success(), "seed verify: {}", stderr(&up));
@@ -1500,8 +1528,221 @@ fn req_0158_safety_requirement_obeys_status_ladder() {
     );
     // With --force and a substantive reason it succeeds.
     let forced = s.run(&[
-        "sreq", "update", "SR-0001", "--status", "draft", "--force", "--reason",
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "draft",
+        "--force",
+        "--reason",
         "correcting a bad promotion record",
     ]);
-    assert!(forced.status.success(), "forced demote: {}", stderr(&forced));
+    assert!(
+        forced.status.success(),
+        "forced demote: {}",
+        stderr(&forced)
+    );
+}
+
+// ---------- REQ-0154/0155/0157: SIL provenance & escalation ----------
+
+/// Build a Verified safety requirement chain at SIL2 via the dossier flow.
+/// Returns the sandbox with HAZ-0001(SIL2) ← SF-0001 ← SR-0001 (Verified,
+/// evidence snapshotted at SIL2).
+fn verified_sil2_chain() -> Sandbox {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Hazard A",
+        "--harm",
+        "someone is hurt",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W2", // -> SIL2
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "Function", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Requirement",
+        "-s",
+        "The system shall stop within 200 ms.",
+        "-r",
+        "bounds exposure",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    // Advance the SR up the lifecycle ladder so conclude --promote is eligible.
+    let _ = s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "proposed",
+        "--reason",
+        "advance for validation",
+    ]);
+    let _ = s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "approved",
+        "--reason",
+        "advance for validation",
+    ]);
+    let _ = s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "implemented",
+        "--reason",
+        "advance for validation",
+    ]);
+    // Walk the dossier to Verified (records the SIL snapshot at conclude).
+    let _ = s.run(&[
+        "validation",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "analysis + testing of the stop path",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "reviewed the stop path",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench test passes",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "SR-0001 met: stop path verified.",
+        "--promote",
+    ]);
+    s
+}
+
+#[test]
+fn req_0154_evidence_snapshots_sil_at_verification() {
+    let s = verified_sil2_chain();
+    let show = stdout(&s.run(&["sreq", "show", "SR-0001"]));
+    assert!(
+        show.contains("SIL2 (verified at)"),
+        "sreq show should display the verification-time SIL:\n{}",
+        show
+    );
+}
+
+#[test]
+fn req_0155_escalation_flags_evidence_below_current_sil() {
+    let s = verified_sil2_chain();
+    // Link a higher-SIL hazard to the same function: SF allocates SIL3, so
+    // SR-0001 now inherits SIL3 while its evidence was justified at SIL2.
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Hazard B",
+        "--harm",
+        "worse harm",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3", // -> SIL3
+    ]);
+    let _ = s.run(&["sf", "mitigate", "SF-0001", "HAZ-0002"]);
+    let val = s.run(&["validate"]);
+    let body = format!("{}{}", stdout(&val), stderr(&val));
+    assert!(
+        body.contains("REQ-V-0036"),
+        "escalation should raise REQ-V-0036:\n{}",
+        body
+    );
+    // REQ-0154: the show view flags the escalation too.
+    let show = stdout(&s.run(&["sreq", "show", "SR-0001"]));
+    assert!(
+        show.contains("inherited SIL rose"),
+        "sreq show should flag the escalation:\n{}",
+        show
+    );
+}
+
+#[test]
+fn req_0157_brief_surfaces_sil_escalated() {
+    let s = verified_sil2_chain();
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Hazard B",
+        "--harm",
+        "worse harm",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3",
+    ]);
+    let _ = s.run(&["sf", "mitigate", "SF-0001", "HAZ-0002"]);
+    let brief = s.run(&["brief", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&brief)).expect("brief json");
+    let esc = v["sil_escalated"].as_array().expect("sil_escalated array");
+    assert!(
+        esc.iter()
+            .any(|x| x.as_str().unwrap_or("").contains("SR-0001")),
+        "brief should surface escalated SR-0001: {}",
+        v["sil_escalated"]
+    );
+}
+
+// ---------- REQ-0160: trace states verification scope, not validated risk ----------
+
+#[test]
+fn req_0160_trace_labels_verification_scope() {
+    let s = verified_sil2_chain();
+    let trace = stdout(&s.run(&["trace", "HAZ-0001"]));
+    assert!(
+        trace.contains("NOT a residual-risk validation"),
+        "trace must state its scope:\n{}",
+        trace
+    );
+    assert!(
+        !trace.contains("residual risk is acceptable"),
+        "trace must not imply residual risk is acceptable:\n{}",
+        trace
+    );
 }

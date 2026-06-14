@@ -485,6 +485,8 @@ fn apply_one(
             } else {
                 format!("cites: {} — ", cites.join(", "))
             };
+            // REQ-0154: ordinary requirements carry no inherited SIL, so the
+            // verification-SIL snapshot is None here (set only for SR evidence).
             let record = TestRecord {
                 at: now,
                 actor: super::current_actor(),
@@ -495,6 +497,7 @@ fn apply_one(
                 content_hash: None,
                 linked_files: None,
                 sil_gate_exception: false,
+                sil_at_verification: None,
             };
             let r = project
                 .requirements

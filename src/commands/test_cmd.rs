@@ -84,6 +84,7 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         content_hash: None,
         linked_files: None,
         sil_gate_exception: false,
+        sil_at_verification: None,
     };
     // REQ-0139: evaluate the validation-dossier gate before taking the
     // mutable borrow (the gate needs to read project config + the dossier).
@@ -218,6 +219,7 @@ fn record(mut args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
             )
         },
         sil_gate_exception: false,
+        sil_at_verification: None,
     };
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
@@ -719,6 +721,7 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
                 )
             },
             sil_gate_exception: false,
+            sil_at_verification: None,
         };
         records_to_apply.push((req_id.clone(), record));
     }

@@ -141,6 +141,10 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0035",
         "safety requirement is Verified but its validated source has drifted (stale) — re-validate and have a human re-confirm",
     ),
+    (
+        "REQ-V-0036",
+        "safety requirement's inherited SIL rose above the SIL its evidence was justified against — re-verify at the current level",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -969,6 +973,28 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                 ),
                 Some(t) => {
                     let sil = p.inherited_sil(sr);
+                    // REQ-0155: evidence justified below the current inherited
+                    // SIL is no longer adequate — the SIL rose after this
+                    // verification (a higher-SIL hazard was linked, or the
+                    // risk graph was recalibrated), so it must be redone.
+                    if let (Some(current), Some(evidence)) = (sil, t.sil_at_verification) {
+                        if current.rank() > evidence.rank() {
+                            push(
+                                id,
+                                Finding::err(
+                                    "REQ-V-0036",
+                                    "validation",
+                                    format!(
+                                        "{} is Verified at {} but its evidence was justified at {} — the inherited SIL rose after verification; re-verify at the current level (`req sreq verify {} --by automated --promote`)",
+                                        id,
+                                        current.as_str(),
+                                        evidence.as_str(),
+                                        id
+                                    ),
+                                ),
+                            );
+                        }
+                    }
                     let needs_strong = sil.map(|s| s.rank() >= Sil::Sil3.rank()).unwrap_or(false);
                     if needs_strong && matches!(t.kind, EvidenceKind::Inspection) {
                         // REQ-0135: authenticate the exception via the

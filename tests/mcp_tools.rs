@@ -847,11 +847,26 @@ fn req_0163_mcp_list_paginates_with_total() {
     for i in 0..4 {
         let title = format!("Seed requirement number {}", i);
         let stmt = format!("The system shall handle case number {}.", i);
-        let _ = s.run(&["add", "-t", &title, "-s", &stmt, "-r", "seed", "-k", "constraint", "-p", "could"]);
+        let _ = s.run(&[
+            "add",
+            "-t",
+            &title,
+            "-s",
+            &stmt,
+            "-r",
+            "seed",
+            "-k",
+            "constraint",
+            "-p",
+            "could",
+        ]);
     }
     let responses = mcp_dialogue(
         &s,
-        &[initialize(), call_tool(2, "req_list", serde_json::json!({ "limit": 2 }))],
+        &[
+            initialize(),
+            call_tool(2, "req_list", serde_json::json!({ "limit": 2 })),
+        ],
     );
     let text = text_of(&responses[1]);
     let v: serde_json::Value = serde_json::from_str(&text).expect("list json");
@@ -883,9 +898,16 @@ fn req_0164_mcp_rejection_carries_rule_code() {
     let r = &responses[1]["result"];
     assert_eq!(r["isError"], true, "rejection should set isError: {}", r);
     let code = r["code"].as_str().unwrap_or("");
-    assert!(code.starts_with("REQ-V-"), "discrete code field expected, got: {}", r);
     assert!(
-        r["codes"].as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        code.starts_with("REQ-V-"),
+        "discrete code field expected, got: {}",
+        r
+    );
+    assert!(
+        r["codes"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
         "codes array expected: {}",
         r
     );
@@ -896,8 +918,17 @@ fn req_0165_mcp_blocked_promotion_lists_routes() {
     let s = Sandbox::new();
     s.init("p");
     let _ = s.run(&[
-        "add", "-t", "Requirement awaiting evidence", "-s", "The system shall do the thing.",
-        "-r", "seed", "-k", "constraint", "-p", "could",
+        "add",
+        "-t",
+        "Requirement awaiting evidence",
+        "-s",
+        "The system shall do the thing.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
     ]);
     let responses = mcp_dialogue(
         &s,
@@ -914,11 +945,31 @@ fn req_0165_mcp_blocked_promotion_lists_routes() {
         ],
     );
     let r = &responses[1]["result"];
-    assert_eq!(r["isError"], true, "blocked promotion should set isError: {}", r);
+    assert_eq!(
+        r["isError"], true,
+        "blocked promotion should set isError: {}",
+        r
+    );
     let routes = r["routes"].as_array().expect("routes array");
     assert_eq!(routes.len(), 3, "three legal routes expected: {}", r);
-    let joined = routes.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(" ");
-    assert!(joined.contains("dossier"), "routes name the dossier flow: {}", joined);
-    assert!(joined.contains("no-dossier"), "routes name the waiver: {}", joined);
-    assert!(joined.contains("exempt"), "routes name the exempt tag: {}", joined);
+    let joined = routes
+        .iter()
+        .filter_map(|x| x.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        joined.contains("dossier"),
+        "routes name the dossier flow: {}",
+        joined
+    );
+    assert!(
+        joined.contains("no-dossier"),
+        "routes name the waiver: {}",
+        joined
+    );
+    assert!(
+        joined.contains("exempt"),
+        "routes name the exempt tag: {}",
+        joined
+    );
 }

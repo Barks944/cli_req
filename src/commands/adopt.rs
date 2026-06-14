@@ -149,6 +149,7 @@ pub fn run(args: AdoptArgs, file: &Option<PathBuf>) -> Result<()> {
                 content_hash: None,
                 linked_files: None,
                 sil_gate_exception: false,
+                sil_at_verification: None,
             });
         }
         println!("adopted {} → {}", id, target_status.as_str());

@@ -2940,15 +2940,26 @@ fn req_0161_forced_change_needs_substantive_reason() {
     let s = Sandbox::new();
     s.init("p");
     let _ = s.run(&[
-        "add", "--title", "Seed requirement", "--statement",
-        "The system shall do a thing under load.", "--rationale", "seed", "--kind", "constraint",
-        "--priority", "could",
+        "add",
+        "--title",
+        "Seed requirement",
+        "--statement",
+        "The system shall do a thing under load.",
+        "--rationale",
+        "seed",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
     ]);
     // A forced irregular transition (Draft -> Verified) with a trivial reason is rejected.
     let bad = s.run(&[
         "update", "REQ-0001", "--status", "verified", "--force", "--reason", "x",
     ]);
-    assert!(!bad.status.success(), "trivial forced reason should be rejected");
+    assert!(
+        !bad.status.success(),
+        "trivial forced reason should be rejected"
+    );
     assert!(
         stderr(&bad).contains("substantive --reason"),
         "expected substance error, got: {}",
@@ -2956,10 +2967,19 @@ fn req_0161_forced_change_needs_substantive_reason() {
     );
     // The same transition with a substantive reason is accepted.
     let ok = s.run(&[
-        "update", "REQ-0001", "--status", "verified", "--force", "--reason",
+        "update",
+        "REQ-0001",
+        "--status",
+        "verified",
+        "--force",
+        "--reason",
         "correcting the lifecycle state after a bad record",
     ]);
-    assert!(ok.status.success(), "substantive forced reason: {}", stderr(&ok));
+    assert!(
+        ok.status.success(),
+        "substantive forced reason: {}",
+        stderr(&ok)
+    );
 }
 
 // ---------- REQ-0166: link-time dependency-cycle rejection ----------
@@ -2968,14 +2988,59 @@ fn req_0161_forced_change_needs_substantive_reason() {
 fn req_0166_link_rejects_dependson_cycle_and_names_path() {
     let s = Sandbox::new();
     s.init("p");
-    let _ = s.run(&["add", "-t", "Req A", "-s", "The system shall handle A.", "-r", "seed", "-k", "constraint", "-p", "could"]);
-    let _ = s.run(&["add", "-t", "Req B", "-s", "The system shall handle B.", "-r", "seed", "-k", "constraint", "-p", "could"]);
-    let _ = s.run(&["add", "-t", "Req C", "-s", "The system shall handle C.", "-r", "seed", "-k", "constraint", "-p", "could"]);
-    assert!(s.run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"]).status.success());
-    assert!(s.run(&["link", "REQ-0002", "REQ-0003", "-k", "depends-on"]).status.success());
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Req A",
+        "-s",
+        "The system shall handle A.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Req B",
+        "-s",
+        "The system shall handle B.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Req C",
+        "-s",
+        "The system shall handle C.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    assert!(s
+        .run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"])
+        .status
+        .success());
+    assert!(s
+        .run(&["link", "REQ-0002", "REQ-0003", "-k", "depends-on"])
+        .status
+        .success());
     // Closing edge C depends-on A would create a cycle; it is rejected at link time.
     let out = s.run(&["link", "REQ-0003", "REQ-0001", "-k", "depends-on"]);
-    assert!(!out.status.success(), "cycle-closing link should be rejected");
+    assert!(
+        !out.status.success(),
+        "cycle-closing link should be rejected"
+    );
     let body = stderr(&out);
     assert!(body.contains("would create a cycle"), "got: {}", body);
     assert!(
@@ -2994,19 +3059,45 @@ fn req_0166_link_detects_cycle_through_branching_edge() {
     for t in ["A", "B", "C", "D"] {
         let title = format!("Req {}", t);
         let stmt = format!("The system shall handle {}.", t);
-        let _ = s.run(&["add", "-t", &title, "-s", &stmt, "-r", "seed", "-k", "constraint", "-p", "could"]);
+        let _ = s.run(&[
+            "add",
+            "-t",
+            &title,
+            "-s",
+            &stmt,
+            "-r",
+            "seed",
+            "-k",
+            "constraint",
+            "-p",
+            "could",
+        ]);
     }
     // REQ-0001=A 0002=B 0003=C 0004=D
-    assert!(s.run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"]).status.success());
-    assert!(s.run(&["link", "REQ-0001", "REQ-0003", "-k", "depends-on"]).status.success());
-    assert!(s.run(&["link", "REQ-0003", "REQ-0004", "-k", "depends-on"]).status.success());
+    assert!(s
+        .run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"])
+        .status
+        .success());
+    assert!(s
+        .run(&["link", "REQ-0001", "REQ-0003", "-k", "depends-on"])
+        .status
+        .success());
+    assert!(s
+        .run(&["link", "REQ-0003", "REQ-0004", "-k", "depends-on"])
+        .status
+        .success());
     // D depends-on A closes a cycle via A's *second* edge (A->C->D).
     let out = s.run(&["link", "REQ-0004", "REQ-0001", "-k", "depends-on"]);
     assert!(!out.status.success(), "branching cycle should be detected");
     let body = stderr(&out);
     assert!(body.contains("would create a cycle"), "got: {}", body);
     for id in ["REQ-0001", "REQ-0003", "REQ-0004"] {
-        assert!(body.contains(id), "cycle path should mention {}, got: {}", id, body);
+        assert!(
+            body.contains(id),
+            "cycle path should mention {}, got: {}",
+            id,
+            body
+        );
     }
 }
 
@@ -3019,7 +3110,19 @@ fn req_0163_list_pagination_limits_and_reports_total() {
     for i in 0..5 {
         let title = format!("Seed requirement number {}", i);
         let stmt = format!("The system shall handle case number {}.", i);
-        let _ = s.run(&["add", "-t", &title, "-s", &stmt, "-r", "seed", "-k", "constraint", "-p", "could"]);
+        let _ = s.run(&[
+            "add",
+            "-t",
+            &title,
+            "-s",
+            &stmt,
+            "-r",
+            "seed",
+            "-k",
+            "constraint",
+            "-p",
+            "could",
+        ]);
     }
     let out = s.run(&["list", "--limit", "2", "--offset", "1", "--json"]);
     assert!(out.status.success(), "{}", stderr(&out));

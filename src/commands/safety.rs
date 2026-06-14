@@ -802,16 +802,34 @@ fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
     match sr.tests.last() {
-        Some(t) => println!(
-            "  evidence:     {} · {} · {}",
-            t.kind.as_str(),
-            if t.commit.is_empty() {
-                "—"
-            } else {
-                &t.commit[..t.commit.len().min(8)]
-            },
-            t.outcome.as_str()
-        ),
+        Some(t) => {
+            println!(
+                "  evidence:     {} · {} · {}",
+                t.kind.as_str(),
+                if t.commit.is_empty() {
+                    "—"
+                } else {
+                    &t.commit[..t.commit.len().min(8)]
+                },
+                t.outcome.as_str()
+            );
+            // REQ-0154: show the SIL this evidence was justified against next
+            // to the current inherited SIL, so escalation is visible here.
+            let current = project.inherited_sil(sr);
+            if let Some(at) = t.sil_at_verification {
+                let cur = current.map(|s| s.as_str()).unwrap_or("—");
+                let flag = match current {
+                    Some(c) if c.rank() > at.rank() => "  ⚠ inherited SIL rose since verification",
+                    _ => "",
+                };
+                println!(
+                    "  evidence SIL: {} (verified at) · {} (current){}",
+                    at.as_str(),
+                    cur,
+                    flag
+                );
+            }
+        }
         None => println!("  evidence:     none"),
     }
     println!("\nRun `req trace {}` for the full safety case.", sr.id);
@@ -998,6 +1016,8 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         content_hash: None,
         linked_files: None,
         sil_gate_exception: gate_exception,
+        // REQ-0154: snapshot the SIL this evidence was justified against.
+        sil_at_verification: inherited,
     };
     {
         let sr = project.safety_requirements.get_mut(&id).unwrap();
@@ -1298,12 +1318,17 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     // comparison below is an *allocation* check (allocated ≥ required),
     // which says nothing about whether the function *achieves* that
     // integrity. The wording is deliberately modest; see the disclaimer.
+    // REQ-0160: state the scope explicitly. A complete chain means every
+    // link is present and every realizing requirement is verified to its
+    // SIL's rigour — it is "linked and verified", NOT a judgement that the
+    // residual risk is acceptable or that the system is validated.
     let verdict = if v.complete {
-        "✓ traceability complete"
+        "✓ chain linked and verified"
     } else {
-        "⚠ traceability incomplete"
+        "⚠ chain incomplete"
     };
     println!("  TRACE STATUS:  {}", verdict);
+    println!("    scope: traceability + verification only — NOT a residual-risk validation");
     println!(
         "    SIL allocation: required {} — allocated {}    {}",
         sil_str(v.required),

@@ -409,25 +409,73 @@ fn req_0159_renumber_rewrites_safety_links() {
     let file = s.path();
     common::enable_safety(&file);
     // Build a hazard + a safety function that mitigates it.
-    let _ = req_in(dir, &file, &[
-        "hazard", "add", "-t", "Base hazard", "--harm", "a hand is severed", "-C", "C_C", "-F",
-        "F_B", "-P", "P_B", "-W", "W3",
-    ]);
-    let _ = req_in(dir, &file, &["sf", "add", "-t", "Guard interlock", "--mitigates", "HAZ-0001"]);
+    let _ = req_in(
+        dir,
+        &file,
+        &[
+            "hazard",
+            "add",
+            "-t",
+            "Base hazard",
+            "--harm",
+            "a hand is severed",
+            "-C",
+            "C_C",
+            "-F",
+            "F_B",
+            "-P",
+            "P_B",
+            "-W",
+            "W3",
+        ],
+    );
+    let _ = req_in(
+        dir,
+        &file,
+        &[
+            "sf",
+            "add",
+            "-t",
+            "Guard interlock",
+            "--mitigates",
+            "HAZ-0001",
+        ],
+    );
     // Commit this as the merge base on `main`.
     let _ = git(dir, &["add", "-A"]);
     let _ = git(dir, &["commit", "-q", "-m", "base"]);
     // Diverge HAZ-0001 so it collides with base's HAZ-0001 (different title).
-    let up = req_in(dir, &file, &[
-        "hazard", "update", "HAZ-0001", "--title", "Diverged hazard", "--reason",
-        "simulate a merge-time id collision",
-    ]);
-    assert!(up.status.success(), "hazard update: {}", String::from_utf8_lossy(&up.stderr));
+    let up = req_in(
+        dir,
+        &file,
+        &[
+            "hazard",
+            "update",
+            "HAZ-0001",
+            "--title",
+            "Diverged hazard",
+            "--reason",
+            "simulate a merge-time id collision",
+        ],
+    );
+    assert!(
+        up.status.success(),
+        "hazard update: {}",
+        String::from_utf8_lossy(&up.stderr)
+    );
     // Renumber against the base.
     let out = req_in(dir, &file, &["renumber", "--base", "main"]);
-    assert!(out.status.success(), "renumber: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "renumber: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let body = String::from_utf8_lossy(&out.stdout);
-    assert!(body.contains("HAZ-0001 -> HAZ-0002"), "expected HAZ rename, got: {}", body);
+    assert!(
+        body.contains("HAZ-0001 -> HAZ-0002"),
+        "expected HAZ rename, got: {}",
+        body
+    );
     // The SF's mitigates link must now point at HAZ-0002, not a dangling HAZ-0001.
     let validate = req_in(dir, &file, &["validate"]);
     assert!(
@@ -437,5 +485,9 @@ fn req_0159_renumber_rewrites_safety_links() {
     );
     let trace = req_in(dir, &file, &["trace", "HAZ-0002"]);
     let tbody = String::from_utf8_lossy(&trace.stdout);
-    assert!(tbody.contains("SF-0001"), "trace should link SF-0001 to HAZ-0002, got: {}", tbody);
+    assert!(
+        tbody.contains("SF-0001"),
+        "trace should link SF-0001 to HAZ-0002, got: {}",
+        tbody
+    );
 }

@@ -104,7 +104,8 @@ fn cycle_path(
     kind: LinkKind,
 ) -> Option<Vec<String>> {
     use std::collections::HashSet;
-    let mut stack: Vec<(String, Vec<String>)> = vec![(target.to_string(), vec![target.to_string()])];
+    let mut stack: Vec<(String, Vec<String>)> =
+        vec![(target.to_string(), vec![target.to_string()])];
     let mut visited: HashSet<String> = HashSet::new();
     while let Some((node, path)) = stack.pop() {
         if node == from {
