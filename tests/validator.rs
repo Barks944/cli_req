@@ -238,7 +238,7 @@ fn req_0045_validator_emits_stable_rule_codes() {
     let s = Sandbox::new();
     s.init("v");
     let _ = add_minimal(&s, "Bad short.", "constraint", &[]);
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     // Validate succeeds (empty project after rejected add); but try the JSON
     // contract on a known-bad existing requirement instead.
     assert!(out.status.success() || out.status.code() == Some(1));

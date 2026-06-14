@@ -224,7 +224,7 @@ const SERVER_GUIDANCE: &str = "\
 This is the `req` MCP server for managed requirements. When the user describes \
 new behaviour the system should have, call `req_add`. Before starting work on \
 a feature call `req_list` and `req_show`. Before declaring work complete call \
-`req_validate`. To VALIDATE a requirement (REQ-NNNN or SR-NNNN) and move it to \
+`req_conform`. To VALIDATE a requirement (REQ-NNNN or SR-NNNN) and move it to \
 Verified, do NOT one-shot it: walk the validation dossier — `req_validation_plan` \
 (how you'll validate), then `req_validation_analysis` (code review + result), then \
 `req_validation_test` (testing + result), then `req_validation_conclude` (statement \
@@ -286,8 +286,12 @@ const TOOLS: &[ToolDef] = &[
         schema: link_schema,
     },
     ToolDef {
-        name: "req_validate",
-        description: "Run the validator across every requirement. Returns errors and warnings. CALL THIS before declaring work complete. 0 errors is mandatory; warnings are advisory but should be addressed when easy.",
+        // REQ-0190: renamed from req_conform — this checks the spec conforms to
+        // the rule set; it is NOT verification/validation (that is the dossier
+        // workflow + human co-sign). req_conform stays callable as a deprecated
+        // alias but is no longer advertised.
+        name: "req_conform",
+        description: "Check every requirement conforms to the rule set. Returns errors and warnings. CALL THIS before declaring work complete. 0 errors is mandatory; warnings are advisory but should be addressed when easy. (This is a well-formedness check, not verification/validation.)",
         schema: no_args_schema,
     },
     ToolDef {
@@ -525,7 +529,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_validation_backfill",
-        description: "Grandfather already-Verified items that pre-date the dossier requirement by recording an AUDITED exemption, so a strict req_validate passes. Pass id (one item) or all=true (every Verified item lacking a passing dossier), with a reason. Use sparingly — prefer a real dossier.",
+        description: "Grandfather already-Verified items that pre-date the dossier requirement by recording an AUDITED exemption, so a strict req_conform passes. Pass id (one item) or all=true (every Verified item lacking a passing dossier), with a reason. Use sparingly — prefer a real dossier.",
         schema: validation_backfill_schema,
     },
 ];
@@ -1135,7 +1139,8 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_update" => tool_update(args, file),
         "req_delete" => tool_delete(args, file),
         "req_link" => tool_link(args, file),
-        "req_validate" => tool_validate(file),
+        // REQ-0190: renamed from req_conform (removed, pre-release).
+        "req_conform" => tool_validate(file),
         "req_coverage" => tool_coverage(args, file),
         "req_export" => tool_export(args, file),
         "req_help" => tool_help(args),
@@ -3004,7 +3009,7 @@ fn write_config(path: &Path, force: bool) -> Result<()> {
             "req": {
                 "command": "req",
                 "args": ["mcp"],
-                "description": "Managed requirements for this project. Tools: req_list, req_show, req_add, req_update, req_delete, req_link, req_validate, req_coverage, req_export, req_help. Call req_help with {section: 'agents'} on first contact for the trigger table."
+                "description": "Managed requirements for this project. Tools: req_list, req_show, req_add, req_update, req_delete, req_link, req_conform, req_coverage, req_export, req_help. Call req_help with {section: 'agents'} on first contact for the trigger table."
             }
         }
     });

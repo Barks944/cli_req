@@ -27,7 +27,7 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
         eprintln!(
             "Refusing to repair: file contains {} validation errors. \
              Fix them first, or pass --force to re-sign anyway (the \
-             errors will then surface via `req validate` instead of \
+             errors will then surface via `req conform` instead of \
              the integrity check).",
             errs
         );
@@ -45,7 +45,7 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
     if errs > 0 {
         eprintln!(
             "Re-signed {} with {} validation error(s) still present — \
-             surface them via `req validate`.",
+             surface them via `req conform`.",
             path.display(),
             errs
         );

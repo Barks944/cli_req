@@ -78,7 +78,7 @@ fn req_0139_full_dossier_promotes_a_requirement() {
     assert!(done.status.success(), "conclude: {}", stderr(&done));
     assert!(stdout(&s.run(&["show", "REQ-0001"])).contains("verified"));
     assert!(
-        s.run(&["validate"]).status.success(),
+        s.run(&["conform"]).status.success(),
         "should validate clean"
     );
 }
@@ -140,7 +140,7 @@ fn req_0139_exempt_tag_bypasses_the_gate() {
         "--promote",
     ]);
     assert!(out.status.success(), "exempt promote: {}", stderr(&out));
-    assert!(s.run(&["validate"]).status.success());
+    assert!(s.run(&["conform"]).status.success());
 }
 
 /// REQ-0139: `req verify --no-dossier --reason` records an audited
@@ -175,7 +175,7 @@ fn req_0139_no_dossier_override_records_audited_exemption() {
         "trivial; covered by integration suite",
     ]);
     assert!(ok.status.success(), "override: {}", stderr(&ok));
-    assert!(s.run(&["validate"]).status.success());
+    assert!(s.run(&["conform"]).status.success());
     assert!(stdout(&s.run(&["validation", "show", "REQ-0001"])).contains("exemption"));
 }
 
@@ -301,7 +301,7 @@ fn req_0139_validator_flags_verified_without_dossier() {
             "update", "REQ-0001", "--status", st, "--reason", "f", "--force",
         ]);
     }
-    let out = s.run(&["validate", "--json"]);
+    let out = s.run(&["conform", "--json"]);
     assert!(!out.status.success(), "validate should fail");
     assert!(
         stdout(&out).contains("REQ-V-0032"),
@@ -318,7 +318,7 @@ fn req_0139_validator_flags_verified_without_dossier() {
     ]);
     assert!(bf.status.success(), "backfill: {}", stderr(&bf));
     assert!(
-        s.run(&["validate"]).status.success(),
+        s.run(&["conform"]).status.success(),
         "validate clean after backfill"
     );
 }
@@ -480,7 +480,7 @@ fn req_0139_full_dossier_promotes_a_safety_requirement() {
         "human confirmation of the SR validation"
     );
     assert!(
-        s.run(&["validate"]).status.success(),
+        s.run(&["conform"]).status.success(),
         "safety case validates clean"
     );
 }
@@ -651,7 +651,7 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
         "sreq", "update", "SR-0001", "--status", "verified", "--reason", "force",
     ]);
     // It is now a hard validation error.
-    let out = s.run(&["validate", "--json"]);
+    let out = s.run(&["conform", "--json"]);
     assert!(!out.status.success(), "validate should fail");
     assert!(
         stdout(&out).contains("REQ-V-0033"),
@@ -676,7 +676,7 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
     let bfa = s.run(&["validation", "backfill", "--all", "--reason", "grandfather"]);
     assert!(bfa.status.success(), "backfill --all: {}", stderr(&bfa));
     assert!(
-        !s.run(&["validate"]).status.success(),
+        !s.run(&["conform"]).status.success(),
         "SR error must persist — --all does not exempt safety requirements"
     );
 }

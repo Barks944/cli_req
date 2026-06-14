@@ -106,7 +106,7 @@ fn agents_crib() -> serde_json::Value {
         "triggers": [
             { "situation": "user describes new behaviour the system should have", "first_command": "req add" },
             { "situation": "starting work on a feature",                          "first_command": "req list" },
-            { "situation": "about to commit",                                     "first_command": "req validate" },
+            { "situation": "about to commit",                                     "first_command": "req conform" },
             { "situation": "changed behaviour covered by a requirement",          "first_command": "req update <id> --reason ..." },
             { "situation": "refactor; unsure what's load-bearing",                "first_command": "req coverage --path src" },
             { "situation": "finding code with no requirement link",               "first_command": "req coverage --unlinked-files" },
@@ -123,7 +123,7 @@ fn agents_crib() -> serde_json::Value {
             { "name": "req update",   "purpose": "Modify; --reason mandatory" },
             { "name": "req link",     "purpose": "Typed links: parent / depends-on / refines / conflicts / verifies" },
             { "name": "req delete",   "purpose": "Soft (Obsolete) by default" },
-            { "name": "req validate", "purpose": "Run rules; 0 errors required to ship" },
+            { "name": "req conform", "purpose": "Run rules; 0 errors required to ship" },
             { "name": "req status",   "purpose": "Counts and percentages by status bucket" },
             { "name": "req next",     "purpose": "One requirement to work on, deps satisfied" },
             { "name": "req check",    "purpose": "Validate + coverage scoped to changes since <ref>" },

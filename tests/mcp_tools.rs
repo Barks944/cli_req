@@ -615,7 +615,7 @@ fn req_0017_mcp_req_validate_emits_finding_counts() {
         &s,
         &[
             initialize(),
-            call_tool(2, "req_validate", serde_json::json!({})),
+            call_tool(2, "req_conform", serde_json::json!({})),
         ],
     );
     let body = text_of(&responses[1]);
@@ -829,7 +829,7 @@ fn mcp_validate_reports_link_cycles() {
         &s,
         &[
             initialize(),
-            call_tool(2, "req_validate", serde_json::json!({})),
+            call_tool(2, "req_conform", serde_json::json!({})),
         ],
     );
     let text = text_of(&responses[1]);

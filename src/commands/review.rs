@@ -427,7 +427,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
                 "added": added,
                 "removed": removed,
                 "changed": changed,
-                "validate": {
+                "conform": {
                     "errors": val_errors,
                     "warnings": val_warnings,
                     "findings": val_findings.iter().map(|(id, fs)| {

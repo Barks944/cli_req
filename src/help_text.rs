@@ -122,7 +122,7 @@ VALIDATOR RULE CODES (every code the validator can emit, with its meaning)
 4. `req show REQ-0001`                    inspect one
 5. `req update REQ-0001 --status proposed --reason \"team review\"`
 6. `req link REQ-0002 REQ-0001 -k parent` build hierarchy
-7. `req validate`                         pre-flight check
+7. `req conform`                         pre-flight check
 8. `req export -f markdown -o reqs.md`    publish",
     },
     Section {
@@ -198,7 +198,7 @@ WHEN THE USER ASKS FOR SOMETHING NEW
 WHILE YOU WORK
 
   req coverage --path src      where are the markers? what's orphaned?
-  req validate                 are the requirements well-formed?
+  req conform                 are the requirements well-formed?
   req lint                     softer audit (rationale length, etc.)
   req precheck                 run the local CI gate suite (REQ-0114) —
                                fmt + clippy + test + validate + coverage
@@ -344,7 +344,7 @@ PER-CLONE SETUP
 
 `req hooks install` writes `.git/hooks/pre-commit` that runs:
 
-  1. `req validate` on every staged `.req` file (integrity + rules).
+  1. `req conform` on every staged `.req` file (integrity + rules).
   2. `req review --staged --gate` on every commit with staged files
      (catches new code without a REQ marker).
 
@@ -378,7 +378,7 @@ PER-COMMIT vs WHOLE-PROJECT FINDINGS (REQ-0131)
   about THIS change.
 
   Whole-project error enforcement is unaffected. Step 1 above runs
-  the full `req validate` whenever a `.req` file is staged, and CI
+  the full `req conform` whenever a `.req` file is staged, and CI
   runs it on the whole project — a structurally broken spec still
   cannot be committed or merged. `--new` only quiets the advisory
   backlog at the per-commit boundary.
@@ -427,7 +427,7 @@ CI / BUILD INTEGRATION
   exactly these in .github/workflows/ci.yml:
 
   # GATING — fail the build on any of these
-  req validate                                     # zero errors required
+  req conform                                     # zero errors required
   req coverage --strict \\
     --allow REQ-XXXX --allow REQ-YYYY              # orphan/ghost gate;
                                                    # whitelist verification-only
@@ -492,7 +492,7 @@ LOCAL CI EQUIVALENT (REQ-0114)
     1. cargo fmt --all -- --check
     2. cargo clippy --all-targets -- -D warnings
     3. cargo test --all
-    4. req validate
+    4. req conform
     5. req coverage --strict
     6. req review --gate
 
@@ -766,14 +766,14 @@ fresh when their evidence is re-affirmed.",
     Section {
         name: "lint",
         summary: "Project-wide quality audit beyond the validator.",
-        body: "`req lint` is to `req validate` what `clippy` is to `rustc`: same
+        body: "`req lint` is to `req conform` what `clippy` is to `rustc`: same
 domain, softer signal, opt-in by running the command. The validator
 gates ship; lint surfaces things you might want to fix that wouldn't
 block a release.
 
 WHAT LINT REPORTS
 
-  validator findings    Same as `req validate`, included for context.
+  validator findings    Same as `req conform`, included for context.
   markerless_active     Non-Draft, non-Obsolete requirements with no
                         `// REQ-NNNN:` reference in the scanned source
                         tree. May be verification-only or policy meta-
@@ -809,7 +809,7 @@ OUTPUT MODES
 EXIT CODE
 
   Reflects validator errors only. Quality observations NEVER gate.
-  Zero exit on a healthy project. Non-zero only when `req validate`
+  Zero exit on a healthy project. Non-zero only when `req conform`
   would also fail.
 
 CI USE
@@ -916,7 +916,7 @@ TOOLS EXPOSED
                  inbound links exist.
   req_link       parent / depends_on / refines / conflicts / verifies.
                  Parent links cycle-checked.
-  req_validate   Run rules across the whole project.
+  req_conform   Run rules across the whole project.
   req_coverage   default / unlinked_files=true / by_file=true modes.
   req_export     markdown / json (csv & html via CLI only for now).
   req_help       Fetch any documentation section by name.
@@ -1074,7 +1074,7 @@ guard opening.\" --rationale \"Bounds exposure to a moving blade.\" \\
 THE VERIFICATION GATE — a SIL 3/4 safety requirement CANNOT reach
 Verified on inspection alone. Provide automated or composition
 evidence. If you genuinely must accept inspection, `--force` records an
-AUDITED exception (it is logged and re-flagged at every `req validate`).
+AUDITED exception (it is logged and re-flagged at every `req conform`).
 Do not reach for `--force` to make a red gate green; fix the evidence.
 
 SEEING THE WHOLE PICTURE — `req trace` is the single best command. Given

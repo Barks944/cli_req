@@ -443,7 +443,7 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
                 "REQ-V-0015",
                 "acceptance",
                 format!(
-                    "acceptance #{} is only {} word(s) — name a concrete observable, e.g. `req validate exits 0 on a clean project`",
+                    "acceptance #{} is only {} word(s) — name a concrete observable, e.g. `req conform exits 0 on a clean project`",
                     i + 1,
                     ac.split_whitespace().count()
                 ),
@@ -756,7 +756,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         }
     }
     // REQ-0102: deterministic finding order. HashMap iteration is
-    // unordered; without an explicit sort consecutive `req validate`
+    // unordered; without an explicit sort consecutive `req conform`
     // runs can list reqs in different orders. Sort by id ascending so
     // tooling and diffs are stable.
     out.sort_by(|a, b| a.0.cmp(&b.0));

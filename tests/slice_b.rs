@@ -477,7 +477,7 @@ fn req_0159_renumber_rewrites_safety_links() {
         body
     );
     // The SF's mitigates link must now point at HAZ-0002, not a dangling HAZ-0001.
-    let validate = req_in(dir, &file, &["validate"]);
+    let validate = req_in(dir, &file, &["conform"]);
     assert!(
         validate.status.success(),
         "validate after renumber: {}",

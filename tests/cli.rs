@@ -33,7 +33,7 @@ fn req_0001_help_lists_every_subcommand() {
     let out = common::req(&["--help"]);
     let body = stdout(&out);
     for sub in &[
-        "init", "add", "list", "show", "update", "delete", "link", "validate", "export", "tui",
+        "init", "add", "list", "show", "update", "delete", "link", "conform", "export", "tui",
         "serve", "mcp", "help", "repair", "status", "next", "check",
     ] {
         assert!(body.contains(sub), "--help missing subcommand `{}`", sub);
@@ -117,7 +117,7 @@ fn req_0114_precheck_skip_all_steps_runs_clean() {
     let s = Sandbox::new();
     s.init("p");
     let out = s.run(&[
-        "precheck", "--skip", "fmt", "--skip", "clippy", "--skip", "test", "--skip", "validate",
+        "precheck", "--skip", "fmt", "--skip", "clippy", "--skip", "test", "--skip", "conform",
         "--skip", "coverage", "--skip", "review",
     ]);
     assert!(

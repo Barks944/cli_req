@@ -95,7 +95,7 @@ pub fn instructions_block() -> Vec<String> {
         "  req show REQ-0001                          full detail for one".into(),
         "  req update REQ-0001 --status approved --reason \"team review\"".into(),
         "  req link REQ-0002 REQ-0001 -k parent       hierarchy / traceability".into(),
-        "  req validate                               run rules across the project".into(),
+        "  req conform                               run rules across the project".into(),
         "  req export -f markdown -o reqs.md          publish".into(),
         "  req tui                                    interactive terminal browser".into(),
         "  req help <section>                         structured help; try: overview,".into(),

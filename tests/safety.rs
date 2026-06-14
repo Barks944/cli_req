@@ -302,7 +302,7 @@ fn req_0135_directory_layout_persists_safety_artifacts() {
     );
     // Integrity must still verify.
     assert!(
-        req(&["--file", p, "validate"]).status.success(),
+        req(&["--file", p, "conform"]).status.success(),
         "directory integrity must hold after a safety write"
     );
 }
@@ -376,7 +376,7 @@ fn req_0137_wellformed_safety_chain_validates_clean() {
         "--realizes",
         "SF-0001",
     ]);
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     assert!(
         out.status.success(),
         "well-formed safety chain must validate: {}",
@@ -748,7 +748,7 @@ fn req_0137_broken_safety_case_fails_validate() {
     // Baseline: a well-formed chain validates clean (guards against the
     // test passing for the wrong reason).
     assert!(
-        s.run(&["validate"]).status.success(),
+        s.run(&["conform"]).status.success(),
         "baseline chain must be clean"
     );
 
@@ -769,7 +769,7 @@ fn req_0137_broken_safety_case_fails_validate() {
         "obsoleting the SF should itself succeed"
     );
 
-    let broken = s.run(&["validate"]);
+    let broken = s.run(&["conform"]);
     assert!(
         !broken.status.success(),
         "a broken safety case must fail validate with a non-zero exit"
@@ -1059,7 +1059,7 @@ fn req_0145_safety_validation_needs_human_confirmation() {
     // REQ-0187/0188: conclude leaves the SR at Implemented awaiting a human
     // co-sign — a non-blocking advisory (REQ-V-0038), NOT a hard error, so the
     // spec stays committable while the human signature is outstanding.
-    let v1 = run(&["validate"], None);
+    let v1 = run(&["conform"], None);
     let v1out = format!(
         "{}{}",
         String::from_utf8_lossy(&v1.stdout),
@@ -1094,7 +1094,7 @@ fn req_0145_safety_validation_needs_human_confirmation() {
             .success(),
         "a human confirmation must succeed"
     );
-    let v2 = run(&["validate"], None);
+    let v2 = run(&["conform"], None);
     assert!(
         v2.status.success(),
         "after human confirmation the project validates clean: {}",
@@ -1432,7 +1432,7 @@ fn req_0149_staleness_scopes_to_comment_markers_not_prose() {
     // Editing the prose file must not make the safety requirement stale.
     std::fs::write(root.join("notes.md"), "Design notes: rewritten prose.\n").unwrap();
     assert!(
-        req_in(root, &["validate"]).status.success(),
+        req_in(root, &["conform"]).status.success(),
         "editing prose must not invalidate the safety requirement"
     );
 }
@@ -1449,7 +1449,7 @@ fn req_0148_stale_safety_requirement_is_a_validate_error() {
 
     // Confirmed + fresh → validate clean.
     assert!(
-        req_in(root, &["validate"]).status.success(),
+        req_in(root, &["conform"]).status.success(),
         "a freshly validated + confirmed SR should pass"
     );
 
@@ -1459,7 +1459,7 @@ fn req_0148_stale_safety_requirement_is_a_validate_error() {
         "// SR-0001: the interlock implementation\npub fn interlock() { /* changed */ }\n",
     )
     .unwrap();
-    let out = req_in(root, &["validate"]);
+    let out = req_in(root, &["conform"]);
     assert!(
         !out.status.success(),
         "a stale safety requirement must fail validate"
@@ -1702,7 +1702,7 @@ fn req_0155_escalation_flags_evidence_below_current_sil() {
         "W3", // -> SIL3
     ]);
     let _ = s.run(&["sf", "mitigate", "SF-0001", "HAZ-0002"]);
-    let val = s.run(&["validate"]);
+    let val = s.run(&["conform"]);
     let body = format!("{}{}", stdout(&val), stderr(&val));
     assert!(
         body.contains("REQ-V-0036"),
@@ -1773,7 +1773,7 @@ fn req_0160_trace_labels_verification_scope() {
 fn req_0168_warns_when_author_verifies_own_safety_requirement() {
     // verified_sil2_chain authors and verifies SR-0001 as the same actor.
     let s = verified_sil2_chain();
-    let val = s.run(&["validate"]);
+    let val = s.run(&["conform"]);
     let body = format!("{}{}", stdout(&val), stderr(&val));
     assert!(
         body.contains("REQ-V-0037"),
@@ -2099,7 +2099,7 @@ fn req_0188_awaiting_cosign_is_advisory_not_error() {
         "--promote",
     ]);
     // validate: advisory (success), names REQ-V-0038.
-    let v = s.run(&["validate"]);
+    let v = s.run(&["conform"]);
     assert!(
         v.status.success(),
         "awaiting must not block validate: {}",

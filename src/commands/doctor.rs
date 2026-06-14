@@ -34,7 +34,7 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     if pre_commit.exists() {
         let body = std::fs::read_to_string(&pre_commit).unwrap_or_default();
         let managed = body.contains("# managed-by: req-hooks");
-        let runs_validate = body.contains("req validate");
+        let runs_validate = body.contains("req conform") || body.contains("req validate");
         let mode = if body.contains("# mode: strict") {
             " [strict mode]"
         } else if body.contains("# mode: default") {

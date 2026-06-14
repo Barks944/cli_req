@@ -50,7 +50,7 @@ If you're an LLM agent reading this in someone else's project, the short story:
 req brief             # what's the spec? what's queued? what's loose?
 req next              # what should I work on?
 req add ...           # record a new requirement (before you implement)
-req validate          # is everything well-formed?
+req conform          # is everything well-formed?
 ```
 
 The pre-commit hook will catch you if you write code without citing a `// REQ-NNNN:` marker. The post-commit hook prints what just landed and suggests the next status change. The full agent guide is `req help agents` — written for you, not at you.
@@ -154,7 +154,7 @@ req show REQ-0001
 req update REQ-0001 --status approved --reason "Reviewed in 2026-05-17 sync"
 
 # validate before you commit (the pre-commit hook does this for you)
-req validate
+req conform
 ```
 
 For everything else: `req help` lists the section index, `req help <section>` drills in. The agent guide is `req help agents`.
@@ -205,7 +205,7 @@ Soft delete by default — links and history are preserved. `--hard` is gated on
 
 ```sh
 cargo build --release      # or whatever your project uses
-req validate               # must be 0 errors
+req conform               # must be 0 errors
 req coverage --path src    # no new ghosts
 git diff project.req       # human-readable, by design
 ```
@@ -222,7 +222,7 @@ req hooks install
 
 installs:
 
-- `.git/hooks/pre-commit` — runs `req validate` on staged `.req` files and rejects the commit on errors.
+- `.git/hooks/pre-commit` — runs `req conform` on staged `.req` files and rejects the commit on errors.
 - `.gitattributes` line — `*.req merge=req-merge` so merges run `req renumber --base %O` and auto-fix ID collisions. The command prints the two `git config` lines needed to activate the driver in your clone.
 
 If you ever merge by hand and IDs collide:
@@ -277,7 +277,7 @@ Project lifecycle
   req init -n <name> [--layout directory]   Create project.req (file or dir layout)
   req setup [--strict] [--no-hooks]         One-shot bootstrap: init + hooks + AGENTS.md
   req tui                                   Interactive menu (mirrors CLI surface)
-  req validate                              Run all rules; 0 errors to ship
+  req conform                              Run all rules; 0 errors to ship
   req status [--tag ...]                     Per-status counts + delivery_progress_pct
   req brief [--full]                        Session-start "where are we now?" summary
   req purpose ["..."] --reason "..."        Set/print the one-paragraph project purpose
@@ -367,7 +367,7 @@ Drop these three commands into your CI pipeline. The repo's own
 
 ```yaml
 # Gating: any of these failing should fail the build.
-- run: req validate
+- run: req conform
 - run: |
     req coverage --path . --strict \
       --allow REQ-NNNN --allow REQ-MMMM     # whitelist verification-only reqs
@@ -377,7 +377,7 @@ Drop these three commands into your CI pipeline. The repo's own
 - run: req stale --path . || true
 ```
 
-`req validate` checks every requirement against the rule set (0 errors required to ship).
+`req conform` checks every requirement against the rule set (0 errors required to ship).
 `req coverage --strict` turns orphan / ghost / obsolete-in-code findings into a non-zero exit.
 `req doctor` audits per-clone setup — useful as a warning when contributors skip `req hooks install`.
 `req stale` is informational; staleness trips on every commit that touches a tested file, so blocking on it would block every PR.

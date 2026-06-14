@@ -165,7 +165,7 @@ fn req_0076_near_clone_triggers_dup_intent_warning() {
         "--accept",
         "Session survives restart in fixture as well",
     ]);
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
         text.contains("REQ-V-0020"),
@@ -211,7 +211,7 @@ fn req_0077_verifies_link_without_test_record_warns() {
             "test setup",
         ]);
     }
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
         text.contains("REQ-V-0019"),

@@ -21,7 +21,7 @@ fn req_0116_v1_fixture_errors_with_migrate_hint_when_opted_out() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_req"))
         .env("REQ_NO_AUTO_MIGRATE", "1")
         .env_remove("REQ_FILE")
-        .args(["--file", target.to_str().unwrap(), "validate"])
+        .args(["--file", target.to_str().unwrap(), "conform"])
         .output()
         .expect("invoke req");
     assert!(
@@ -44,7 +44,7 @@ fn req_0122_auto_migrate_on_first_load() {
     fs::copy(V1_FIXTURE, &target).expect("copy v1 fixture");
 
     // First command on the v1 file should auto-migrate and succeed.
-    let out = common::req(&["--file", target.to_str().unwrap(), "validate"]);
+    let out = common::req(&["--file", target.to_str().unwrap(), "conform"]);
     assert!(
         out.status.success(),
         "auto-migrate should succeed on the v1 fixture; stderr={}",
@@ -82,7 +82,7 @@ fn req_0122_auto_migrate_opt_out_still_errors() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_req"))
         .env("REQ_NO_AUTO_MIGRATE", "1")
         .env_remove("REQ_FILE")
-        .args(["--file", target.to_str().unwrap(), "validate"])
+        .args(["--file", target.to_str().unwrap(), "conform"])
         .output()
         .expect("invoke req");
     assert!(
@@ -120,7 +120,7 @@ fn req_0116_v1_fixture_migrates_to_v2_with_ids_preserved() {
     );
 
     // Validate post-migration.
-    let val = common::req(&["--file", &target_s, "validate"]);
+    let val = common::req(&["--file", &target_s, "conform"]);
     assert!(
         val.status.success(),
         "post-migrate validate failed: {}",

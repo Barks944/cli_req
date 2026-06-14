@@ -26,7 +26,8 @@ pub const MENU: &[&str] = &[
     "Link",
     "Delete (mark obsolete)",
     "Split a compound requirement",
-    "Validate project",
+    // REQ-0190: rules/well-formedness check (renamed from validate).
+    "Conform (check spec against the rules)",
     // REQ-0101: lint menu entry.
     "Lint (quality audit)",
     "Coverage report",
@@ -118,7 +119,9 @@ fn dispatch(
             Ok(())
         }
         "Split a compound requirement" => split_flow(file, theme),
-        "Validate project" => commands::validate_cmd::run(ValidateArgs { json: false }, file),
+        "Conform (check spec against the rules)" => {
+            commands::validate_cmd::run(ValidateArgs { json: false }, file)
+        }
         // REQ-0101: lint TUI dispatch.
         "Lint (quality audit)" => commands::lint::run(
             crate::cli::LintArgs {

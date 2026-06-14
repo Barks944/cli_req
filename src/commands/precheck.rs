@@ -70,9 +70,9 @@ pub fn run(args: PrecheckArgs, project_file: &Option<PathBuf>) -> Result<()> {
             ]),
         },
         Step {
-            name: "validate",
-            label: "req validate",
-            program: ProgramSpec::SelfReq(&["validate"]),
+            name: "conform",
+            label: "req conform",
+            program: ProgramSpec::SelfReq(&["conform"]),
         },
         Step {
             name: "coverage",

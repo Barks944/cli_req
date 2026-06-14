@@ -46,7 +46,7 @@ impl Command {
             Command::Update(a) => a.json,
             Command::Delete(a) => a.json,
             Command::Link(a) => a.json,
-            Command::Validate(a) => a.json,
+            Command::Conform(a) => a.json,
             Command::Status(a) => a.json,
             Command::Test(TestCmd::Record(a)) => a.json,
             Command::Test(TestCmd::Run(a)) => a.json,
@@ -121,8 +121,12 @@ pub enum Command {
     Delete(DeleteArgs),
     /// Create parent/child or trace links between requirements.
     Link(LinkArgs),
-    /// Validate every requirement against best-practice rules.
-    Validate(ValidateArgs),
+    // REQ-0190: the whole-project well-formedness check is NOT verification or
+    // validation — it checks the spec conforms to the rule set. Named `conform`
+    // so the V&V vocabulary is reserved for the evidence workflow. The old
+    // `validate` name is removed outright (pre-release): no alias.
+    /// Check every requirement conforms to the rule set (0 errors to ship).
+    Conform(ValidateArgs),
     /// Show project-level implementation status with counts and percentages.
     Status(StatusArgs),
     /// Print the binary version (human or JSON).
@@ -258,7 +262,7 @@ pub enum ValidationCmd {
     /// Show the dossier for a requirement or safety requirement.
     Show(ValidationShowArgs),
     /// Grandfather already-Verified items that pre-date the dossier by
-    /// recording an audited exemption so a strict `req validate` passes.
+    /// recording an audited exemption so a strict `req conform` passes.
     Backfill(ValidationBackfillArgs),
     // REQ-0142: marker kept off the --help line (see REQ-0151).
     /// Report the true verification provenance of every Verified
@@ -1056,7 +1060,7 @@ pub struct ReviewArgs {
     /// commit did not touch. `--staged` implies this. The per-commit
     /// gate stays sharp instead of reprinting the whole project's
     /// backlog every commit; full-project error enforcement still lives
-    /// in the dedicated `req validate` (staged-.req hook) and CI.
+    /// in the dedicated `req conform` (staged-.req hook) and CI.
     #[arg(long, conflicts_with = "all")]
     pub new: bool,
     // REQ-0131: marker kept off the --help line (see REQ-0151).
@@ -1106,7 +1110,7 @@ pub struct HooksArgs {
     #[arg(long)]
     pub force: bool,
     /// Also write/update .claude/settings.json with a req-aware permissions
-    /// allowlist and a Stop hook that runs req validate.
+    /// allowlist and a Stop hook that runs req conform.
     #[arg(long)]
     pub claude_code: bool,
     /// Install the STRICT pre-commit hook. The strict body invokes
@@ -1213,7 +1217,7 @@ pub struct RepairArgs {
     /// and other commands refuse to read the file — without this flag
     /// you'd be stuck (repair refuses due to validation, every other
     /// command refuses due to the hash). Re-signing surfaces the
-    /// validation errors via `req validate` instead of the integrity
+    /// validation errors via `req conform` instead of the integrity
     /// check, which is the working state you want.
     #[arg(long)]
     pub force: bool,

@@ -103,9 +103,10 @@ if ! command -v req >/dev/null 2>&1; then
   exit 0
 fi
 
+# REQ-0190: the pre-commit gate runs `req conform` (renamed from validate).
 if git diff --cached --name-only | grep -qE '\.req$'; then
-  echo "req: validating staged requirements file(s)..."
-  req validate
+  echo "req: checking staged requirements file(s) conform to the rules..."
+  req conform
 fi
 
 if [ -z "$REQ_SKIP_GATE" ]; then
@@ -341,10 +342,10 @@ fn install_claude_code(repo: &Path) -> Result<()> {
         }
     }
 
-    // Ensure a Stop hook running `req validate` exists.
+    // Ensure a Stop hook running `req conform` exists.
     let stop_hook = json!({
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": "req validate" }]
+        "hooks": [{ "type": "command", "command": "req conform" }]
     });
     let hooks = root
         .as_object_mut()
@@ -363,7 +364,7 @@ fn install_claude_code(repo: &Path) -> Result<()> {
                     h.iter().any(|e| {
                         e.get("command")
                             .and_then(|c| c.as_str())
-                            .map(|s| s.contains("req validate"))
+                            .map(|s| s.contains("req conform"))
                             .unwrap_or(false)
                     })
                 })
@@ -376,7 +377,7 @@ fn install_claude_code(repo: &Path) -> Result<()> {
 
     fs::write(&path, serde_json::to_string_pretty(&root)?)?;
     println!(
-        "Updated {} (allowlist + Stop hook for req validate)",
+        "Updated {} (allowlist + Stop hook for req conform)",
         path.display()
     );
     Ok(())

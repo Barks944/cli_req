@@ -52,7 +52,7 @@ fn req_0007_weasel_word_fast_produces_warning() {
         combined.contains("fast"),
         "warning should cite the term `fast`"
     );
-    let val = s.run(&["validate"]);
+    let val = s.run(&["conform"]);
     let vbody = stdout(&val);
     assert!(
         vbody.contains("REQ-V-0009"),
@@ -81,7 +81,7 @@ fn req_0186_weasel_word_does_not_match_substring() {
         "--priority",
         "could",
     ]);
-    let val = s.run(&["validate"]);
+    let val = s.run(&["conform"]);
     let vbody = stdout(&val);
     assert!(
         !vbody.contains("REQ-V-0009"),
@@ -108,7 +108,7 @@ fn req_0186_weasel_word_still_matches_standalone_term() {
         "--priority",
         "could",
     ]);
-    let val = s.run(&["validate"]);
+    let val = s.run(&["conform"]);
     let vbody = stdout(&val);
     assert!(
         vbody.contains("REQ-V-0009"),
@@ -987,7 +987,7 @@ fn validate_detects_link_cycles() {
         "force-repair should succeed: {}",
         stderr(&r)
     );
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     let body = format!("{}{}", stdout(&out), stderr(&out));
     assert!(
         body.contains("REQ-V-0021"),
@@ -1033,7 +1033,7 @@ fn repair_force_bypasses_validation_errors() {
         "--force should re-sign anyway: {}",
         stderr(&forced)
     );
-    let validate_out = s.run(&["validate"]);
+    let validate_out = s.run(&["conform"]);
     assert!(
         !validate_out.status.success(),
         "validate must now surface the errors (it could not while the hash was bad)"
@@ -1819,7 +1819,7 @@ fn validate_llm_hook_runs_when_env_set() {
         r#"echo '{"ok":false,"message":"toy hook flag"}'"#.to_string()
     };
     let out = Command::new(env!("CARGO_BIN_EXE_req"))
-        .args(["--file", s.path().to_str().unwrap(), "validate"])
+        .args(["--file", s.path().to_str().unwrap(), "conform"])
         .env("REQ_VALIDATE_LLM_CMD", &hook_cmd)
         .output()
         .expect("invoke req");
@@ -2710,7 +2710,7 @@ fn req_0032_unlinked_files_mode_lists_files_without_markers() {
 #[test]
 fn req_0082_project_self_validates_cleanly() {
     // Run against the project.req at the repo root via CWD (cargo test sets it).
-    let out = common::req(&["validate"]);
+    let out = common::req(&["conform"]);
     assert!(out.status.success(), "validate failed: {}", stderr(&out));
     let body = stdout(&out);
     let re = regex_lite("^OK — [0-9]+ requirement");
@@ -2815,9 +2815,9 @@ fn req_0131_new_scopes_findings_to_changed_reqs() {
     let nv: serde_json::Value = serde_json::from_str(&nbody)
         .unwrap_or_else(|e| panic!("--new json parse: {} on {}", e, nbody));
     assert!(
-        !nv["validate"].to_string().contains("REQ-V-0009"),
+        !nv["conform"].to_string().contains("REQ-V-0009"),
         "per-commit (--new) view must suppress findings on untouched reqs: {}",
-        nv["validate"]
+        nv["conform"]
     );
 
     let all_out = review_in(&s, &["--staged", "--all", "--json"]);
@@ -2825,9 +2825,9 @@ fn req_0131_new_scopes_findings_to_changed_reqs() {
     let av: serde_json::Value = serde_json::from_str(&abody)
         .unwrap_or_else(|e| panic!("--all json parse: {} on {}", e, abody));
     assert!(
-        av["validate"].to_string().contains("REQ-V-0009"),
+        av["conform"].to_string().contains("REQ-V-0009"),
         "--all view must still surface the backlog warning: {}",
-        av["validate"]
+        av["conform"]
     );
 }
 
