@@ -61,6 +61,62 @@ fn req_0007_weasel_word_fast_produces_warning() {
     );
 }
 
+// ---------- REQ-0186: weasel-word check is whole-word, not substring ----------
+
+#[test]
+fn req_0186_weasel_word_does_not_match_substring() {
+    let s = Sandbox::new();
+    s.init("p");
+    // "fetches" contains the substring "etc" but is not the weasel word.
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Retrieve a page when the worker requests it",
+        "--statement",
+        "The system shall return the page after the worker fetches the input batch.",
+        "--rationale",
+        "Substring of a weasel word inside a real word must not trip the rule.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let val = s.run(&["validate"]);
+    let vbody = stdout(&val);
+    assert!(
+        !vbody.contains("REQ-V-0009"),
+        "`fetches` must not trigger the `etc` weasel rule, got:\n{}",
+        vbody
+    );
+}
+
+#[test]
+fn req_0186_weasel_word_still_matches_standalone_term() {
+    let s = Sandbox::new();
+    s.init("p");
+    // The standalone term (here trailed by a period) must still be flagged.
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Log diagnostic output on a failure path",
+        "--statement",
+        "The system shall log errors, warnings, etc. when a request fails.",
+        "--rationale",
+        "Standalone weasel word must still warn.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let val = s.run(&["validate"]);
+    let vbody = stdout(&val);
+    assert!(
+        vbody.contains("REQ-V-0009"),
+        "standalone `etc.` must still trigger the weasel rule, got:\n{}",
+        vbody
+    );
+}
+
 // ---------- REQ-0009: status-transition guard ----------
 
 #[test]

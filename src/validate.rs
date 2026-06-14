@@ -153,6 +153,20 @@ static HEDGE_WORDS: &[&str] = &[
     "potentially",
 ];
 
+// REQ-0186: hedge words are matched on whole-word boundaries too, for the
+// same reason as the weasel words — e.g. "roughly" is a substring of
+// "thoroughly" and "might" of "mighty".
+static HEDGE_RES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
+    HEDGE_WORDS
+        .iter()
+        .map(|w| {
+            let re = Regex::new(&format!(r"(?i)\b{}\b", regex::escape(w)))
+                .expect("hedge-word regex compiles");
+            (*w, re)
+        })
+        .collect()
+});
+
 static WEASEL_WORDS: &[&str] = &[
     "etc",
     "and/or",
@@ -176,6 +190,26 @@ static WEASEL_WORDS: &[&str] = &[
     "state-of-the-art",
     "seamless",
 ];
+
+// REQ-0186: weasel-word checks match on whole-word boundaries, not raw
+// substrings. The naive `contains` test fired on the substring "etc"
+// inside legitimate words like "fetches" (and "fast" inside "fastest",
+// "some" inside "handsome", …). Each term is compiled once to a
+// `\b<term>\b` regex; the boundaries are anchored on word characters so a
+// term embedded in a larger word is no longer flagged, while the term as a
+// standalone word (including when trailed by punctuation like "etc.") still
+// is. Multi-word and punctuated terms ("and/or", "easy to use") match the
+// literal phrase between boundaries.
+static WEASEL_RES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
+    WEASEL_WORDS
+        .iter()
+        .map(|w| {
+            let re = Regex::new(&format!(r"(?i)\b{}\b", regex::escape(w)))
+                .expect("weasel-word regex compiles");
+            (*w, re)
+        })
+        .collect()
+});
 
 static MODAL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\b(shall|must|should|will)\b").unwrap());
@@ -284,9 +318,8 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         // Weasel + compound checks both run against the stripped-prose form
         // so that backtick-wrapped cited terms and embedded enumerations do
         // not trip rules they exist only to describe.
-        let prose_lower = prose.to_lowercase();
-        for w in WEASEL_WORDS {
-            if prose_lower.contains(w) {
+        for (w, re) in WEASEL_RES.iter() {
+            if re.is_match(&prose) {
                 out.push(Finding::warn(
                     "REQ-V-0009",
                     "statement",
@@ -335,10 +368,10 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         // doesn't know what they want.
         // REQ-0102: hedge-stacking message names the offending pattern AND
         // quotes the matching words so the author sees exactly what to fix.
-        let hedge_words_found: Vec<&str> = HEDGE_WORDS
+        let hedge_words_found: Vec<&str> = HEDGE_RES
             .iter()
-            .copied()
-            .filter(|w| prose_lower.contains(*w))
+            .filter(|(_, re)| re.is_match(&prose))
+            .map(|(w, _)| *w)
             .collect();
         if hedge_words_found.len() >= 2 {
             let quoted = hedge_words_found
