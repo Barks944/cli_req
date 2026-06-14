@@ -1020,6 +1020,7 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         sil_gate_exception: gate_exception,
         // REQ-0154: snapshot the SIL this evidence was justified against.
         sil_at_verification: inherited,
+        external: None,
     };
     {
         let sr = project.safety_requirements.get_mut(&id).unwrap();

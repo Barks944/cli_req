@@ -498,6 +498,7 @@ fn apply_one(
                 linked_files: None,
                 sil_gate_exception: false,
                 sil_at_verification: None,
+                external: None,
             };
             let r = project
                 .requirements

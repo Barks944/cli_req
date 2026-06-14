@@ -13,9 +13,80 @@ pub fn run(args: SchemaArgs) -> Result<()> {
         SchemaWhich::Batch => batch_schema(),
         SchemaWhich::Import => import_schema(),
         SchemaWhich::TestMap => test_map_schema(),
+        SchemaWhich::TestRequest => test_request_schema(),
+        SchemaWhich::TestResult => test_result_schema(),
     };
     println!("{}", serde_json::to_string_pretty(&schema)?);
     Ok(())
+}
+
+/// REQ-0176: the exported test-request payload contract (versioned).
+fn test_request_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": id_url("test-request"),
+        "title": "req test requests output",
+        "description": "Requirements due for verification, emitted for an external test system.",
+        "type": "object",
+        "required": ["schema", "commit", "requirements"],
+        "properties": {
+            "schema": { "const": crate::commands::integration::REQUEST_SCHEMA },
+            "commit": { "type": "string" },
+            "requirements": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["id", "statement", "acceptance"],
+                    "properties": {
+                        "id": { "type": "string" },
+                        "statement": { "type": "string" },
+                        "acceptance": { "type": "array", "items": { "type": "string" } },
+                        "sil": { "type": "string" }
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// REQ-0176: the accepted test-result payload contract (versioned).
+fn test_result_schema() -> Value {
+    json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": id_url("test-result"),
+        "title": "req test ingest input",
+        "description": "Results from an external test system, ingested as test records.",
+        "type": "object",
+        "required": ["schema", "system", "commit", "results"],
+        "properties": {
+            "schema": { "const": crate::commands::integration::RESULT_SCHEMA },
+            "system": { "type": "string", "description": "Originating test-system identity" },
+            "environment": { "type": "string", "description": "Named bench / environment" },
+            "commit": { "type": "string", "description": "Commit the results were produced against" },
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["req_id", "verdict"],
+                    "properties": {
+                        "req_id": { "type": "string" },
+                        "verdict": { "type": "string", "description": "External verdict; mapped via verdict_map" },
+                        "notes": { "type": "string" },
+                        "evidence_kind": { "type": "string", "enum": ["automated","composition","inspection"] },
+                        "decision": {
+                            "type": "object",
+                            "required": ["plan"],
+                            "properties": {
+                                "plan": { "type": "string" },
+                                "analysis": { "type": "string" },
+                                "statement": { "type": "string" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })
 }
 
 /// URN scheme — `$id` only has to be a URI, not a resolvable URL.

@@ -395,12 +395,14 @@ pub enum SafetyCmd {
     Status(SafetyStatusArgs),
     /// View or edit the per-project risk-graph calibration (SIL bands).
     Calibrate(SafetyCalibrateArgs),
-    /// REQ-0169: walk each in-scope safety requirement's hazard → SF → SR →
-    /// evidence chain for human review. `--gate` checks acknowledgements
-    /// instead of rendering (non-zero exit if any are missing/stale).
+    // REQ-0169: marker off the --help line (see REQ-0151).
+    /// Walk each in-scope safety requirement's hazard → SF → SR → evidence
+    /// chain for human review. `--gate` checks acknowledgements instead of
+    /// rendering (non-zero exit if any are missing/stale).
     Walkthrough(SafetyWalkthroughArgs),
-    /// REQ-0170/0171: a human acknowledges (or, with --object, declines) one
-    /// safety requirement after being walked through its chain.
+    // REQ-0170 / REQ-0171: marker off the --help line.
+    /// A human acknowledges (or, with --object, declines) one safety
+    /// requirement after being walked through its chain.
     Acknowledge(SafetyAckArgs),
 }
 
@@ -1276,10 +1278,11 @@ pub struct ListArgs {
     /// Full-text search across title and statement.
     #[arg(short, long)]
     pub query: Option<String>,
-    /// REQ-0163: skip this many matches before returning results.
+    // REQ-0163: marker off the --help line.
+    /// Skip this many matches before returning results.
     #[arg(long)]
     pub offset: Option<usize>,
-    /// REQ-0163: return at most this many matches (one page).
+    /// Return at most this many matches (one page).
     #[arg(long)]
     pub limit: Option<usize>,
     /// Render as JSON instead of a table.
@@ -1429,6 +1432,11 @@ pub enum SchemaWhich {
     // REQ-0128: marker kept off the --help line (see REQ-0151).
     /// Schema for the `req test run --map` JSON file.
     TestMap,
+    // REQ-0176: marker off the --help line.
+    /// Schema for the `req test requests` export payload.
+    TestRequest,
+    /// Schema for the `req test ingest` result payload.
+    TestResult,
 }
 
 #[derive(Args, Debug)]
@@ -1509,6 +1517,47 @@ pub enum TestCmd {
     // REQ-0129: marker kept off the --help line (see REQ-0151).
     /// List the test record history attached to one requirement.
     List(TestListArgs),
+    // REQ-0175: marker off the --help line.
+    /// Export the requirements due for verification as a machine-readable
+    /// payload for an external test system.
+    Requests(TestRequestsArgs),
+    // REQ-0177: marker off the --help line.
+    /// Ingest a result payload from an external test system, attaching each
+    /// result as a test record.
+    Ingest(TestIngestArgs),
+    // REQ-0181: marker off the --help line.
+    /// Pull a result payload from an external test system over an
+    /// authenticated HTTP endpoint and ingest it.
+    Pull(TestPullArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TestRequestsArgs {
+    /// Write the payload to this file instead of stdout.
+    #[arg(short, long)]
+    pub out: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct TestIngestArgs {
+    /// Path to the result payload (JSON) to ingest.
+    pub source: String,
+    /// Allow promotion of ordinary requirements whose dossier is now complete
+    /// (safety requirements are never auto-promoted — REQ-0184).
+    #[arg(long)]
+    pub promote: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TestPullArgs {
+    /// URL of the external test system's result endpoint.
+    pub from: String,
+    /// Bearer token for authentication (kept out of project.req).
+    #[arg(long, env = "REQ_TEST_TOKEN")]
+    pub token: Option<String>,
+    /// Allow promotion of ordinary requirements (see `ingest --promote`).
+    #[arg(long)]
+    pub promote: bool,
 }
 
 #[derive(Args, Debug)]

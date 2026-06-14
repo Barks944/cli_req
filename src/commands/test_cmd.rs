@@ -25,6 +25,10 @@ pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
         TestCmd::Record(args) => record(args, file),
         TestCmd::Run(args) => run_suite(args, file),
         TestCmd::List(args) => list(args, file),
+        // REQ-0175/0177/0181: external test-system integration.
+        TestCmd::Requests(args) => super::integration::requests(args, file),
+        TestCmd::Ingest(args) => super::integration::ingest(args, file),
+        TestCmd::Pull(args) => super::integration::pull(args, file),
     }
 }
 
@@ -49,12 +53,26 @@ fn list(mut args: TestListArgs, file: &Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
     for t in &r.tests {
+        // REQ-0179: show provenance — external records name their system and
+        // environment; locally-produced records are labelled as such.
+        let source = match &t.external {
+            Some(e) => format!(
+                "ext:{}{}",
+                e.system,
+                e.environment
+                    .as_deref()
+                    .map(|env| format!("/{}", env))
+                    .unwrap_or_default()
+            ),
+            None => "local".to_string(),
+        };
         println!(
-            "{}  {}  {}  {}  {}",
+            "{}  {}  {}  {}  [{}]  {}",
             t.at.format("%Y-%m-%d %H:%M UTC"),
             short(&t.commit),
             t.outcome.as_str(),
             t.kind.as_str(),
+            source,
             t.notes
         );
     }
@@ -85,6 +103,7 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         linked_files: None,
         sil_gate_exception: false,
         sil_at_verification: None,
+        external: None,
     };
     // REQ-0139: evaluate the validation-dossier gate before taking the
     // mutable borrow (the gate needs to read project config + the dossier).
@@ -220,6 +239,7 @@ fn record(mut args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
         },
         sil_gate_exception: false,
         sil_at_verification: None,
+        external: None,
     };
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
@@ -722,6 +742,7 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             },
             sil_gate_exception: false,
             sil_at_verification: None,
+            external: None,
         };
         records_to_apply.push((req_id.clone(), record));
     }

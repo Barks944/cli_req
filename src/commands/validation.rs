@@ -472,6 +472,7 @@ pub fn op_conclude(
                 sil_gate_exception,
                 // REQ-0154: snapshot the inherited SIL (SR only) at conclude.
                 sil_at_verification: inherited,
+                external: None,
             });
         }
         *it.updated = now;

@@ -2432,6 +2432,7 @@ fn tool_test_record(args: &Value, file: &Path) -> Result<String> {
         },
         sil_gate_exception: false,
         sil_at_verification: None,
+        external: None,
     };
     r.tests.push(record);
     r.history.push(crate::commands::history(
@@ -2552,6 +2553,7 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
                 },
                 sil_gate_exception: false,
                 sil_at_verification: None,
+                external: None,
             });
             r.history.push(crate::commands::history(
                 format!("test {} recorded via MCP req_test_run", outcome.as_str()),
@@ -2666,6 +2668,7 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
         linked_files: None,
         sil_gate_exception: false,
         sil_at_verification: None,
+        external: None,
     });
     r.history.push(crate::commands::history(
         format!(
@@ -3935,6 +3938,7 @@ mod safety_mcp {
                 sil_gate_exception: gate_exception,
                 // REQ-0154: snapshot the SIL this evidence was justified against.
                 sil_at_verification: inherited,
+                external: None,
             });
             if promote {
                 sr.status = Status::Verified;

@@ -78,6 +78,19 @@ pub struct ProjectConfig {
     /// requirement from the mandatory dossier gate).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation: Option<ValidationConfig>,
+    /// REQ-0182: external test-system integration — the verdict-vocabulary
+    /// mapping used when ingesting bench results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_integration: Option<TestIntegrationConfig>,
+}
+
+/// REQ-0182: how an external system's verdict vocabulary maps onto the local
+/// pass/fail result model. Keys are the external verdict strings; values are
+/// `pass` or `fail`. Overrides merge over the built-in defaults.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TestIntegrationConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict_map: Option<BTreeMap<String, String>>,
 }
 
 /// REQ-0139: per-project validation-dossier policy.
@@ -427,6 +440,25 @@ pub struct TestRecord {
     /// written before this field existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sil_at_verification: Option<Sil>,
+    /// REQ-0179: when this evidence was ingested from an external test system
+    /// (a physical bench, CI rig, …), its provenance — which system, which
+    /// environment. None means the record was produced locally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external: Option<ExternalSource>,
+}
+
+/// REQ-0179: provenance for a test record ingested from an external system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalSource {
+    /// The originating system's identity, e.g. "at_test".
+    pub system: String,
+    /// The named test environment / bench, e.g. "bench-944".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    /// The external system's own verdict vocabulary value, preserved verbatim
+    /// (e.g. "bench_cap_suspected") so a mapped Pass/Fail never loses nuance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_verdict: Option<String>,
 }
 
 fn is_false(b: &bool) -> bool {

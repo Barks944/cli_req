@@ -13,6 +13,7 @@ pub mod help_cmd;
 pub mod hooks;
 pub mod import;
 pub mod init;
+pub mod integration;
 pub mod link;
 pub mod lint;
 pub mod list;
