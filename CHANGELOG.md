@@ -8,6 +8,21 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.5.0-rc.5] — 2026-06-14
+
+Maintenance release. Functionally identical to rc.4; cleans up the validation
+staleness anchors so the project's own dogfood stays all-green across releases.
+
+### Changed
+- **Staleness anchors re-derived to comment-only linked files (REQ-0149
+  applied to legacy dossiers):** rc.3-era validation dossiers still carried
+  broad `linked_files` from the pre-REQ-0149 prose-matching era — including
+  `CHANGELOG.md` via its `(REQ-NNNN)` mentions — so editing the changelog on a
+  release falsely drifted dozens of unrelated requirements to stale. Every
+  affected dossier was re-validated so its `linked_files` are now derived
+  solely from genuine `// REQ-NNNN:` code-comment markers; documentation and
+  release edits no longer drift implementation requirements.
+
 ## [0.5.0-rc.4] — 2026-06-14
 
 Release candidate folding in the staged validation dossier, honest

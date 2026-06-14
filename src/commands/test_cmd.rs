@@ -384,6 +384,16 @@ pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path:
     // REQ-0124: source_walk honours .gitignore so test-record linked-file
     // discovery doesn't pick up artefacts in tmp/, dist/, etc.
     crate::source_walk::walk_source_tree(root, &exts, |path| {
+        // REQ-0149: in a markdown file the only real comment is an HTML
+        // comment (`<!-- ... -->`); `#` starts a heading and `*`/`-` start
+        // list items, none of which are code markers. Scanning them as
+        // "comments" wrongly linked every requirement cited in a CHANGELOG
+        // heading (e.g. `### Added — … (REQ-0112)`) to CHANGELOG.md, so a
+        // release's changelog edit falsely drifted dozens of requirements.
+        let is_markdown = matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("md") | Some("markdown")
+        );
         if let Ok(text) = std::fs::read_to_string(path) {
             // REQ-0149: an item depends on a file only when the file carries
             // the id in a CODE COMMENT (a genuine `// SR-NNNN` / `// REQ-NNNN`
@@ -393,7 +403,7 @@ pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path:
             // unrelated prose or examples no longer invalidates a requirement.
             if text
                 .lines()
-                .filter_map(comment_portion)
+                .filter_map(|line| comment_portion(line, is_markdown))
                 .any(|c| c.contains(req_id))
             {
                 hits.push(path.to_path_buf());
@@ -403,15 +413,19 @@ pub fn files_referencing(req_id: &str, root: &std::path::Path) -> Vec<std::path:
     hits
 }
 
-/// REQ-0149: return the comment text of a line that *is* a comment — i.e. the
-/// trimmed line begins with a comment delimiter (`//`, `/*`, `*` doc
-/// continuation, `#`, `--`, `;`). Returns None otherwise, so an id that merely
-/// appears mid-line inside a string literal or code (e.g. a quoted marker
-/// string, or a help-text example containing a hash) is NOT treated as a
-/// dependency marker. This keeps a requirement's dependencies to the genuine
-/// comment markers in source.
-fn comment_portion(line: &str) -> Option<&str> {
+/// REQ-0149: return the comment text of a line that *is* a comment. For code
+/// files the trimmed line must begin with a comment delimiter (`//`, `/*`, `*`
+/// doc continuation, `#`, `--`, `;`); for markdown (`is_markdown`) only an HTML
+/// comment (`<!--`) counts, because `#`/`*`/`-` there are headings and list
+/// items, not comments. Returns None otherwise, so an id that merely appears in
+/// prose, a string literal, or a markdown heading is NOT treated as a
+/// dependency marker — keeping a requirement's dependencies to genuine source
+/// comment markers.
+fn comment_portion(line: &str, is_markdown: bool) -> Option<&str> {
     let trimmed = line.trim_start();
+    if is_markdown {
+        return trimmed.starts_with("<!--").then_some(trimmed);
+    }
     for delim in ["//", "/*", "*", "#", "--", ";"] {
         if trimmed.starts_with(delim) {
             return Some(trimmed);
@@ -878,5 +892,47 @@ mod tests {
         std::fs::write(&file, b"line1\nline2\n").unwrap();
         let lf = hash_files(std::slice::from_ref(&fwd));
         assert_eq!(crlf, lf, "CRLF and LF content must hash identically");
+    }
+
+    /// REQ-0149: a markdown heading or list item that cites a requirement id is
+    /// NOT a code marker, so it must not make the doc a staleness dependency;
+    /// only an HTML comment (`<!-- ... -->`) counts in markdown.
+    #[test]
+    fn req_0149_markdown_headings_are_not_markers() {
+        // markdown: heading citation is not a comment; HTML comment is.
+        assert!(comment_portion("### Added — staleness (REQ-0112)", true).is_none());
+        assert!(comment_portion("- bullet mentioning REQ-0112", true).is_none());
+        assert!(comment_portion("<!-- REQ-0080: changelog marker -->", true).is_some());
+        // code files: `#`/`//` lines remain comments (toml/shell/rust).
+        assert!(comment_portion("# Implements REQ-0021 (single binary)", false).is_some());
+        assert!(comment_portion("// REQ-0001: marker", false).is_some());
+
+        // files_referencing: a heading citation does not link the markdown file,
+        // but an HTML-comment marker does. Build the test ids dynamically so the
+        // literal tokens never appear in this source (they would otherwise read
+        // as coverage ghosts — markers to non-existent requirements).
+        let heading_id = format!("REQ-{}", 9001);
+        let comment_id = format!("REQ-{}", 9002);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            format!("### Added - feature ({heading_id})\n- prose about {heading_id}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("NOTES.md"),
+            format!("<!-- {comment_id}: design note -->\n# {comment_id} heading\n"),
+        )
+        .unwrap();
+        let cl = files_referencing(&heading_id, dir.path());
+        assert!(
+            cl.is_empty(),
+            "a markdown heading citation must not link the doc: {cl:?}"
+        );
+        let nt = files_referencing(&comment_id, dir.path());
+        assert!(
+            nt.iter().any(|p| p.to_string_lossy().contains("NOTES.md")),
+            "an HTML-comment marker must link the doc: {nt:?}"
+        );
     }
 }
