@@ -2276,3 +2276,45 @@ fn req_0156_impact_requires_a_proposed_edit() {
     assert!(!out.status.success(), "impact with no edit should error");
     assert!(stderr(&out).contains("nothing to analyse"));
 }
+
+#[test]
+fn req_0172_no_deadlock_walkthrough_acknowledge_under_stale_acceptance() {
+    // Regression: `safety accept` is blocked until every SR is acknowledged
+    // (REQ-0172), but acknowledge was gated on the CURRENT disclaimer version.
+    // With an older-version acceptance on file that made accept unreachable.
+    // Walkthrough + acknowledge must work under a stale acceptance so the
+    // accept-gate is satisfiable; only MUTATIONS stay version-gated.
+    let s = walkthrough_chain(); // git repo, v2 acceptance, SR-0001 with evidence
+                                 // Downgrade the acceptance to an older disclaimer version.
+    std::fs::write(
+        s.dir.path().join("req-safety-acceptance.json"),
+        r#"{"accepted_by":"H","at":"2026-01-01T00:00:00Z","tool_version":"old","disclaimer_version":"1"}"#,
+    )
+    .unwrap();
+    // Read-only walkthrough still works.
+    let wt = git_sandbox_run(&s, &["safety", "walkthrough"]);
+    assert!(
+        wt.status.success(),
+        "walkthrough under stale acceptance: {}",
+        stderr(&wt)
+    );
+    // Acknowledge still works (no deadlock).
+    let ack = git_sandbox_run(
+        &s,
+        &["safety", "acknowledge", "SR-0001", "--note", "reviewed"],
+    );
+    assert!(
+        ack.status.success(),
+        "acknowledge under stale acceptance: {}",
+        stderr(&ack)
+    );
+    // But a safety MUTATION remains gated on the current disclaimer version.
+    let hz = git_sandbox_run(
+        &s,
+        &[
+            "hazard", "add", "-t", "H2", "--harm", "x", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+            "-W", "W2",
+        ],
+    );
+    assert!(!hz.status.success(), "mutations must stay version-gated");
+}

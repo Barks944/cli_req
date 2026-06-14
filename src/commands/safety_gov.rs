@@ -122,15 +122,37 @@ pub fn run(cmd: SafetyCmd, file: &Option<PathBuf>) -> Result<()> {
         SafetyCmd::Calibrate(a) => calibrate(a, file),
         // REQ-0169/0170: the guided walkthrough and per-requirement ack are
         // human governance acts, so they live on this (non-MCP) surface.
+        // REQ-0172: they are gated on the feature having been ENGAGED (an
+        // acceptance file of any version exists), NOT on the current disclaimer
+        // version. Reviewing and acknowledging the existing case is exactly
+        // what a human does as part of (re-)accepting after a disclaimer bump,
+        // so requiring the current version here would deadlock `safety accept`
+        // (which REQ-0172 blocks until the acks exist).
         SafetyCmd::Walkthrough(a) => {
-            ensure_enabled(file)?;
+            ensure_engaged(file)?;
             walkthrough(a, file)
         }
         SafetyCmd::Acknowledge(a) => {
-            ensure_enabled(file)?;
+            ensure_engaged(file)?;
             acknowledge(a, file)
         }
     }
+}
+
+/// REQ-0172: the safety feature has been ENGAGED for this project — an
+/// acceptance file exists, of any disclaimer version. Unlike `ensure_enabled`
+/// this does not require the *current* version, so a human can walk through
+/// and acknowledge the existing safety case before re-accepting an updated
+/// disclaimer (otherwise the REQ-0172 accept-gate would be unreachable).
+fn ensure_engaged(file: &Option<PathBuf>) -> Result<()> {
+    let path = resolve_path(file);
+    if read_acceptance(&path).is_some() {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "the functional-safety features have never been accepted for this project. \
+         A human must run `req safety accept --name \"...\"` first."
+    ))
 }
 
 // ---------------------------------------------------------------------------
