@@ -759,3 +759,134 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
         rep2
     );
 }
+
+// ---------- REQ-0185: report surfaces the unvalidated requirements ----------
+
+#[test]
+fn req_0185_report_lists_unvalidated_by_stage() {
+    let s = Sandbox::new();
+    s.init("p");
+    // A bare draft (no dossier) and a planned-only requirement.
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Draft requirement here",
+        "-s",
+        "The system shall do A.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Planned requirement here",
+        "-s",
+        "The system shall do B.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "plan",
+        "REQ-0002",
+        "--plan",
+        "will analyse and test B",
+    ]);
+    let rep = s.run(&["validation", "report", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&rep)).expect("report json");
+    assert_eq!(
+        v["unvalidated_total"], 2,
+        "both reqs are unvalidated: {}",
+        v
+    );
+    let by = &v["unvalidated_by_stage"];
+    assert_eq!(by["no-plan"], 1, "one bare draft: {}", by);
+    assert_eq!(by["plan-only"], 1, "one planned-only: {}", by);
+}
+
+// ---------- REQ-0162: structured dossier exemption kind ----------
+
+#[test]
+fn req_0162_no_dossier_waiver_is_structured() {
+    let s = Sandbox::new();
+    implemented_req(&s);
+    // Waive the dossier explicitly.
+    let w = s.run(&[
+        "verify",
+        "REQ-0001",
+        "--by",
+        "inspection",
+        "--notes",
+        "n",
+        "--promote",
+        "--no-dossier",
+        "--reason",
+        "covered by external review",
+    ]);
+    assert!(w.status.success(), "no-dossier waiver: {}", stderr(&w));
+    // The structured kind is recorded, not inferred from the plan prefix.
+    let show = s.run(&["validation", "show", "REQ-0001", "--json"]);
+    let dv: serde_json::Value = serde_json::from_str(&stdout(&show)).expect("show json");
+    assert_eq!(
+        dv["validation"]["exemption_kind"], "no-dossier",
+        "structured kind: {}",
+        dv
+    );
+    // And the provenance report classifies it as the no-dossier waiver.
+    let rep = s.run(&["validation", "report", "--json"]);
+    let rv: serde_json::Value = serde_json::from_str(&stdout(&rep)).expect("report json");
+    assert!(
+        rv["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["provenance"] == "exempt:no-dossier"),
+        "report should show exempt:no-dossier: {}",
+        rv["items"]
+    );
+}
+
+// ---------- REQ-0167: on-behalf-of human attribution ----------
+
+#[test]
+fn req_0167_records_on_behalf_of_human() {
+    use std::process::Command;
+    let s = Sandbox::new();
+    implemented_req(&s);
+    // An agent makes a change on behalf of a named human.
+    let out = Command::new(env!("CARGO_BIN_EXE_req"))
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "update",
+            "REQ-0001",
+            "--add-tag",
+            "reviewed",
+        ])
+        .env_remove("REQ_FILE")
+        .env("REQ_ACTOR", "claude")
+        .env("REQ_ACTOR_KIND", "agent")
+        .env("REQ_ON_BEHALF_OF", "Alice <alice@example.com>")
+        .output()
+        .expect("invoke req");
+    assert!(
+        out.status.success(),
+        "update: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let show = s.run(&["show", "REQ-0001"]);
+    let body = stdout(&show);
+    assert!(
+        body.contains("for Alice <alice@example.com>"),
+        "history should record the on-behalf-of human:\n{}",
+        body
+    );
+}

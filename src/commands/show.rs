@@ -95,11 +95,18 @@ pub fn render(r: &Requirement) {
                 crate::model::ActorKind::Unknown => String::new(),
                 k => format!(" ({})", k.as_str()),
             };
+            // REQ-0167: surface the human an agent acted on behalf of.
+            let obo = h
+                .on_behalf_of
+                .as_deref()
+                .map(|p| format!(" for {}", p))
+                .unwrap_or_default();
             println!(
-                "  {} {}{} {} {}",
+                "  {} {}{}{} {} {}",
                 h.at.format("%Y-%m-%d %H:%M"),
                 h.actor,
                 kind_tag,
+                obo,
                 h.action,
                 if r.is_empty() {
                     String::new()

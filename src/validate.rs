@@ -145,6 +145,10 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0036",
         "safety requirement's inherited SIL rose above the SIL its evidence was justified against — re-verify at the current level",
     ),
+    (
+        "REQ-V-0037",
+        "safety requirement was verified by the same actor who authored it (independence of assessment, warn)",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -1030,6 +1034,39 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                             );
                         }
                     }
+                }
+            }
+            // REQ-0168: independence of assessment — warn when the actor who
+            // verified the safety requirement is the same one who authored it.
+            // Author = the actor of the earliest history entry; verifier =
+            // the human co-signer if present, else the latest passing evidence.
+            let author = sr.history.first().map(|h| h.actor.trim().to_string());
+            let verifier = sr
+                .validation
+                .as_ref()
+                .and_then(|v| v.human_confirmation.as_ref())
+                .map(|c| c.actor.clone())
+                .or_else(|| {
+                    sr.tests
+                        .iter()
+                        .rev()
+                        .find(|t| matches!(t.outcome, crate::model::TestOutcome::Pass))
+                        .map(|t| t.actor.clone())
+                })
+                .map(|a| a.trim().to_string());
+            if let (Some(a), Some(v)) = (author, verifier) {
+                if !a.is_empty() && a.eq_ignore_ascii_case(&v) {
+                    push(
+                        id,
+                        Finding::warn(
+                            "REQ-V-0037",
+                            "validation",
+                            format!(
+                                "{} was authored and verified by the same actor ({}) — IEC 61508 wants independence of assessment; have a different competent person verify it",
+                                id, v
+                            ),
+                        ),
+                    );
                 }
             }
         }

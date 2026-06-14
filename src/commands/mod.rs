@@ -117,6 +117,16 @@ pub fn current_actor_kind() -> ActorKind {
     }
 }
 
+/// REQ-0167: the human on whose behalf the acting agent is working, from
+/// `REQ_ON_BEHALF_OF`. Empty/unset yields None. Trimmed so a stray blank
+/// does not record an empty attribution.
+pub fn current_on_behalf_of() -> Option<String> {
+    env::var("REQ_ON_BEHALF_OF")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub fn history(action: impl Into<String>, reason: Option<String>) -> HistoryEntry {
     HistoryEntry {
         at: Utc::now(),
@@ -124,6 +134,7 @@ pub fn history(action: impl Into<String>, reason: Option<String>) -> HistoryEntr
         actor_kind: current_actor_kind(),
         action: action.into(),
         reason,
+        on_behalf_of: current_on_behalf_of(),
     }
 }
 

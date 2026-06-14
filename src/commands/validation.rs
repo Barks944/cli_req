@@ -584,6 +584,8 @@ pub fn op_backfill(
             now,
         );
         v.exempt = true;
+        // REQ-0162: record the waiver kind structurally.
+        v.exemption_kind = Some(crate::model::ExemptionKind::Backfilled);
         v.statement = Some(format!("[backfilled: {}]", reason));
         v.verdict = Some(TestOutcome::Pass);
         v.concluded = Some(now);
@@ -614,6 +616,8 @@ pub fn exemption_dossier(reason: &str, actor: String, commit: String) -> Validat
         now,
     );
     v.exempt = true;
+    // REQ-0162: record the waiver kind structurally.
+    v.exemption_kind = Some(crate::model::ExemptionKind::NoDossier);
     v.statement = Some(format!("[no-dossier exemption: {}]", reason));
     v.verdict = Some(TestOutcome::Pass);
     v.concluded = Some(now);
@@ -958,9 +962,61 @@ fn refresh_anchors(args: ValidationRefreshArgs, file: &Option<PathBuf>) -> Resul
 // REQ-0142: the true-status report. Classifies every Verified item and
 // rolls up the counts, so the headline "verified" number can be read with
 // its provenance instead of taken at face value.
+/// REQ-0185: classify a not-yet-passing item by how far its validation
+/// dossier progressed, so the report shows the unvalidated surface instead
+/// of only the verified one. Returns `None` for Verified/Obsolete items
+/// (Verified ones are reported by provenance; Obsolete are out of scope).
+fn unvalidated_stage(status: Status, v: Option<&crate::model::Validation>) -> Option<&'static str> {
+    use crate::model::TestOutcome;
+    if matches!(status, Status::Verified | Status::Obsolete) {
+        return None;
+    }
+    Some(match v {
+        None => "no-plan",
+        Some(v) if v.plan.trim().is_empty() => "no-plan",
+        Some(v) => match (&v.analysis, &v.testing) {
+            (None, _) => "plan-only",
+            (Some(a), _) if matches!(a.outcome, TestOutcome::Fail) => "analysis-failing",
+            (Some(_), None) => "analysed-untested",
+            (Some(_), Some(t)) if matches!(t.outcome, TestOutcome::Fail) => "tested-failing",
+            (Some(_), Some(_)) => "ready-to-conclude",
+        },
+    })
+}
+
+/// REQ-0185: the ordered pipeline stages, worst-progressed first.
+const UNVALIDATED_STAGES: &[&str] = &[
+    "no-plan",
+    "plan-only",
+    "analysis-failing",
+    "analysed-untested",
+    "tested-failing",
+    "ready-to-conclude",
+];
+
+/// REQ-0185: collect `(id, family, stage)` for every requirement and safety
+/// requirement that has not reached a passing validation.
+fn unvalidated_rows(project: &Project) -> Vec<(String, &'static str, &'static str)> {
+    let mut rows = Vec::new();
+    for (id, r) in &project.requirements {
+        if let Some(stage) = unvalidated_stage(r.status, r.validation.as_ref()) {
+            rows.push((id.clone(), "requirement", stage));
+        }
+    }
+    for (id, sr) in &project.safety_requirements {
+        if let Some(stage) = unvalidated_stage(sr.status, sr.validation.as_ref()) {
+            rows.push((id.clone(), "safety-requirement", stage));
+        }
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    rows
+}
+
 fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_path, project) = load_resolved(file)?;
     let rows = provenance_report(&project, Some(&args.path));
+    // REQ-0185: the unvalidated surface, grouped by dossier-pipeline stage.
+    let unvalidated = unvalidated_rows(&project);
 
     let mut genuine = 0usize;
     let mut backfilled = 0usize;
@@ -998,6 +1054,18 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
                 })
             })
             .collect();
+        // REQ-0185: per-stage counts for the unvalidated surface.
+        let mut unval_by_stage = serde_json::Map::new();
+        for stage in UNVALIDATED_STAGES {
+            let n = unvalidated.iter().filter(|(_, _, s)| s == stage).count();
+            if n > 0 {
+                unval_by_stage.insert((*stage).to_string(), serde_json::json!(n));
+            }
+        }
+        let unval_items: Vec<_> = unvalidated
+            .iter()
+            .map(|(id, fam, stage)| serde_json::json!({ "id": id, "family": fam, "stage": stage }))
+            .collect();
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
@@ -1012,6 +1080,10 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
                     "ungated": ungated,
                 },
                 "items": items,
+                // REQ-0185: the unvalidated surface alongside the verified one.
+                "unvalidated_total": unvalidated.len(),
+                "unvalidated_by_stage": unval_by_stage,
+                "unvalidated": unval_items,
             }))?
         );
         return Ok(());
@@ -1043,6 +1115,28 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
         "  ungated          : {:>4}   (Verified with no passing dossier)",
         ungated
     );
+
+    // REQ-0185: the unvalidated surface — everything that has NOT reached a
+    // passing validation, grouped by how far its dossier progressed. Without
+    // this the report shows only verified items and hides what work remains.
+    println!();
+    println!(
+        "Unvalidated ({} item(s) with no passing dossier)",
+        unvalidated.len()
+    );
+    for stage in UNVALIDATED_STAGES {
+        let n = unvalidated.iter().filter(|(_, _, s)| s == stage).count();
+        if n > 0 {
+            println!("  {:<18}: {:>4}", stage, n);
+        }
+    }
+    if !unvalidated.is_empty() {
+        println!();
+        for (id, fam, stage) in &unvalidated {
+            println!("  {:<9}  {:<18}  {}", id, stage, fam);
+        }
+    }
+
     let not_genuine = total - genuine;
     if not_genuine > 0 {
         println!();

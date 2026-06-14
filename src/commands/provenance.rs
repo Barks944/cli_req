@@ -68,12 +68,14 @@ pub fn classify(v: Option<&Validation>, source_root: Option<&Path>, id: &str) ->
         Some(v) => v,
     };
     if v.exempt {
-        // Distinguish the two waiver kinds by the plan prefix stamped at
-        // backfill / no-dossier time (see op_backfill / exemption_dossier).
-        return if v.plan.starts_with("[--no-dossier") {
-            Provenance::ExemptNoDossier
-        } else {
-            Provenance::ExemptBackfilled
+        // REQ-0162: read the structured waiver kind. Legacy exempt dossiers
+        // written before the field existed (and not yet migrated) carry None;
+        // treat those as backfilled — the conservative default — rather than
+        // parsing the free-text plan. `req migrate` populates the field.
+        return match v.exemption_kind {
+            Some(crate::model::ExemptionKind::NoDossier) => Provenance::ExemptNoDossier,
+            Some(crate::model::ExemptionKind::Backfilled) => Provenance::ExemptBackfilled,
+            None => Provenance::ExemptBackfilled,
         };
     }
     // A non-exempt dossier only counts as genuine if it actually concluded

@@ -521,6 +521,25 @@ pub struct Validation {
     /// REQ_ACTOR_KIND=agent). None until a human confirms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub human_confirmation: Option<ValidationActivity>,
+    /// REQ-0162: when `exempt` is set, which kind of waiver this is, stored
+    /// as structured data rather than inferred from a magic prefix on the
+    /// free-text `plan`. None on a non-exempt dossier and on legacy exempt
+    /// dossiers written before this field existed (migrated by `req migrate`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exemption_kind: Option<ExemptionKind>,
+}
+
+/// REQ-0162: the two audited ways an item may be Verified without a genuine
+/// concluded dossier. Recorded explicitly so provenance classification never
+/// has to parse the plan text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExemptionKind {
+    /// `req verify --no-dossier` waiver (ordinary requirements only).
+    #[serde(rename = "no-dossier")]
+    NoDossier,
+    /// `req validation backfill` grandfathering of a pre-gate Verified item.
+    #[serde(rename = "backfilled")]
+    Backfilled,
 }
 
 impl Validation {
@@ -541,6 +560,7 @@ impl Validation {
             content_hash: None,
             linked_files: None,
             human_confirmation: None,
+            exemption_kind: None,
         }
     }
 
@@ -611,6 +631,13 @@ pub struct HistoryEntry {
     pub actor_kind: ActorKind,
     pub action: String,
     pub reason: Option<String>,
+    /// REQ-0167: the human on whose behalf an agent made this change, taken
+    /// from `REQ_ON_BEHALF_OF`. None for direct human edits or when unset;
+    /// restores a chain of accountability that `actor_kind=agent` alone
+    /// flattens. Skipped from the file when absent so existing files and the
+    /// integrity hash are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of: Option<String>,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]

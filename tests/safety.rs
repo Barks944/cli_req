@@ -1746,3 +1746,18 @@ fn req_0160_trace_labels_verification_scope() {
         trace
     );
 }
+
+// ---------- REQ-0168: independence — author should not be the verifier ----------
+
+#[test]
+fn req_0168_warns_when_author_verifies_own_safety_requirement() {
+    // verified_sil2_chain authors and verifies SR-0001 as the same actor.
+    let s = verified_sil2_chain();
+    let val = s.run(&["validate"]);
+    let body = format!("{}{}", stdout(&val), stderr(&val));
+    assert!(
+        body.contains("REQ-V-0037"),
+        "same author+verifier should warn REQ-V-0037:\n{}",
+        body
+    );
+}
