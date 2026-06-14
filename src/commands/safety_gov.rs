@@ -285,95 +285,290 @@ fn walkthrough(args: SafetyWalkthroughArgs, file: &Option<PathBuf>) -> Result<()
         println!("No in-scope safety requirements to walk through.");
         return Ok(());
     }
-    // REQ-0169: render each chain as a top-down story — hazard → harm →
-    // mitigating safety function → safety requirement → evidence → the
-    // human's call. A fixed-width label gutter with wrapped narrative keeps
-    // the long harm/statement text readable instead of running off the line.
-    let heavy = "━".repeat(74);
-    let rule = "─".repeat(70);
+
+    // REQ-0199: a human on a terminal gets the interactive arrow-key
+    // navigator; agents, pipes, and CI fall back to the static rendering so
+    // nothing scripted is left waiting on a keypress.
+    use std::io::IsTerminal;
+    let is_tty = atty_stdin() && std::io::stdout().is_terminal();
+    let is_agent = matches!(super::current_actor_kind(), crate::model::ActorKind::Agent);
+    if args.interactive && (!is_tty || is_agent) {
+        eprintln!("(interactive mode needs a human terminal — showing the static walkthrough)");
+    }
+    // Source root for the staleness probe: project.req usually sits at the
+    // repo root, beside the src/ tree the markers live in.
+    let root = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    if is_tty && !is_agent && !args.no_interactive {
+        return run_interactive(file, ids, head, args.full, &root);
+    }
+
+    // Static rendering: each SR's chain printed top to bottom.
     for (n, id) in ids.iter().enumerate() {
-        let sr = &project.safety_requirements[id];
-        println!("\n{}", heavy);
-        println!("  [{}/{}]  {} — {}", n + 1, ids.len(), sr.id, sr.title);
-        println!("{}\n", heavy);
-
-        // Hazard → mitigating safety function, grouped per realizing SF so
-        // the "this hazard is mitigated by this function" link stays clear.
-        for sf in project.safety_functions.values() {
-            if !sr
-                .links
-                .iter()
-                .any(|l| matches!(l.kind, crate::model::LinkKind::Realizes) && l.target == sf.id)
-            {
-                continue;
-            }
-            for l in &sf.links {
-                if let Some(h) = project.hazards.get(&l.target) {
-                    let req = project.required_sil(h).map(|s| s.as_str()).unwrap_or("—");
-                    field(
-                        "HAZARD",
-                        &format!("{}  ·  required {}  ·  {}", h.id, req, h.title),
-                    );
-                    field("harm", &h.harm);
-                }
-            }
-            let asil = project.allocated_sil(sf).map(|s| s.as_str()).unwrap_or("—");
-            field(
-                "MITIGATED BY",
-                &format!("{}  ·  {}  ·  {}", sf.id, asil, sf.title),
-            );
-            println!();
-        }
-
-        // The safety requirement itself, then the evidence standing behind it.
-        let inh = project.inherited_sil(sr).map(|s| s.as_str()).unwrap_or("—");
-        field(
-            "REQUIREMENT",
-            &format!("inherited {}  ·  status {}", inh, sr.status.as_str()),
-        );
-        field("", &sr.statement);
-        match sr.verification.as_ref().and_then(|v| v.statement.clone()) {
-            Some(st) => field("EVIDENCE", &st),
-            None => field("EVIDENCE", "(no concluded verification statement)"),
-        }
-
-        // The human's call on this requirement.
-        println!("  {}", rule);
-        match chain_incompleteness(&project, id) {
-            Some(why) => {
-                println!("  ⚠  chain incomplete — cannot be acknowledged yet");
-                println!("     {}", why);
-            }
-            None => match sr.walkthrough.as_ref() {
-                Some(a) if ack_is_fresh(Some(a), &head) => println!(
-                    "  ✓  acknowledged by {} at {}",
-                    a.reviewer,
-                    a.at.format("%Y-%m-%d %H:%M UTC")
-                ),
-                Some(a) if a.objected => {
-                    println!("  ✗  objection on record by {}", a.reviewer)
-                }
-                Some(_) => {
-                    println!("  ⚠  prior acknowledgement is stale");
-                    println!(
-                        "     re-acknowledge at this commit — `req safety acknowledge {}`",
-                        sr.id
-                    )
-                }
-                None => {
-                    println!("  ▷  awaiting your acknowledgement");
-                    println!(
-                        "     run:  req safety acknowledge {}   (or --object to decline)",
-                        sr.id
-                    )
-                }
-            },
+        for line in render_sr(&project, id, &head, args.full, &root, n, ids.len()) {
+            println!("{}", line);
         }
     }
     println!(
         "\nWalk each chain top to bottom, then acknowledge (or --object) each: \
-         `req safety acknowledge SR-NNNN`."
+         `req safety acknowledge SR-NNNN`.  (`-i` interactive · `--full` dossier detail)"
     );
+    Ok(())
+}
+
+/// REQ-0169/0198: render one safety requirement's chain as a top-down story —
+/// hazard → harm → mitigating safety function → requirement → verification
+/// dossier → the human's call — into a line buffer the caller prints or
+/// redraws. `full` expands the dossier with analysis/testing detail and refs.
+fn render_sr(
+    project: &Project,
+    id: &str,
+    head: &str,
+    full: bool,
+    root: &Path,
+    idx: usize,
+    total: usize,
+) -> Vec<String> {
+    let sr = &project.safety_requirements[id];
+    let mut out: Vec<String> = Vec::new();
+    out.push(String::new());
+    out.push("━".repeat(74));
+    out.push(format!("  [{}/{}]  {} — {}", idx + 1, total, sr.id, sr.title));
+    out.push("━".repeat(74));
+    out.push(String::new());
+
+    // Hazard → mitigating safety function, grouped per realizing SF so the
+    // "this hazard is mitigated by this function" link stays clear.
+    for sf in project.safety_functions.values() {
+        if !sr
+            .links
+            .iter()
+            .any(|l| matches!(l.kind, crate::model::LinkKind::Realizes) && l.target == sf.id)
+        {
+            continue;
+        }
+        for l in &sf.links {
+            if let Some(h) = project.hazards.get(&l.target) {
+                let req = project.required_sil(h).map(|s| s.as_str()).unwrap_or("—");
+                field(&mut out, "HAZARD", &format!("{}  ·  required {}  ·  {}", h.id, req, h.title));
+                field(&mut out, "harm", &h.harm);
+            }
+        }
+        let asil = project.allocated_sil(sf).map(|s| s.as_str()).unwrap_or("—");
+        field(&mut out, "MITIGATED BY", &format!("{}  ·  {}  ·  {}", sf.id, asil, sf.title));
+        out.push(String::new());
+    }
+
+    // The safety requirement itself.
+    let inh = project.inherited_sil(sr).map(|s| s.as_str()).unwrap_or("—");
+    field(&mut out, "REQUIREMENT", &format!("inherited {}  ·  status {}", inh, sr.status.as_str()));
+    field(&mut out, "", &sr.statement);
+
+    // REQ-0198: the verification dossier behind the requirement, not just its
+    // conclusion. Default view = verdict + staleness + co-sign; --full adds the
+    // analysis/testing summaries with their outcomes and source references.
+    match sr.verification.as_ref() {
+        None => field(&mut out, "EVIDENCE", "(no verification dossier yet)"),
+        Some(v) => {
+            let verdict = v
+                .verdict
+                .map(|o| o.as_str().to_uppercase())
+                .unwrap_or_else(|| "pending".to_string());
+            let by = if v.actor.is_empty() { "—".to_string() } else { v.actor.clone() };
+            let at = v
+                .concluded
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_else(|| "—".to_string());
+            let commit = v
+                .concluded_commit
+                .as_deref()
+                .map(crate::commands::test_cmd::short)
+                .unwrap_or_else(|| "—".to_string());
+            field(
+                &mut out,
+                "EVIDENCE",
+                &format!("verdict {}  ·  concluded by {} @ {}  ·  {}", verdict, by, commit, at),
+            );
+            if dossier_stale(v, id, root) {
+                field(
+                    &mut out,
+                    "⚠ STALE",
+                    "anchored source has changed since conclude — re-verify before relying on this",
+                );
+            } else if v.content_hash.is_some() {
+                field(&mut out, "anchor", "fresh — evidence matches the current source");
+            }
+            match &v.human_confirmation {
+                Some(hc) => field(
+                    &mut out,
+                    "co-sign",
+                    &format!("confirmed by {} on {}", hc.actor, hc.at.format("%Y-%m-%d")),
+                ),
+                None => field(
+                    &mut out,
+                    "co-sign",
+                    &format!("not yet co-signed — `req verification confirm {}`", sr.id),
+                ),
+            }
+            if full {
+                if let Some(a) = &v.analysis {
+                    field(&mut out, "analysis", &format!("[{}] {}", a.outcome.as_str(), a.summary));
+                    if !a.references.is_empty() {
+                        field(&mut out, "", &format!("refs: {}", a.references.join(", ")));
+                    }
+                }
+                if let Some(t) = &v.testing {
+                    field(&mut out, "testing", &format!("[{}] {}", t.outcome.as_str(), t.summary));
+                    if !t.references.is_empty() {
+                        field(&mut out, "", &format!("refs: {}", t.references.join(", ")));
+                    }
+                }
+            }
+            if let Some(st) = &v.statement {
+                field(&mut out, "conclusion", st);
+            }
+        }
+    }
+
+    // The human's call on this requirement.
+    out.push(format!("  {}", "─".repeat(70)));
+    match chain_incompleteness(project, id) {
+        Some(why) => {
+            out.push("  ⚠  chain incomplete — cannot be acknowledged yet".to_string());
+            out.push(format!("     {}", why));
+        }
+        None => match sr.walkthrough.as_ref() {
+            Some(a) if ack_is_fresh(Some(a), head) => out.push(format!(
+                "  ✓  acknowledged by {} at {}",
+                a.reviewer,
+                a.at.format("%Y-%m-%d %H:%M UTC")
+            )),
+            Some(a) if a.objected => out.push(format!("  ✗  objection on record by {}", a.reviewer)),
+            Some(_) => {
+                out.push("  ⚠  prior acknowledgement is stale".to_string());
+                out.push(format!(
+                    "     re-acknowledge at this commit — `req safety acknowledge {}`",
+                    sr.id
+                ));
+            }
+            None => {
+                out.push("  ▷  awaiting your acknowledgement".to_string());
+                out.push(format!(
+                    "     run:  req safety acknowledge {}   (or --object to decline)",
+                    sr.id
+                ));
+            }
+        },
+    }
+    out
+}
+
+/// REQ-0198: is this dossier's content-hash anchor stale against the current
+/// source? Exempt dossiers have no genuine anchor, so they are never "stale".
+fn dossier_stale(v: &crate::model::Verification, id: &str, root: &Path) -> bool {
+    if v.exempt {
+        return false;
+    }
+    let Some(stored) = v.content_hash.as_deref() else {
+        return false;
+    };
+    matches!(
+        crate::commands::test_cmd::staleness_by_content(stored, v.linked_files.as_ref(), id, root),
+        crate::commands::test_cmd::Staleness::Stale { .. }
+    )
+}
+
+/// REQ-0199: interactive arrow-key navigator over the in-scope safety
+/// requirements. `←/→` move, `a`/`o` acknowledge/object, `f` toggles full
+/// dossier detail, `q` quits. Acknowledgements are recorded in place under a
+/// single held mutation lock, applying the same human-only and
+/// chain-completeness rules as `req safety acknowledge`.
+fn run_interactive(
+    file: &Option<PathBuf>,
+    ids: Vec<String>,
+    head: String,
+    full_start: bool,
+    root: &Path,
+) -> Result<()> {
+    use console::{Key, Term};
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let term = Term::stdout();
+    let mut cur = 0usize;
+    let mut full = full_start;
+    let mut notice = String::new();
+    loop {
+        term.clear_screen().ok();
+        for line in render_sr(&project, &ids[cur], &head, full, root, cur, ids.len()) {
+            println!("{}", line);
+        }
+        println!("  {}", "─".repeat(70));
+        if !notice.is_empty() {
+            println!("  » {}", notice);
+        }
+        println!(
+            "  ←/→ move  ·  a accept  ·  o object  ·  f {}  ·  q quit",
+            if full { "brief" } else { "full" }
+        );
+        notice.clear();
+        match term.read_key() {
+            Ok(Key::ArrowLeft) | Ok(Key::Char('h')) => {
+                if cur == 0 {
+                    notice = "already at the first requirement".to_string();
+                } else {
+                    cur -= 1;
+                }
+            }
+            Ok(Key::ArrowRight) | Ok(Key::Char('l')) | Ok(Key::Char(' ')) => {
+                if cur + 1 >= ids.len() {
+                    notice = "already at the last requirement".to_string();
+                } else {
+                    cur += 1;
+                }
+            }
+            Ok(Key::Char('f')) | Ok(Key::Char('F')) => full = !full,
+            Ok(Key::Char('a')) | Ok(Key::Char('A')) => {
+                match record_ack(&mut project, &ids[cur], false, None, &head) {
+                    Ok(msg) => {
+                        storage::save(&path, &project)?;
+                        notice = msg;
+                    }
+                    Err(e) => notice = e.to_string(),
+                }
+            }
+            Ok(Key::Char('o')) | Ok(Key::Char('O')) => {
+                match record_ack(&mut project, &ids[cur], true, None, &head) {
+                    Ok(msg) => {
+                        storage::save(&path, &project)?;
+                        notice = msg;
+                    }
+                    Err(e) => notice = e.to_string(),
+                }
+            }
+            Ok(Key::Char('q')) | Ok(Key::Char('Q')) | Ok(Key::Escape) => break,
+            _ => {}
+        }
+    }
+    term.clear_screen().ok();
+    // REQ-0172: a parting summary of where the sign-off gate stands.
+    let pending = ids
+        .iter()
+        .filter(|id| !ack_is_fresh(project.safety_requirements[*id].walkthrough.as_ref(), &head))
+        .count();
+    if pending == 0 {
+        println!(
+            "All {} in-scope safety requirement(s) carry a fresh acknowledgement.",
+            ids.len()
+        );
+    } else {
+        println!(
+            "{} of {} in-scope safety requirement(s) still await a fresh acknowledgement \
+             (`req safety walkthrough --gate`).",
+            pending,
+            ids.len()
+        );
+    }
     Ok(())
 }
 
@@ -403,18 +598,18 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-/// Print a labelled, word-wrapped field for the safety walkthrough: the label
-/// sits in a fixed-width gutter on the first line and continuation lines align
-/// under the body column. An empty label continues the previous field's body.
-fn field(label: &str, body: &str) {
+/// Push a labelled, word-wrapped field into `out`: the label sits in a
+/// fixed-width gutter on the first line and continuation lines align under the
+/// body column. An empty label continues the previous field's body.
+fn field(out: &mut Vec<String>, label: &str, body: &str) {
     const LABEL_W: usize = 12; // fits "MITIGATED BY" / "REQUIREMENT"
     const BODY_W: usize = 58;
     let pad = 2 + LABEL_W + 1;
     for (i, line) in wrap_text(body, BODY_W).iter().enumerate() {
         if i == 0 {
-            println!("  {:<lw$} {}", label, line, lw = LABEL_W);
+            out.push(format!("  {:<lw$} {}", label, line, lw = LABEL_W));
         } else {
-            println!("{:pad$}{}", "", line, pad = pad);
+            out.push(format!("{:pad$}{}", "", line, pad = pad));
         }
     }
 }
@@ -482,50 +677,67 @@ fn acknowledge(args: SafetyAckArgs, file: &Option<PathBuf>) -> Result<()> {
     if !matches!(fam, crate::commands::verification::Family::Sr) {
         return Err(anyhow!("{} is not a safety requirement", args.id));
     }
+    let head = head_sha();
+    let msg = record_ack(&mut project, &id, args.object, args.note.clone(), &head)?;
+    storage::save(&path, &project)?;
+    println!("{}", msg);
+    Ok(())
+}
+
+/// REQ-0170/0174: apply a walkthrough acknowledgement (or objection) to `id`
+/// in memory, enforcing the chain-completeness rule, and return a status line.
+/// Shared by `req safety acknowledge` and the interactive walkthrough so the
+/// rules live in one place. Does not save — the caller persists the project.
+fn record_ack(
+    project: &mut Project,
+    id: &str,
+    object: bool,
+    note: Option<String>,
+    head: &str,
+) -> Result<String> {
     // REQ-0174: refuse to acknowledge an incomplete chain (objections allowed).
-    if !args.object {
-        if let Some(why) = chain_incompleteness(&project, &id) {
+    if !object {
+        if let Some(why) = chain_incompleteness(project, id) {
             return Err(anyhow!(
-                "{} cannot be acknowledged: {}. Complete the chain first, or record an objection with --object.",
-                id, why
+                "{} cannot be acknowledged: {}. Complete the chain first, or object.",
+                id,
+                why
             ));
         }
     }
     let now = Utc::now();
-    let head = head_sha();
     let reviewer = super::current_actor();
-    {
-        let sr = project.safety_requirements.get_mut(&id).unwrap();
-        sr.walkthrough = Some(WalkthroughAck {
-            reviewer: reviewer.clone(),
-            at: now,
-            commit: head.clone(),
-            objected: args.object,
-            note: args.note.clone(),
-        });
-        sr.updated = now;
-        sr.history.push(super::history(
-            if args.object {
-                "walkthrough objection"
-            } else {
-                "walkthrough acknowledged"
-            },
-            args.note.clone(),
-        ));
-    }
+    let sr = project
+        .safety_requirements
+        .get_mut(id)
+        .ok_or_else(|| anyhow!("no such safety requirement: {}", id))?;
+    sr.walkthrough = Some(WalkthroughAck {
+        reviewer: reviewer.clone(),
+        at: now,
+        commit: head.to_string(),
+        objected: object,
+        note: note.clone(),
+    });
+    sr.updated = now;
+    sr.history.push(super::history(
+        if object {
+            "walkthrough objection"
+        } else {
+            "walkthrough acknowledged"
+        },
+        note,
+    ));
     project.updated = now;
-    storage::save(&path, &project)?;
-    if args.object {
-        println!("Recorded objection on {} by {}.", id, reviewer);
+    Ok(if object {
+        format!("Recorded objection on {} by {}.", id, reviewer)
     } else {
-        println!(
+        format!(
             "Acknowledged {} by {} at {}.",
             id,
             reviewer,
             &head[..head.len().min(8)]
-        );
-    }
-    Ok(())
+        )
+    })
 }
 
 fn accept(args: SafetyAcceptArgs, file: &Option<PathBuf>) -> Result<()> {

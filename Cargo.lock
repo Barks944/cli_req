@@ -1100,6 +1100,7 @@ dependencies = [
  "chrono",
  "clap",
  "comfy-table",
+ "console",
  "dialoguer",
  "fs2",
  "hex",

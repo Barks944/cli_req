@@ -1934,6 +1934,59 @@ fn req_0169_172_walkthrough_gate_and_acknowledge() {
     );
 }
 
+/// REQ-0198: the walkthrough surfaces the verification dossier (verdict,
+/// staleness, co-sign), not just the conclusion; --full adds the detail.
+#[test]
+fn req_0198_walkthrough_shows_dossier() {
+    let s = walkthrough_chain();
+    // Build a concluded verification dossier so the SR has a verdict + stages.
+    let _ = s.run(&["verification", "plan", "SR-0001", "--plan", "review + test"]);
+    let _ = s.run(&[
+        "verification", "analysis", "SR-0001", "--result", "pass", "--findings", "code reviewed",
+        "--ref", "src/lib.rs",
+    ]);
+    let _ = s.run(&[
+        "verification", "test", "SR-0001", "--result", "pass", "--findings", "bench passed",
+        "--ref", "tests/x.rs",
+    ]);
+    let _ = s.run(&[
+        "verification", "conclude", "SR-0001", "--statement", "obligation met",
+    ]);
+
+    let render = git_sandbox_run(&s, &["safety", "walkthrough", "SR-0001"]);
+    assert!(render.status.success());
+    let body = stdout(&render);
+    assert!(
+        body.contains("EVIDENCE") && body.contains("co-sign"),
+        "default view should show the dossier verdict + co-sign line:\n{}",
+        body
+    );
+    // --full reveals the analysis/testing detail and their source references.
+    let full = git_sandbox_run(&s, &["safety", "walkthrough", "SR-0001", "--full"]);
+    assert!(full.status.success());
+    let fbody = stdout(&full);
+    assert!(
+        fbody.contains("analysis") && fbody.contains("testing") && fbody.contains("refs:"),
+        "full view should expand analysis/testing with refs:\n{}",
+        fbody
+    );
+}
+
+/// REQ-0199: requesting interactive mode without a terminal falls back to the
+/// static rendering (the test harness has no TTY) rather than hanging on a
+/// keypress, so agents, pipes, and CI are unaffected.
+#[test]
+fn req_0199_interactive_falls_back_without_tty() {
+    let s = walkthrough_chain();
+    let out = git_sandbox_run(&s, &["safety", "walkthrough", "SR-0001", "-i"]);
+    assert!(out.status.success(), "should not hang or fail: {}", stderr(&out));
+    assert!(
+        stdout(&out).contains("SR-0001"),
+        "fallback should render the chain statically:\n{}",
+        stdout(&out)
+    );
+}
+
 // ---------- REQ-0187/0188/0189: human co-sign promotes; awaiting state is visible ----------
 
 #[test]
