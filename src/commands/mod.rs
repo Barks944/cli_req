@@ -38,7 +38,7 @@ pub mod status;
 pub mod test_cmd;
 pub mod update;
 pub mod validate_cmd;
-pub mod validation;
+pub mod verification;
 pub mod version;
 
 use chrono::Utc;

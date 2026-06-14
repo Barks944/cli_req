@@ -85,10 +85,10 @@ const HUMANS_ONLY_TUI: &[&str] = &[
     // REQ-0138: `req safety` (disclaimer acceptance + calibration) is a
     // deliberate governance action driven from the shell, not the menu.
     "safety",
-    // REQ-0139: `req validation` is a multi-step, free-text dossier flow
+    // REQ-0139: `req verification` is a multi-step, free-text dossier flow
     // (plan/analysis/test/conclude) driven from the CLI/MCP, like `verify`
     // and `test` above — not a single-shot human menu action.
-    "validation",
+    "verification",
     // REQ-0156: `req impact` is a read-only safety-graph preview whose
     // arguments mirror the human-only calibration/link decisions it informs;
     // it lives with the `req safety` governance surface, not the menu.
@@ -352,7 +352,7 @@ fn req_0017_mcp_req_add_persists_through_storage() {
 }
 
 #[test]
-fn req_0017_mcp_req_add_validation_failure_returns_iserror() {
+fn req_0017_mcp_req_add_verification_failure_returns_iserror() {
     let s = Sandbox::new();
     s.init("p");
     let responses = mcp_dialogue(
@@ -897,7 +897,7 @@ fn req_0164_mcp_rejection_carries_rule_code() {
                 serde_json::json!({
                     "title": "Statement without a modal verb",
                     "statement": "the system simply does several assorted things",
-                    "rationale": "provoke a validation error",
+                    "rationale": "provoke a verification error",
                     "kind": "constraint", "priority": "could"
                 }),
             ),

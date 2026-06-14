@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::Project;
 
-pub const FORMAT_TAG: &str = "req-v3";
+pub const FORMAT_TAG: &str = "req-v4";
 pub const FORMAT_TAG_DIR: &str = "req-v1-dir";
 
 /// REQ-0141: monotonic schema-revision counter, written into every file's
@@ -34,7 +34,7 @@ pub const FORMAT_TAG_DIR: &str = "req-v1-dir";
 ///
 /// Revision history:
 ///   1 — introduced the guard; baseline for the req-v3 shape that already
-///       carries per-requirement `validation` (REQ-0139) and the
+///       carries per-requirement `verification` (REQ-0139) and the
 ///       functional-safety artifacts (REQ-0134).
 pub const SCHEMA_REV: u64 = 1;
 
@@ -79,7 +79,7 @@ pub fn instructions_block() -> Vec<String> {
         "".into(),
         "This file is the source of truth for a managed requirements project. It is".into(),
         "git-diffable so humans can review changes in pull requests, but every".into(),
-        "mutation must go through the `req` CLI so that best-practice validation".into(),
+        "mutation must go through the `req` CLI so that best-practice verification".into(),
         "runs (atomic statements, modal verbs, acceptance criteria, no weasel words,".into(),
         "no broken links, etc.).".into(),
         "".into(),

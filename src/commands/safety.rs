@@ -694,8 +694,8 @@ fn sreq_add(args: SreqAddArgs, file: &Option<PathBuf>) -> Result<()> {
         updated: now,
         history: vec![super::history("created", None)],
         tests: Vec::new(),
-        // REQ-0139: a new safety requirement starts without a validation dossier.
-        validation: None,
+        // REQ-0139: a new safety requirement starts without a verification dossier.
+        verification: None,
         // REQ-0171: no walkthrough acknowledgement yet.
         walkthrough: None,
         // REQ-0140: forward-compat catch-all preserves unknown fields.
@@ -784,7 +784,7 @@ fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
     // REQ-0188: surface the awaiting-co-sign state explicitly.
     if super::provenance::sr_awaiting_cosign(sr) {
         println!(
-            "  status:       {} (awaiting human co-sign — `req validation confirm {}`)",
+            "  status:       {} (awaiting human co-sign — `req verification confirm {}`)",
             sr.status.as_str(),
             sr.id
         );
@@ -979,10 +979,10 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     // overrides them and records a structured, audited exception.
     let mut gate_exception = false;
     if args.promote {
-        // REQ-0139: a passing validation dossier is the precondition for a
+        // REQ-0139: a passing verification dossier is the precondition for a
         // safety requirement to reach Verified. There is no tag exemption
-        // for safety (only an audited `req validation backfill`).
-        super::validation::gate_safety_requirement(&project.safety_requirements[&id])?;
+        // for safety (only an audited `req verification backfill`).
+        super::verification::gate_safety_requirement(&project.safety_requirements[&id])?;
         // Status-ladder guard, mirroring ordinary `req verify`: promote
         // only from Implemented (or re-affirming Verified); never resurrect
         // an Obsolete requirement, except under an explicit --force.
@@ -1141,9 +1141,9 @@ fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
             .filter(|sr| realizes(sr, &sf.id))
         {
             sr_total += 1;
-            let standing = classify(sr.validation.as_ref(), Some(root), &sr.id);
+            let standing = classify(sr.verification.as_ref(), Some(root), &sr.id);
             let confirmed = sr
-                .validation
+                .verification
                 .as_ref()
                 .and_then(|v| v.human_confirmation.as_ref())
                 .is_some();
@@ -1191,7 +1191,7 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     let v = assess_hazard(project, haz_id);
     if json {
         // REQ-0146: include the full safety-function → safety-requirement chain
-        // with each SR's validation dossier so --json carries the same chain
+        // with each SR's verification dossier so --json carries the same chain
         // the human view renders, not just roll-up counts.
         let chain: Vec<_> = project
             .safety_functions
@@ -1208,7 +1208,7 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                             "title": sr.title,
                             "status": sr.status.as_str(),
                             "inherited_sil": project.inherited_sil(sr).map(|s| s.as_str()),
-                            "validation": sr.validation,
+                            "verification": sr.verification,
                         })
                     })
                     .collect();
@@ -1321,10 +1321,10 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                 ),
                 None => println!("            evidence: none                       ✗ unverified"),
             }
-            // REQ-0146: inline the validation dossier so a reviewer sees how
+            // REQ-0146: inline the verification dossier so a reviewer sees how
             // each safety requirement was validated within the chain, not just
             // its status.
-            match &sr.validation {
+            match &sr.verification {
                 Some(val) => {
                     let verdict = val.verdict.map(|o| o.as_str()).unwrap_or("open");
                     let a = val
@@ -1375,7 +1375,7 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
         "⚠ chain incomplete"
     };
     println!("  TRACE STATUS:  {}", verdict);
-    println!("    scope: traceability + verification only — NOT a residual-risk validation");
+    println!("    scope: traceability + verification only — NOT a residual-risk verification");
     println!(
         "    SIL allocation: required {} — allocated {}    {}",
         sil_str(v.required),

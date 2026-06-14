@@ -47,7 +47,7 @@ fn req_0001_help_lists_every_subcommand() {
 fn req_0151_help_does_not_leak_requirement_id_markers() {
     let marker = regex::Regex::new(r"(REQ|HAZ|SF|SR)-\d{4}:").unwrap();
     // Top-level help plus every subcommand's help, including the safety/
-    // validation command groups whose descriptions carried markers.
+    // verification command groups whose descriptions carried markers.
     let targets: &[&[&str]] = &[
         &["--help"],
         &["lint", "--help"],
@@ -61,7 +61,7 @@ fn req_0151_help_does_not_leak_requirement_id_markers() {
         &["sreq", "--help"],
         &["trace", "--help"],
         &["safety", "--help"],
-        &["validation", "--help"],
+        &["verification", "--help"],
         &["hooks", "--help"],
         &["review", "--help"],
         &["test", "--help"],

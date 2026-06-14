@@ -35,7 +35,7 @@ fn req_0066_batch_applies_multiple_mutations_atomically() {
 }
 
 #[test]
-fn req_0066_batch_rolls_back_on_validation_failure() {
+fn req_0066_batch_rolls_back_on_verification_failure() {
     let s = Sandbox::new();
     s.init("p");
     // Take a snapshot of the project file BEFORE the bad batch

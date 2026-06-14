@@ -23,7 +23,7 @@ pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
         if !matches!(sr.status, crate::model::Status::Verified) {
             continue;
         }
-        let Some(v) = &sr.validation else { continue };
+        let Some(v) = &sr.verification else { continue };
         let Some(hash) = &v.content_hash else {
             continue;
         };
@@ -41,10 +41,10 @@ pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
                 id.clone(),
                 vec![validate::Finding {
                     error: true,
-                    field: "validation",
+                    field: "verification",
                     rule_code: "REQ-V-0035",
                     message: format!(
-                        "{id} is Verified but its validated source has drifted (stale) — a stale safety requirement is invalid until re-validated and re-confirmed by a human: `req validation plan {id} --reopen --reason \"...\"` → analysis → test → conclude --promote, then a human runs `req validation confirm {id}`"
+                        "{id} is Verified but its validated source has drifted (stale) — a stale safety requirement is invalid until re-validated and re-confirmed by a human: `req verification plan {id} --reopen --reason \"...\"` → analysis → test → conclude --promote, then a human runs `req verification confirm {id}`"
                     ),
                 }],
             ));

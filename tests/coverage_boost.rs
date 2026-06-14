@@ -746,9 +746,9 @@ fn verify_promote_requires_implemented_status() {
         "--priority",
         "must",
         // REQ-0139: this test is about the status ladder, not the
-        // validation dossier — exempt it from the dossier gate.
+        // verification dossier — exempt it from the dossier gate.
         "--tag",
-        "validation-exempt",
+        "verification-exempt",
     ]);
     let out = s.run(&[
         "verify",
@@ -997,7 +997,7 @@ fn validate_detects_link_cycles() {
 }
 
 #[test]
-fn repair_force_bypasses_validation_errors() {
+fn repair_force_bypasses_verification_errors() {
     // The previous flow: hand-edit + invalid + hash-broken => stuck.
     // Repair refused, every other command refused, only escape was
     // more hand-editing. --force re-signs so validate can surface the
@@ -1017,7 +1017,7 @@ fn repair_force_bypasses_validation_errors() {
         "--priority",
         "could",
     ]);
-    // Wipe the statement so validation fails AND the hash breaks.
+    // Wipe the statement so verification fails AND the hash breaks.
     let text = std::fs::read_to_string(s.path()).unwrap();
     let mut v: serde_json::Value = serde_json::from_str(&text).unwrap();
     v["requirements"]["REQ-0001"]["statement"] = serde_json::json!("");
@@ -2531,7 +2531,7 @@ fn req_0056_verify_inspection_promotes_to_verified() {
         "could",
         // REQ-0139: focus on inspection evidence; exempt from the dossier gate.
         "--tag",
-        "validation-exempt",
+        "verification-exempt",
     ]);
     // Walk the lifecycle naturally — Draft -> Implemented is an
     // irregular skip and would need --force.

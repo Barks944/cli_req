@@ -1,7 +1,7 @@
-// REQ-0139: the staged validation dossier.
+// REQ-0139: the staged verification dossier.
 //
 // A requirement (REQ-NNNN) or safety requirement (SR-NNNN) reaches Verified
-// only after walking an ordered validation: plan → analysis → testing →
+// only after walking an ordered verification: plan → analysis → testing →
 // statement → verdict. The verdict is derived (Pass only when both the
 // analysis and the testing stage pass), never free-typed, and a passing
 // dossier is the precondition the promotion gate checks before any status
@@ -10,7 +10,7 @@
 // and the verification no longer stands.
 //
 // This module works on both id families by branching on the id prefix, the
-// same shape as `req trace` — there is one `req validation` surface. The
+// same shape as `req trace` — there is one `req verification` surface. The
 // `op_*` functions are the IO-free core (mutate a &mut Project) shared by
 // the CLI wrappers below and the MCP tools in src/mcp.rs.
 use anyhow::{anyhow, Result};
@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 pub fn promotion_routes(id: &str) -> Vec<String> {
     vec![
         format!(
-            "dossier: run `req validation plan {id} ...` → analysis → test → conclude --promote"
+            "dossier: run `req verification plan {id} ...` → analysis → test → conclude --promote"
         ),
         "waiver: pass --no-dossier --reason \"...\" to record an audited exemption".to_string(),
         format!(
@@ -38,21 +38,21 @@ pub fn promotion_routes(id: &str) -> Vec<String> {
 /// message and the structured list can never disagree.
 pub fn promotion_blocked_message(id: &str) -> String {
     format!(
-        "{id} cannot be promoted to Verified without a passing validation dossier. \
+        "{id} cannot be promoted to Verified without a passing verification dossier. \
          Choose one of:\n  - {}",
         promotion_routes(id).join("\n  - ")
     )
 }
 
 use crate::cli::{
-    TestResultArg, ValidationActivityArgs, ValidationBackfillArgs, ValidationCmd,
-    ValidationConcludeArgs, ValidationConfirmArgs, ValidationPlanArgs, ValidationRefreshArgs,
-    ValidationReportArgs, ValidationShowArgs,
+    TestResultArg, VerificationActivityArgs, VerificationBackfillArgs, VerificationCmd,
+    VerificationConcludeArgs, VerificationConfirmArgs, VerificationPlanArgs,
+    VerificationRefreshArgs, VerificationReportArgs, VerificationShowArgs,
 };
 use crate::commands::test_cmd::{auto_linked_files, current_head_sha_opt, hash_files, short};
 use crate::model::{
-    EvidenceKind, HistoryEntry, Project, Sil, Status, TestOutcome, TestRecord, Validation,
-    ValidationActivity,
+    EvidenceKind, HistoryEntry, Project, Sil, Status, TestOutcome, TestRecord, Verification,
+    VerificationActivity,
 };
 use crate::storage::{self, load_for_mutation, load_resolved};
 
@@ -88,14 +88,14 @@ pub struct ConcludeOutcome {
     pub promoted: bool,
     /// REQ-0187: true when this was a safety requirement whose dossier and
     /// evidence were recorded but which now waits at Implemented for a human
-    /// co-sign (`req validation confirm`) to reach Verified.
+    /// co-sign (`req verification confirm`) to reach Verified.
     pub awaiting_confirmation: bool,
 }
 
 // REQ-0142: the verification-provenance classifier now lives in its own module
 // (src/commands/provenance.rs) so the safety requirement that depends on it
 // anchors a small, stable file rather than this whole surface. Re-exported here
-// so existing call sites (`validation::classify`, `validation::Provenance`, …)
+// so existing call sites (`verification::classify`, `verification::Provenance`, …)
 // keep working.
 pub use crate::commands::provenance::{classify, provenance_report, Provenance, ProvenanceRow};
 
@@ -103,18 +103,18 @@ pub use crate::commands::provenance::{classify, provenance_report, Provenance, P
 // CLI dispatch
 // --------------------------------------------------------------------------
 
-pub fn run(cmd: ValidationCmd, file: &Option<PathBuf>) -> Result<()> {
+pub fn run(cmd: VerificationCmd, file: &Option<PathBuf>) -> Result<()> {
     match cmd {
-        ValidationCmd::Plan(a) => plan(a, file),
-        ValidationCmd::Analysis(a) => activity(a, file, Stage::Analysis),
-        ValidationCmd::Test(a) => activity(a, file, Stage::Testing),
-        ValidationCmd::Conclude(a) => conclude(a, file),
-        ValidationCmd::Confirm(a) => confirm(a, file),
-        ValidationCmd::Show(a) => show(a, file),
-        ValidationCmd::Backfill(a) => backfill(a, file),
-        ValidationCmd::Report(a) => report(a, file),
+        VerificationCmd::Plan(a) => plan(a, file),
+        VerificationCmd::Analysis(a) => activity(a, file, Stage::Analysis),
+        VerificationCmd::Test(a) => activity(a, file, Stage::Testing),
+        VerificationCmd::Conclude(a) => conclude(a, file),
+        VerificationCmd::Confirm(a) => confirm(a, file),
+        VerificationCmd::Show(a) => show(a, file),
+        VerificationCmd::Backfill(a) => backfill(a, file),
+        VerificationCmd::Report(a) => report(a, file),
         // REQ-0153: re-normalize staleness anchors that are provably unchanged.
-        ValidationCmd::RefreshAnchors(a) => refresh_anchors(a, file),
+        VerificationCmd::RefreshAnchors(a) => refresh_anchors(a, file),
     }
 }
 
@@ -157,7 +157,7 @@ pub fn resolve(project: &Project, raw: &str) -> Result<(String, Family)> {
 /// Disjoint mutable handles to the dossier-bearing fields shared by
 /// `Requirement` and `SafetyRequirement`.
 struct ItemMut<'a> {
-    validation: &'a mut Option<Validation>,
+    verification: &'a mut Option<Verification>,
     status: &'a mut Status,
     history: &'a mut Vec<HistoryEntry>,
     updated: &'a mut DateTime<Utc>,
@@ -169,7 +169,7 @@ fn item_mut<'a>(project: &'a mut Project, id: &str, fam: Family) -> ItemMut<'a> 
         Family::Req => {
             let r = project.requirements.get_mut(id).unwrap();
             ItemMut {
-                validation: &mut r.validation,
+                verification: &mut r.verification,
                 status: &mut r.status,
                 history: &mut r.history,
                 updated: &mut r.updated,
@@ -179,7 +179,7 @@ fn item_mut<'a>(project: &'a mut Project, id: &str, fam: Family) -> ItemMut<'a> 
         Family::Sr => {
             let sr = project.safety_requirements.get_mut(id).unwrap();
             ItemMut {
-                validation: &mut sr.validation,
+                verification: &mut sr.verification,
                 status: &mut sr.status,
                 history: &mut sr.history,
                 updated: &mut sr.updated,
@@ -202,10 +202,10 @@ fn has_strong_evidence(project: &Project, id: &str, fam: Family) -> bool {
     })
 }
 
-pub fn dossier<'a>(project: &'a Project, id: &str, fam: Family) -> Option<&'a Validation> {
+pub fn dossier<'a>(project: &'a Project, id: &str, fam: Family) -> Option<&'a Verification> {
     match fam {
-        Family::Req => project.requirements[id].validation.as_ref(),
-        Family::Sr => project.safety_requirements[id].validation.as_ref(),
+        Family::Req => project.requirements[id].verification.as_ref(),
+        Family::Sr => project.safety_requirements[id].verification.as_ref(),
     }
 }
 
@@ -262,22 +262,22 @@ pub fn op_plan(
     let actor = super::current_actor();
     {
         let it = item_mut(project, &id, fam);
-        if let Some(v) = it.validation.as_ref() {
+        if let Some(v) = it.verification.as_ref() {
             if v.is_concluded() && !reopen {
                 return Err(anyhow!(
-                    "{} already has a concluded validation dossier — pass --reopen --reason \"...\" \
+                    "{} already has a concluded verification dossier — pass --reopen --reason \"...\" \
                      to re-validate (this clears the prior verdict).",
                     id
                 ));
             }
         }
-        *it.validation = Some(Validation::opened(plan.to_string(), actor, commit, now));
+        *it.verification = Some(Verification::opened(plan.to_string(), actor, commit, now));
         *it.updated = now;
         it.history.push(super::history(
             if reopen {
-                "validation re-opened (plan recorded)"
+                "verification re-opened (plan recorded)"
             } else {
-                "validation plan recorded"
+                "verification plan recorded"
             },
             reason.map(|s| s.to_string()),
         ));
@@ -286,7 +286,7 @@ pub fn op_plan(
     Ok(id)
 }
 
-/// Stages 2 & 3 — record validation by analysis / by testing.
+/// Stages 2 & 3 — record verification by analysis / by testing.
 pub fn op_activity(
     project: &mut Project,
     raw: &str,
@@ -309,7 +309,7 @@ pub fn op_activity(
             }
         }
     }
-    let entry = ValidationActivity {
+    let entry = VerificationActivity {
         summary: findings.to_string(),
         outcome,
         references: refs,
@@ -318,16 +318,16 @@ pub fn op_activity(
     };
     {
         let it = item_mut(project, &id, fam);
-        let v = it.validation.as_mut().ok_or_else(|| {
+        let v = it.verification.as_mut().ok_or_else(|| {
             anyhow!(
-                "{} has no validation dossier — run `req validation plan {} ...` first",
+                "{} has no verification dossier — run `req verification plan {} ...` first",
                 id,
                 id
             )
         })?;
         if v.is_concluded() {
             return Err(anyhow!(
-                "{}'s dossier is already concluded — re-open it with `req validation plan {} --reopen --reason \"...\"` to revise.",
+                "{}'s dossier is already concluded — re-open it with `req verification plan {} --reopen --reason \"...\"` to revise.",
                 id, id
             ));
         }
@@ -336,7 +336,7 @@ pub fn op_activity(
             Stage::Testing => {
                 if v.analysis.is_none() {
                     return Err(anyhow!(
-                        "record validation by analysis before testing — run `req validation analysis {} ...` first",
+                        "record verification by analysis before testing — run `req verification analysis {} ...` first",
                         id
                     ));
                 }
@@ -346,7 +346,7 @@ pub fn op_activity(
         *it.updated = now;
         it.history.push(super::history(
             format!(
-                "validation {} recorded ({})",
+                "verification {} recorded ({})",
                 stage.label(),
                 outcome.as_str()
             ),
@@ -377,14 +377,14 @@ pub fn op_conclude(
     let verdict = {
         let v = dossier(project, &id, fam).ok_or_else(|| {
             anyhow!(
-                "{} has no validation dossier — run `req validation plan {} ...` first",
+                "{} has no verification dossier — run `req verification plan {} ...` first",
                 id,
                 id
             )
         })?;
         if v.analysis.is_none() || v.testing.is_none() {
             return Err(anyhow!(
-                "{} cannot be concluded — record validation by analysis AND by testing first.",
+                "{} cannot be concluded — record verification by analysis AND by testing first.",
                 id
             ));
         }
@@ -393,8 +393,8 @@ pub fn op_conclude(
     if promote {
         if matches!(verdict, TestOutcome::Fail) {
             return Err(anyhow!(
-                "{}'s validation verdict is FAIL — cannot promote a failed validation to Verified. \
-                 Fix the issue, then `req validation plan {} --reopen --reason \"...\"` and re-validate.",
+                "{}'s verification verdict is FAIL — cannot promote a failed verification to Verified. \
+                 Fix the issue, then `req verification plan {} --reopen --reason \"...\"` and re-validate.",
                 id, id
             ));
         }
@@ -454,7 +454,7 @@ pub fn op_conclude(
     {
         let it = item_mut(project, &id, fam);
         {
-            let v = it.validation.as_mut().unwrap();
+            let v = it.verification.as_mut().unwrap();
             v.statement = Some(statement.to_string());
             v.verdict = Some(verdict);
             v.concluded = Some(now);
@@ -480,7 +480,7 @@ pub fn op_conclude(
                 actor: super::current_actor(),
                 commit: commit.clone(),
                 outcome: TestOutcome::Pass,
-                notes: format!("validation dossier concluded — {}", statement),
+                notes: format!("verification dossier concluded — {}", statement),
                 kind: evidence_kind,
                 content_hash,
                 linked_files,
@@ -493,7 +493,7 @@ pub fn op_conclude(
         *it.updated = now;
         it.history.push(super::history(
             format!(
-                "validation concluded ({}){}",
+                "verification concluded ({}){}",
                 verdict.as_str(),
                 if promoted {
                     " — promoted to Verified"
@@ -570,7 +570,7 @@ pub fn op_backfill(
         if matches!(fam, Family::Sr) {
             return Err(anyhow!(
                 "{} is a safety requirement — safety requirements cannot be exempted. Validate it \
-                 genuinely with `req validation plan {} ...` → analysis → test → conclude --promote.",
+                 genuinely with `req verification plan {} ...` → analysis → test → conclude --promote.",
                 id, id
             ));
         }
@@ -578,7 +578,7 @@ pub fn op_backfill(
     } else if all {
         for (id, r) in &project.requirements {
             if matches!(r.status, Status::Verified)
-                && !r.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                && !r.verification.as_ref().map(|v| v.passed()).unwrap_or(false)
             {
                 targets.push((id.clone(), Family::Req));
             }
@@ -596,7 +596,7 @@ pub fn op_backfill(
     let commit = current_head_sha_opt().unwrap_or_default();
     let mut done = Vec::new();
     for (id, fam) in &targets {
-        let mut v = Validation::opened(
+        let mut v = Verification::opened(
             format!("[backfilled exemption] {}", reason),
             actor.clone(),
             commit.clone(),
@@ -610,10 +610,10 @@ pub fn op_backfill(
         v.concluded = Some(now);
         v.concluded_commit = Some(commit.clone());
         let it = item_mut(project, id, *fam);
-        *it.validation = Some(v);
+        *it.verification = Some(v);
         *it.updated = now;
         it.history.push(super::history(
-            "validation back-filled (audited exemption)",
+            "verification back-filled (audited exemption)",
             Some(reason.to_string()),
         ));
         done.push(id.clone());
@@ -626,9 +626,9 @@ pub fn op_backfill(
 
 /// REQ-0139: build the audited `--no-dossier` exemption dossier recorded by
 /// `req verify --no-dossier --reason ...` (ordinary requirements only).
-pub fn exemption_dossier(reason: &str, actor: String, commit: String) -> Validation {
+pub fn exemption_dossier(reason: &str, actor: String, commit: String) -> Verification {
     let now = Utc::now();
-    let mut v = Validation::opened(
+    let mut v = Verification::opened(
         format!("[--no-dossier exemption] {}", reason),
         actor,
         commit,
@@ -648,12 +648,12 @@ pub fn exemption_dossier(reason: &str, actor: String, commit: String) -> Validat
 /// dossier (analysis + testing + statement) lets a safety requirement reach
 /// Verified. An `exempt` dossier is explicitly rejected here.
 pub fn gate_safety_requirement(sr: &crate::model::SafetyRequirement) -> Result<()> {
-    if classify(sr.validation.as_ref(), None, &sr.id).is_genuine() {
+    if classify(sr.verification.as_ref(), None, &sr.id).is_genuine() {
         return Ok(());
     }
     Err(anyhow!(
-        "{} (safety) cannot be promoted to Verified without a GENUINE validation dossier. Run \
-         `req validation plan {} ...` → analysis → test → conclude. Safety requirements cannot \
+        "{} (safety) cannot be promoted to Verified without a GENUINE verification dossier. Run \
+         `req verification plan {} ...` → analysis → test → conclude. Safety requirements cannot \
          be tag-exempted or back-filled.",
         sr.id,
         sr.id
@@ -664,7 +664,7 @@ pub fn gate_safety_requirement(sr: &crate::model::SafetyRequirement) -> Result<(
 // CLI wrappers
 // --------------------------------------------------------------------------
 
-fn plan(args: ValidationPlanArgs, file: &Option<PathBuf>) -> Result<()> {
+fn plan(args: VerificationPlanArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = op_plan(
         &mut project,
@@ -678,16 +678,16 @@ fn plan(args: ValidationPlanArgs, file: &Option<PathBuf>) -> Result<()> {
     if args.json {
         emit_json(&project, &cid, fam)?;
     } else {
-        println!("Opened validation dossier for {}.", cid);
+        println!("Opened verification dossier for {}.", cid);
         println!(
-            "Next: `req validation analysis {} --findings \"...\" --result pass|fail`",
+            "Next: `req verification analysis {} --findings \"...\" --result pass|fail`",
             cid
         );
     }
     Ok(())
 }
 
-fn activity(args: ValidationActivityArgs, file: &Option<PathBuf>, stage: Stage) -> Result<()> {
+fn activity(args: VerificationActivityArgs, file: &Option<PathBuf>, stage: Stage) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let outcome = match args.result {
         TestResultArg::Pass => TestOutcome::Pass,
@@ -707,18 +707,18 @@ fn activity(args: ValidationActivityArgs, file: &Option<PathBuf>, stage: Stage) 
         emit_json(&project, &cid, fam)?;
     } else {
         println!(
-            "Recorded validation by {} for {} — {}.",
+            "Recorded verification by {} for {} — {}.",
             stage.label(),
             cid,
             outcome.as_str()
         );
         match stage {
             Stage::Analysis => println!(
-                "Next: `req validation test {} --findings \"...\" --result pass|fail`",
+                "Next: `req verification test {} --findings \"...\" --result pass|fail`",
                 cid
             ),
             Stage::Testing => println!(
-                "Next: `req validation conclude {} --statement \"...\" [--promote]`",
+                "Next: `req verification conclude {} --statement \"...\" [--promote]`",
                 cid
             ),
         }
@@ -726,7 +726,7 @@ fn activity(args: ValidationActivityArgs, file: &Option<PathBuf>, stage: Stage) 
     Ok(())
 }
 
-fn conclude(args: ValidationConcludeArgs, file: &Option<PathBuf>) -> Result<()> {
+fn conclude(args: VerificationConcludeArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let out = op_conclude(
         &mut project,
@@ -743,14 +743,14 @@ fn conclude(args: ValidationConcludeArgs, file: &Option<PathBuf>) -> Result<()> 
         emit_json(&project, &out.id, fam)?;
     } else {
         println!(
-            "Concluded validation for {} — verdict {}{}.",
+            "Concluded verification for {} — verdict {}{}.",
             out.id,
             out.verdict.as_str().to_uppercase(),
             if out.promoted {
                 " → Verified".to_string()
             } else if out.awaiting_confirmation {
                 format!(
-                    " → Implemented, awaiting human co-sign (`req validation confirm {}`)",
+                    " → Implemented, awaiting human co-sign (`req verification confirm {}`)",
                     out.id
                 )
             } else {
@@ -761,7 +761,7 @@ fn conclude(args: ValidationConcludeArgs, file: &Option<PathBuf>) -> Result<()> 
     Ok(())
 }
 
-/// REQ-0145: a human co-signs the validation result. Refuses an agent actor so
+/// REQ-0145: a human co-signs the verification result. Refuses an agent actor so
 /// an agent cannot confirm on a person's behalf; requires a concluded Pass
 /// verdict; records the confirmation on the dossier. For a safety requirement
 /// this human confirmation is REQUIRED (REQ-V-0034) before the verification
@@ -769,8 +769,8 @@ fn conclude(args: ValidationConcludeArgs, file: &Option<PathBuf>) -> Result<()> 
 pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String> {
     if matches!(super::current_actor_kind(), crate::model::ActorKind::Agent) {
         return Err(anyhow!(
-            "confirming a validation result must be done by a human, but REQ_ACTOR_KIND=agent. \
-             A person must run `req validation confirm`."
+            "confirming a verification result must be done by a human, but REQ_ACTOR_KIND=agent. \
+             A person must run `req verification confirm`."
         ));
     }
     let (id, fam) = resolve(project, raw)?;
@@ -779,7 +779,7 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
     {
         let v = dossier(project, &id, fam).ok_or_else(|| {
             anyhow!(
-                "{} has no validation dossier to confirm — run `req validation plan {} ...` first.",
+                "{} has no verification dossier to confirm — run `req verification plan {} ...` first.",
                 id,
                 id
             )
@@ -787,7 +787,7 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
         if !matches!(v.verdict, Some(TestOutcome::Pass)) {
             return Err(anyhow!(
                 "{} has no concluded Pass verdict to confirm — record analysis, testing, and \
-                 `req validation conclude` first.",
+                 `req verification conclude` first.",
                 id
             ));
         }
@@ -807,10 +807,10 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
     let actor = super::current_actor();
     {
         let it = item_mut(project, &id, fam);
-        let v = it.validation.as_mut().unwrap();
-        v.human_confirmation = Some(ValidationActivity {
+        let v = it.verification.as_mut().unwrap();
+        v.human_confirmation = Some(VerificationActivity {
             summary: if note.is_empty() {
-                "human confirmation of the validation result".to_string()
+                "human confirmation of the verification result".to_string()
             } else {
                 note.to_string()
             },
@@ -827,9 +827,9 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
         *it.updated = now;
         it.history.push(super::history(
             if promoted_sr {
-                "validation result confirmed by human — promoted to Verified"
+                "verification result confirmed by human — promoted to Verified"
             } else {
-                "validation result confirmed by human"
+                "verification result confirmed by human"
             },
             None,
         ));
@@ -838,7 +838,7 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
     Ok(id)
 }
 
-fn confirm(args: ValidationConfirmArgs, file: &Option<PathBuf>) -> Result<()> {
+fn confirm(args: VerificationConfirmArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = op_confirm(&mut project, &args.id, &args.note)?;
     let (_cid, fam) = resolve(&project, &id)?;
@@ -846,12 +846,12 @@ fn confirm(args: ValidationConfirmArgs, file: &Option<PathBuf>) -> Result<()> {
     if args.json {
         emit_json(&project, &id, fam)?;
     } else {
-        println!("Confirmed validation result for {id} — human co-sign recorded.");
+        println!("Confirmed verification result for {id} — human co-sign recorded.");
     }
     Ok(())
 }
 
-fn backfill(args: ValidationBackfillArgs, file: &Option<PathBuf>) -> Result<()> {
+fn backfill(args: VerificationBackfillArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let done = op_backfill(&mut project, args.id.as_deref(), args.all, &args.reason)?;
     if !done.is_empty() {
@@ -870,13 +870,13 @@ fn backfill(args: ValidationBackfillArgs, file: &Option<PathBuf>) -> Result<()> 
     Ok(())
 }
 
-/// REQ-0153: outcome of `req validation refresh-anchors`.
+/// REQ-0153: outcome of `req verification refresh-anchors`.
 pub struct RefreshReport {
     /// Ordinary requirements whose source was proven byte-identical to its
     /// anchor and whose content hash was re-normalized in place.
     pub refreshed: Vec<String>,
     /// Verified requirements whose source genuinely changed since the anchor —
-    /// left stale; they need real re-validation.
+    /// left stale; they need real re-verification.
     pub drifted: Vec<String>,
     /// Verified safety requirements that are stale under the new hash. Never
     /// auto-refreshed: REQ-0148/REQ-0145 require a human re-anchor + co-sign.
@@ -890,8 +890,8 @@ pub struct RefreshReport {
 ///   - else if the LEGACY hash of the current source still equals the stored
 ///     hash, the source bytes are byte-identical to the anchor (the change was
 ///     purely the hash format), so re-store the new normalized hash — no
-///     re-validation, the verification still stands;
-///   - else the source genuinely drifted — leave it stale for re-validation.
+///     re-verification, the verification still stands;
+///   - else the source genuinely drifted — leave it stale for re-verification.
 ///
 /// Safety requirements are never touched here; they are reported as pending a
 /// human re-anchor + co-sign.
@@ -903,7 +903,7 @@ pub fn op_refresh_anchors(project: &mut Project, root: &Path) -> RefreshReport {
         .iter()
         .filter(|(_, sr)| matches!(sr.status, Status::Verified))
         .filter_map(|(id, sr)| {
-            let v = sr.validation.as_ref()?;
+            let v = sr.verification.as_ref()?;
             let stored = v.content_hash.as_deref()?;
             let linked: Vec<PathBuf> = match &v.linked_files {
                 Some(l) => l.iter().map(PathBuf::from).collect(),
@@ -923,7 +923,7 @@ pub fn op_refresh_anchors(project: &mut Project, root: &Path) -> RefreshReport {
         if !matches!(r.status, Status::Verified) {
             continue;
         }
-        let Some(v) = &r.validation else { continue };
+        let Some(v) = &r.verification else { continue };
         let Some(stored) = v.content_hash.clone() else {
             continue;
         };
@@ -945,7 +945,7 @@ pub fn op_refresh_anchors(project: &mut Project, root: &Path) -> RefreshReport {
                 .requirements
                 .get_mut(&id)
                 .unwrap()
-                .validation
+                .verification
                 .as_mut()
                 .unwrap();
             v.content_hash = Some(new);
@@ -964,7 +964,7 @@ pub fn op_refresh_anchors(project: &mut Project, root: &Path) -> RefreshReport {
     }
 }
 
-fn refresh_anchors(args: ValidationRefreshArgs, file: &Option<PathBuf>) -> Result<()> {
+fn refresh_anchors(args: VerificationRefreshArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let report = op_refresh_anchors(&mut project, Path::new(&args.path));
     let changed = !report.refreshed.is_empty();
@@ -1017,11 +1017,14 @@ fn refresh_anchors(args: ValidationRefreshArgs, file: &Option<PathBuf>) -> Resul
 // REQ-0142: the true-status report. Classifies every Verified item and
 // rolls up the counts, so the headline "verified" number can be read with
 // its provenance instead of taken at face value.
-/// REQ-0185: classify a not-yet-passing item by how far its validation
+/// REQ-0185: classify a not-yet-passing item by how far its verification
 /// dossier progressed, so the report shows the unvalidated surface instead
 /// of only the verified one. Returns `None` for Verified/Obsolete items
 /// (Verified ones are reported by provenance; Obsolete are out of scope).
-fn unvalidated_stage(status: Status, v: Option<&crate::model::Validation>) -> Option<&'static str> {
+fn unvalidated_stage(
+    status: Status,
+    v: Option<&crate::model::Verification>,
+) -> Option<&'static str> {
     use crate::model::TestOutcome;
     if matches!(status, Status::Verified | Status::Obsolete) {
         return None;
@@ -1050,16 +1053,16 @@ const UNVALIDATED_STAGES: &[&str] = &[
 ];
 
 /// REQ-0185: collect `(id, family, stage)` for every requirement and safety
-/// requirement that has not reached a passing validation.
+/// requirement that has not reached a passing verification.
 fn unvalidated_rows(project: &Project) -> Vec<(String, &'static str, &'static str)> {
     let mut rows = Vec::new();
     for (id, r) in &project.requirements {
-        if let Some(stage) = unvalidated_stage(r.status, r.validation.as_ref()) {
+        if let Some(stage) = unvalidated_stage(r.status, r.verification.as_ref()) {
             rows.push((id.clone(), "requirement", stage));
         }
     }
     for (id, sr) in &project.safety_requirements {
-        if let Some(stage) = unvalidated_stage(sr.status, sr.validation.as_ref()) {
+        if let Some(stage) = unvalidated_stage(sr.status, sr.verification.as_ref()) {
             rows.push((id.clone(), "safety-requirement", stage));
         }
     }
@@ -1067,7 +1070,7 @@ fn unvalidated_rows(project: &Project) -> Vec<(String, &'static str, &'static st
     rows
 }
 
-fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
+fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_path, project) = load_resolved(file)?;
     let rows = provenance_report(&project, Some(&args.path));
     // REQ-0185: the unvalidated surface, grouped by dossier-pipeline stage.
@@ -1166,7 +1169,7 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
         genuine
     );
     println!(
-        "  exempt:backfilled: {:>4}   (grandfathered via `req validation backfill`)",
+        "  exempt:backfilled: {:>4}   (grandfathered via `req verification backfill`)",
         backfilled
     );
     println!(
@@ -1188,7 +1191,7 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     );
 
     // REQ-0185: the unvalidated surface — everything that has NOT reached a
-    // passing validation, grouped by how far its dossier progressed. Without
+    // passing verification, grouped by how far its dossier progressed. Without
     // this the report shows only verified items and hides what work remains.
     println!();
     println!(
@@ -1231,7 +1234,7 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     if not_genuine > 0 {
         println!();
         println!(
-            "⚠ {} of {} verified item(s) do NOT rest on a genuine validation dossier.",
+            "⚠ {} of {} verified item(s) do NOT rest on a genuine verification dossier.",
             not_genuine, total
         );
     }
@@ -1262,7 +1265,7 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn show(args: ValidationShowArgs, file: &Option<PathBuf>) -> Result<()> {
+fn show(args: VerificationShowArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_path, project) = load_resolved(file)?;
     let (id, fam) = resolve(&project, &args.id)?;
     if args.json {
@@ -1271,7 +1274,7 @@ fn show(args: ValidationShowArgs, file: &Option<PathBuf>) -> Result<()> {
     println!("{}  {}", id, title_of(&project, &id, fam));
     match dossier(&project, &id, fam) {
         None => println!(
-            "  (no validation dossier — run `req validation plan {} ...`)",
+            "  (no verification dossier — run `req verification plan {} ...`)",
             id
         ),
         Some(v) => {
@@ -1306,7 +1309,7 @@ fn show(args: ValidationShowArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn print_activity(label: &str, a: Option<&ValidationActivity>) {
+fn print_activity(label: &str, a: Option<&VerificationActivity>) {
     match a {
         None => println!("  {:<9}: (pending)", label),
         Some(a) => {
@@ -1328,7 +1331,7 @@ fn emit_json(project: &Project, id: &str, fam: Family) -> Result<()> {
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
             "id": id,
-            "validation": dossier(project, id, fam),
+            "verification": dossier(project, id, fam),
         }))?
     );
     Ok(())

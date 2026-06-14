@@ -20,7 +20,7 @@ use crate::validate;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// REQ-0164: a validation rejection that carries its rule codes as discrete
+/// REQ-0164: a verification rejection that carries its rule codes as discrete
 /// data, so the MCP layer can surface them in a machine-readable field
 /// instead of forcing an agent to substring-parse the prose message. The
 /// `Display` text is unchanged from the human message callers already see.
@@ -193,7 +193,7 @@ fn handle(method: &str, params: &Value, file: &Path) -> Result<Value> {
                     "isError": false,
                 })),
                 Err(e) => {
-                    // REQ-0164: when the failure is a validation rejection,
+                    // REQ-0164: when the failure is a verification rejection,
                     // expose the rule code(s) as discrete fields so an agent
                     // can branch on them and look up the matching help
                     // section, without changing the human-readable message.
@@ -225,9 +225,9 @@ This is the `req` MCP server for managed requirements. When the user describes \
 new behaviour the system should have, call `req_add`. Before starting work on \
 a feature call `req_list` and `req_show`. Before declaring work complete call \
 `req_conform`. To VALIDATE a requirement (REQ-NNNN or SR-NNNN) and move it to \
-Verified, do NOT one-shot it: walk the validation dossier — `req_validation_plan` \
-(how you'll validate), then `req_validation_analysis` (code review + result), then \
-`req_validation_test` (testing + result), then `req_validation_conclude` (statement \
+Verified, do NOT one-shot it: walk the verification dossier — `req_verification_plan` \
+(how you'll validate), then `req_verification_analysis` (code review + result), then \
+`req_verification_test` (testing + result), then `req_verification_conclude` (statement \
 + derived verdict, promote=true to flip to Verified). Promotion is BLOCKED without a \
 passing dossier. Never read project.req directly — its integrity hash will \
 block the next CLI operation if you do. For full triggers and rules call \
@@ -287,11 +287,11 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         // REQ-0190: renamed from req_conform — this checks the spec conforms to
-        // the rule set; it is NOT verification/validation (that is the dossier
+        // the rule set; it is NOT verification/verification (that is the dossier
         // workflow + human co-sign). req_conform stays callable as a deprecated
         // alias but is no longer advertised.
         name: "req_conform",
-        description: "Check every requirement conforms to the rule set. Returns errors and warnings. CALL THIS before declaring work complete. 0 errors is mandatory; warnings are advisory but should be addressed when easy. (This is a well-formedness check, not verification/validation.)",
+        description: "Check every requirement conforms to the rule set. Returns errors and warnings. CALL THIS before declaring work complete. 0 errors is mandatory; warnings are advisory but should be addressed when easy. (This is a well-formedness check, not verification/verification.)",
         schema: no_args_schema,
     },
     ToolDef {
@@ -357,12 +357,12 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_verify",
-        description: "Record a composition or inspection evidence record on a requirement, optionally promoting to Verified. Composition cites another requirement's tests; inspection records a human review. NOTE: promote=true now REQUIRES a passing validation dossier (see req_validation_*) — for the full staged validation prefer req_validation_conclude. An ordinary requirement may instead carry a `validation-exempt` tag, or you may pass no_dossier=true with a reason to record an audited exemption.",
+        description: "Record a composition or inspection evidence record on a requirement, optionally promoting to Verified. Composition cites another requirement's tests; inspection records a human review. NOTE: promote=true now REQUIRES a passing verification dossier (see req_verification_*) — for the full staged verification prefer req_verification_conclude. An ordinary requirement may instead carry a `verification-exempt` tag, or you may pass no_dossier=true with a reason to record an audited exemption.",
         schema: verify_schema,
     },
     ToolDef {
         name: "req_batch",
-        description: "Apply many mutations atomically from a JSON document. Supported kinds: add, update, delete, link. Any single validation failure rolls back the WHOLE batch — project.req stays byte-identical to its pre-batch state. One file write per successful batch.",
+        description: "Apply many mutations atomically from a JSON document. Supported kinds: add, update, delete, link. Any single verification failure rolls back the WHOLE batch — project.req stays byte-identical to its pre-batch state. One file write per successful batch.",
         schema: batch_schema,
     },
     ToolDef {
@@ -499,38 +499,38 @@ const TOOLS: &[ToolDef] = &[
         description: "Print the end-to-end safety case for a HAZ/SF/SR id: hazard -> required SIL -> safety function -> allocated SIL (adequate?) -> safety requirements -> verification evidence, with a roll-up verdict (complete / incomplete and what's blocking). The single best call to review whether a hazard is fully mitigated and verified.",
         schema: id_schema,
     },
-    // REQ-0139: the staged validation dossier. This is the path to Verified
+    // REQ-0139: the staged verification dossier. This is the path to Verified
     // for both REQ-NNNN and SR-NNNN — promotion is BLOCKED without a passing
     // dossier. Walk the stages in order: plan -> analysis -> test -> conclude.
     ToolDef {
-        name: "req_validation_plan",
-        description: "STAGE 1 of validating a requirement. Open the validation dossier for a REQ-NNNN or SR-NNNN by recording the PLAN: how you will validate it — what you will review (analysis) and how you will test it. A passing dossier is REQUIRED before that requirement can be promoted to Verified. Pass id and plan. Use reopen=true with a reason to re-validate a concluded dossier (e.g. after code changed).",
-        schema: validation_plan_schema,
+        name: "req_verification_plan",
+        description: "STAGE 1 of validating a requirement. Open the verification dossier for a REQ-NNNN or SR-NNNN by recording the PLAN: how you will validate it — what you will review (analysis) and how you will test it. A passing dossier is REQUIRED before that requirement can be promoted to Verified. Pass id and plan. Use reopen=true with a reason to re-validate a concluded dossier (e.g. after code changed).",
+        schema: verification_plan_schema,
     },
     ToolDef {
-        name: "req_validation_analysis",
-        description: "STAGE 2. Record validation BY ANALYSIS (code review): your findings from reading the implementation against the requirement, plus a pass/fail result. Pass id, findings, result (pass|fail), and optional references (files/commits reviewed). Requires the plan to exist first.",
-        schema: validation_activity_schema,
+        name: "req_verification_analysis",
+        description: "STAGE 2. Record verification BY ANALYSIS (code review): your findings from reading the implementation against the requirement, plus a pass/fail result. Pass id, findings, result (pass|fail), and optional references (files/commits reviewed). Requires the plan to exist first.",
+        schema: verification_activity_schema,
     },
     ToolDef {
-        name: "req_validation_test",
-        description: "STAGE 3. Record validation BY TESTING: what you ran/observed and a pass/fail result. Recorded TestRecords on the requirement are auto-referenced; cite extra evidence via references. Pass id, findings, result (pass|fail). Requires the analysis stage first. Prefer real tests (req_test_record / req_test_run) over prose where they exist.",
-        schema: validation_activity_schema,
+        name: "req_verification_test",
+        description: "STAGE 3. Record verification BY TESTING: what you ran/observed and a pass/fail result. Recorded TestRecords on the requirement are auto-referenced; cite extra evidence via references. Pass id, findings, result (pass|fail). Requires the analysis stage first. Prefer real tests (req_test_record / req_test_run) over prose where they exist.",
+        schema: verification_activity_schema,
     },
     ToolDef {
-        name: "req_validation_conclude",
-        description: "STAGE 4. Record the validation STATEMENT and derive the verdict (Pass only when BOTH analysis and testing passed). Set promote=true to flip the requirement to Verified — gated exactly like req_verify (and the SIL-rigour gate for safety requirements). A FAIL verdict cannot be promoted. Pass id, statement.",
-        schema: validation_conclude_schema,
+        name: "req_verification_conclude",
+        description: "STAGE 4. Record the verification STATEMENT and derive the verdict (Pass only when BOTH analysis and testing passed). Set promote=true to flip the requirement to Verified — gated exactly like req_verify (and the SIL-rigour gate for safety requirements). A FAIL verdict cannot be promoted. Pass id, statement.",
+        schema: verification_conclude_schema,
     },
     ToolDef {
-        name: "req_validation_show",
-        description: "Return the validation dossier (plan, analysis, testing, statement, verdict, staleness anchor) for a REQ-NNNN or SR-NNNN. Read-only.",
+        name: "req_verification_show",
+        description: "Return the verification dossier (plan, analysis, testing, statement, verdict, staleness anchor) for a REQ-NNNN or SR-NNNN. Read-only.",
         schema: id_schema,
     },
     ToolDef {
-        name: "req_validation_backfill",
+        name: "req_verification_backfill",
         description: "Grandfather already-Verified items that pre-date the dossier requirement by recording an AUDITED exemption, so a strict req_conform passes. Pass id (one item) or all=true (every Verified item lacking a passing dossier), with a reason. Use sparingly — prefer a real dossier.",
-        schema: validation_backfill_schema,
+        schema: verification_backfill_schema,
     },
 ];
 
@@ -808,7 +808,7 @@ fn verify_schema() -> Value {
             "cites":   { "type": "array", "items": { "type": "string" }, "description": "Test names or REQ-IDs supporting the claim; prepended to notes." },
             "promote": { "type": "boolean", "default": false },
             "force":   { "type": "boolean", "default": false, "description": "Skip the Implemented-status precondition on promote." },
-            "no_dossier": { "type": "boolean", "default": false, "description": "REQ-0139: promote without a validation dossier, recording an audited exemption. Requires reason. Ordinary requirements only." },
+            "no_dossier": { "type": "boolean", "default": false, "description": "REQ-0139: promote without a verification dossier, recording an audited exemption. Requires reason. Ordinary requirements only." },
             "reason":  { "type": "string", "description": "Justification, required with no_dossier." }
         }
     })
@@ -861,8 +861,8 @@ fn id_schema() -> Value {
     })
 }
 
-// REQ-0139: input schemas for the validation-dossier MCP tools.
-fn validation_plan_schema() -> Value {
+// REQ-0139: input schemas for the verification-dossier MCP tools.
+fn verification_plan_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -875,7 +875,7 @@ fn validation_plan_schema() -> Value {
     })
 }
 
-fn validation_activity_schema() -> Value {
+fn verification_activity_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -888,12 +888,12 @@ fn validation_activity_schema() -> Value {
     })
 }
 
-fn validation_conclude_schema() -> Value {
+fn verification_conclude_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "REQ-NNNN or SR-NNNN" },
-            "statement": { "type": "string", "description": "The validation statement supporting the verdict." },
+            "statement": { "type": "string", "description": "The verification statement supporting the verdict." },
             "promote": { "type": "boolean", "description": "Promote to Verified (only when the verdict is Pass; gated like req_verify)." },
             "force": { "type": "boolean", "description": "Override the promotion preconditions (status ladder / SIL-rigour gate). Requires reason." },
             "reason": { "type": "string" }
@@ -902,8 +902,8 @@ fn validation_conclude_schema() -> Value {
     })
 }
 
-// REQ-0139: schema for the validation-dossier back-fill tool.
-fn validation_backfill_schema() -> Value {
+// REQ-0139: schema for the verification-dossier back-fill tool.
+fn verification_backfill_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -1182,13 +1182,13 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_sreq_realize" => safety_mcp::sreq_realize(args, file),
         "req_sreq_verify" => safety_mcp::sreq_verify(args, file),
         "req_trace" => safety_mcp::trace(args, file),
-        // REQ-0139: the staged validation dossier.
-        "req_validation_plan" => validation_mcp::plan(args, file),
-        "req_validation_analysis" => validation_mcp::analysis(args, file),
-        "req_validation_test" => validation_mcp::test(args, file),
-        "req_validation_conclude" => validation_mcp::conclude(args, file),
-        "req_validation_show" => validation_mcp::show(args, file),
-        "req_validation_backfill" => validation_mcp::backfill(args, file),
+        // REQ-0139: the staged verification dossier.
+        "req_verification_plan" => verification_mcp::plan(args, file),
+        "req_verification_analysis" => verification_mcp::analysis(args, file),
+        "req_verification_test" => verification_mcp::test(args, file),
+        "req_verification_conclude" => verification_mcp::conclude(args, file),
+        "req_verification_show" => verification_mcp::show(args, file),
+        "req_verification_backfill" => verification_mcp::backfill(args, file),
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
 }
@@ -1393,8 +1393,8 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         updated: now,
         history: vec![commands::history("created via MCP", None)],
         tests: Vec::new(),
-        // REQ-0139: a new requirement starts without a validation dossier.
-        validation: None,
+        // REQ-0139: a new requirement starts without a verification dossier.
+        verification: None,
         extra: Default::default(),
     };
     let findings = validate::validate_requirement(&req);
@@ -2511,7 +2511,7 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
     let commit = head.clone().unwrap_or_else(|| "(no git)".into());
     // REQ-0139: a bulk test run only auto-promotes items already cleared by a
     // passing dossier (or an ordinary-requirement tag exemption).
-    let exempt_tags = project.validation_exempt_tags();
+    let exempt_tags = project.verification_exempt_tags();
     for (id, (passed, failed, ignored)) in &by_req {
         let exists = project.requirements.contains_key(id);
         let outcome = if !failed.is_empty() {
@@ -2566,7 +2566,7 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
             ));
             r.updated = Utc::now();
             // REQ-0139: only auto-promote items cleared by a passing dossier.
-            let dossier_ok = r.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+            let dossier_ok = r.verification.as_ref().map(|v| v.passed()).unwrap_or(false)
                 || r.tags.iter().any(|t| exempt_tags.contains(t));
             if promote
                 && dossier_ok
@@ -2649,13 +2649,13 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
     if !project.requirements.contains_key(&id) {
         return Err(anyhow!("no such requirement: {}", id));
     }
-    // REQ-0139: evaluate the validation-dossier gate before the mutable borrow.
+    // REQ-0139: evaluate the verification-dossier gate before the mutable borrow.
     let dossier_ok = project.requirements[&id]
-        .validation
+        .verification
         .as_ref()
         .map(|v| v.passed())
         .unwrap_or(false);
-    let exempt_by_tag = project.req_is_validation_exempt(&project.requirements[&id]);
+    let exempt_by_tag = project.req_is_verification_exempt(&project.requirements[&id]);
     let no_dossier = args
         .get("no_dossier")
         .and_then(Value::as_bool)
@@ -2694,7 +2694,7 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
                 // is the precondition for Verified.
                 if !dossier_ok && !exempt_by_tag {
                     if no_dossier {
-                        r.validation = Some(crate::commands::validation::exemption_dossier(
+                        r.verification = Some(crate::commands::verification::exemption_dossier(
                             reason.as_deref().unwrap_or(""),
                             crate::commands::current_actor(),
                             commit.clone(),
@@ -2702,8 +2702,8 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
                     } else {
                         // REQ-0165: enumerate the legal routes as discrete data.
                         return Err(PromotionBlocked {
-                            message: commands::validation::promotion_blocked_message(&id),
-                            routes: commands::validation::promotion_routes(&id),
+                            message: commands::verification::promotion_blocked_message(&id),
+                            routes: commands::verification::promotion_routes(&id),
                         }
                         .into());
                     }
@@ -3028,12 +3028,12 @@ fn write_config(path: &Path, force: bool) -> Result<()> {
 // driving the tool over MCP. Each loads, mutates, saves, and returns a
 // JSON view. SILs are derived (never accepted as input), and the
 // SIL-rigour gate is enforced identically to the CLI.
-// REQ-0139: MCP surface for the validation dossier. Thin wrappers over the
-// IO-free `commands::validation::op_*` core, so the CLI and the MCP server
+// REQ-0139: MCP surface for the verification dossier. Thin wrappers over the
+// IO-free `commands::verification::op_*` core, so the CLI and the MCP server
 // share the exact gate + verdict logic.
-mod validation_mcp {
+mod verification_mcp {
     use super::{storage, Value};
-    use crate::commands::validation::{self, Stage};
+    use crate::commands::verification::{self, Stage};
     use crate::model::TestOutcome;
     use anyhow::{anyhow, Result};
     use std::path::Path;
@@ -3066,17 +3066,17 @@ mod validation_mcp {
         }
     }
     fn dossier_json(p: &crate::model::Project, id: &str) -> Result<String> {
-        let (cid, fam) = validation::resolve(p, id)?;
+        let (cid, fam) = verification::resolve(p, id)?;
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "id": cid,
-            "validation": validation::dossier(p, &cid, fam),
+            "verification": verification::dossier(p, &cid, fam),
         }))?)
     }
 
     pub fn plan(a: &Value, file: &Path) -> Result<String> {
         let _g = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
-        let id = validation::op_plan(
+        let id = verification::op_plan(
             &mut p,
             &req_s(a, "id")?,
             &req_s(a, "plan")?,
@@ -3093,11 +3093,11 @@ mod validation_mcp {
     pub fn test(a: &Value, file: &Path) -> Result<String> {
         activity(a, file, Stage::Testing)
     }
-    // REQ-0139: record a validation-by-analysis / by-testing stage.
+    // REQ-0139: record a verification-by-analysis / by-testing stage.
     fn activity(a: &Value, file: &Path, stage: Stage) -> Result<String> {
         let _g = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
-        let id = validation::op_activity(
+        let id = verification::op_activity(
             &mut p,
             &req_s(a, "id")?,
             stage,
@@ -3122,7 +3122,7 @@ mod validation_mcp {
         {
             return Err(anyhow!("force=true requires a non-empty reason"));
         }
-        let out = validation::op_conclude(
+        let out = verification::op_conclude(
             &mut p,
             &req_s(a, "id")?,
             &req_s(a, "statement")?,
@@ -3132,15 +3132,15 @@ mod validation_mcp {
             Path::new("."),
         )?;
         storage::save(file, &p)?;
-        let (_cid, fam) = validation::resolve(&p, &out.id)?;
+        let (_cid, fam) = verification::resolve(&p, &out.id)?;
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "id": out.id,
             "verdict": out.verdict.as_str(),
             "promoted": out.promoted,
             // REQ-0187: a safety requirement waits at Implemented for a human
-            // co-sign (`req validation confirm`) before reaching Verified.
+            // co-sign (`req verification confirm`) before reaching Verified.
             "awaiting_confirmation": out.awaiting_confirmation,
-            "validation": validation::dossier(&p, &out.id, fam),
+            "verification": verification::dossier(&p, &out.id, fam),
         }))?)
     }
 
@@ -3153,7 +3153,7 @@ mod validation_mcp {
     pub fn backfill(a: &Value, file: &Path) -> Result<String> {
         let _g = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
-        let done = validation::op_backfill(
+        let done = verification::op_backfill(
             &mut p,
             s(a, "id").as_deref(),
             b(a, "all"),
@@ -3710,7 +3710,7 @@ mod safety_mcp {
             updated: now,
             history: vec![commands::history("created", None)],
             tests: Vec::new(),
-            validation: None,
+            verification: None,
             walkthrough: None,
             extra: Default::default(),
         };
@@ -3895,9 +3895,9 @@ mod safety_mcp {
         // overrides them and records a structured audited exception.
         let mut gate_exception = false;
         if promote {
-            // REQ-0139: a passing validation dossier is the precondition for
+            // REQ-0139: a passing verification dossier is the precondition for
             // a safety requirement to reach Verified (no tag exemption).
-            crate::commands::validation::gate_safety_requirement(&p.safety_requirements[&id])?;
+            crate::commands::verification::gate_safety_requirement(&p.safety_requirements[&id])?;
             let ladder_ok = matches!(status, Status::Implemented | Status::Verified);
             if !ladder_ok && !force {
                 return Err(anyhow!(

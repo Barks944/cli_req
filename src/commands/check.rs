@@ -1,4 +1,4 @@
-// Implements REQ-0041 (incremental validation + scoped coverage since a git ref).
+// Implements REQ-0041 (incremental verification + scoped coverage since a git ref).
 use anyhow::{anyhow, Context, Result};
 use once_cell::sync::Lazy;
 use regex::Regex;

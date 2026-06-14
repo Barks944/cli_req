@@ -154,7 +154,7 @@ pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     let findings = validate::validate_requirement(r);
     let errors = validate::errors_only(&findings);
     if !errors.is_empty() {
-        eprintln!("Validation errors block save:");
+        eprintln!("Verification errors block save:");
         for f in &errors {
             eprintln!("  ERR [{}] {}", f.field, f.message);
         }

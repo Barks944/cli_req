@@ -6,7 +6,7 @@
 //     (REQ-0175/0176), so the bench knows what the spec expects of it.
 //   • INGEST the results it produces back into project.req as test records
 //     (REQ-0177..0180), mapping its verdict vocabulary onto the local model
-//     (REQ-0182), populating a validation dossier from its per-requirement
+//     (REQ-0182), populating a verification dossier from its per-requirement
 //     decision (REQ-0183), and never auto-promoting a safety requirement on
 //     external evidence alone (REQ-0184).
 //
@@ -19,8 +19,8 @@ use std::path::PathBuf;
 
 use crate::cli::{TestIngestArgs, TestPullArgs, TestRequestsArgs};
 use crate::model::{
-    EvidenceKind, ExternalSource, Project, Status, TestOutcome, TestRecord, Validation,
-    ValidationActivity,
+    EvidenceKind, ExternalSource, Project, Status, TestOutcome, TestRecord, Verification,
+    VerificationActivity,
 };
 use crate::storage::{self, load_for_mutation, load_resolved};
 
@@ -217,18 +217,18 @@ fn preflight(project: &Project, payload: &ResultPayload) -> Result<()> {
         ));
     }
     for r in &payload.results {
-        let (id, fam) = crate::commands::validation::resolve(project, &r.req_id)
+        let (id, fam) = crate::commands::verification::resolve(project, &r.req_id)
             .map_err(|_| anyhow!("result references unknown requirement '{}'", r.req_id))?;
         resolve_verdict(project, &r.verdict)?;
         // REQ-0183: a decision may only attach to a dossier anchored at the
         // same commit (or one with no conclusion yet).
         if r.decision.is_some() {
             let existing = match fam {
-                crate::commands::validation::Family::Req => {
-                    project.requirements[&id].validation.as_ref()
+                crate::commands::verification::Family::Req => {
+                    project.requirements[&id].verification.as_ref()
                 }
-                crate::commands::validation::Family::Sr => {
-                    project.safety_requirements[&id].validation.as_ref()
+                crate::commands::verification::Family::Sr => {
+                    project.safety_requirements[&id].verification.as_ref()
                 }
             };
             if let Some(v) = existing {
@@ -262,7 +262,7 @@ pub fn ingest_payload(
         withheld_safety: Vec::new(),
     };
     for r in &payload.results {
-        let (id, fam) = crate::commands::validation::resolve(project, &r.req_id)?;
+        let (id, fam) = crate::commands::verification::resolve(project, &r.req_id)?;
         let outcome = resolve_verdict(project, &r.verdict)?;
         let kind = match r.evidence_kind.as_deref() {
             Some("composition") => EvidenceKind::Composition,
@@ -289,7 +289,7 @@ pub fn ingest_payload(
         };
 
         // REQ-0177: idempotent — skip an identical prior ingest.
-        let is_sr = matches!(fam, crate::commands::validation::Family::Sr);
+        let is_sr = matches!(fam, crate::commands::verification::Family::Sr);
         let tests = if is_sr {
             &project.safety_requirements[&id].tests
         } else {
@@ -311,14 +311,14 @@ pub fn ingest_payload(
 
         // REQ-0183: populate the dossier from the external decision.
         let dossier = r.decision.as_ref().map(|d| {
-            let mut v = Validation::opened(
+            let mut v = Verification::opened(
                 d.plan.clone(),
                 payload.system.clone(),
                 payload.commit.clone(),
                 now,
             );
             if let Some(a) = &d.analysis {
-                v.analysis = Some(ValidationActivity {
+                v.analysis = Some(VerificationActivity {
                     summary: a.clone(),
                     outcome,
                     references: Vec::new(),
@@ -326,7 +326,7 @@ pub fn ingest_payload(
                     actor: payload.system.clone(),
                 });
             }
-            v.testing = Some(ValidationActivity {
+            v.testing = Some(VerificationActivity {
                 summary: r
                     .notes
                     .clone()
@@ -347,7 +347,7 @@ pub fn ingest_payload(
             let sr = project.safety_requirements.get_mut(&id).unwrap();
             sr.tests.push(record);
             if let Some(v) = dossier {
-                sr.validation = Some(v);
+                sr.verification = Some(v);
             }
             sr.updated = now;
             sr.history.push(super::history(
@@ -363,7 +363,7 @@ pub fn ingest_payload(
             let req = project.requirements.get_mut(&id).unwrap();
             req.tests.push(record);
             if let Some(v) = dossier {
-                req.validation = Some(v);
+                req.verification = Some(v);
             }
             req.updated = now;
             req.history.push(super::history(
@@ -375,7 +375,11 @@ pub fn ingest_payload(
             if promote
                 && matches!(outcome, TestOutcome::Pass)
                 && matches!(req.status, Status::Implemented)
-                && req.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                && req
+                    .verification
+                    .as_ref()
+                    .map(|v| v.passed())
+                    .unwrap_or(false)
             {
                 req.status = Status::Verified;
                 req.history.push(super::history(

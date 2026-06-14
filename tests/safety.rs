@@ -104,18 +104,18 @@ fn req_0135_sil_gate_blocks_inspection_and_force_needs_reason() {
         "r",
     ]);
 
-    // REQ-0139: give the SR a passing validation dossier (without promoting)
+    // REQ-0139: give the SR a passing verification dossier (without promoting)
     // so the dossier gate is satisfied and the SIL-rigour gate is what's
     // under test below.
     s.run(&[
-        "validation",
+        "verification",
         "plan",
         "SR-0001",
         "--plan",
         "review logic and bench-test the stop",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "analysis",
         "SR-0001",
         "--findings",
@@ -124,7 +124,7 @@ fn req_0135_sil_gate_blocks_inspection_and_force_needs_reason() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--findings",
@@ -133,7 +133,7 @@ fn req_0135_sil_gate_blocks_inspection_and_force_needs_reason() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -932,7 +932,7 @@ fn req_0144_stale_disclaimer_version_blocks_safety_features() {
 /// human confirms the result. REQ-V-0034 flags the unconfirmed SR; an agent
 /// cannot confirm; a human's confirmation clears the finding.
 #[test]
-fn req_0145_safety_validation_needs_human_confirmation() {
+fn req_0145_safety_verification_needs_human_confirmation() {
     use std::process::Command;
     let dir = tempfile::Builder::new()
         .prefix("req-0145-")
@@ -1015,12 +1015,12 @@ fn req_0145_safety_validation_needs_human_confirmation() {
         None,
     );
     run(
-        &["validation", "plan", "SR-0001", "--plan", "review+bench"],
+        &["verification", "plan", "SR-0001", "--plan", "review+bench"],
         None,
     );
     run(
         &[
-            "validation",
+            "verification",
             "analysis",
             "SR-0001",
             "--findings",
@@ -1032,7 +1032,7 @@ fn req_0145_safety_validation_needs_human_confirmation() {
     );
     run(
         &[
-            "validation",
+            "verification",
             "test",
             "SR-0001",
             "--findings",
@@ -1044,7 +1044,7 @@ fn req_0145_safety_validation_needs_human_confirmation() {
     );
     assert!(run(
         &[
-            "validation",
+            "verification",
             "conclude",
             "SR-0001",
             "--statement",
@@ -1081,15 +1081,15 @@ fn req_0145_safety_validation_needs_human_confirmation() {
     );
 
     // An agent cannot confirm on a human's behalf.
-    let by_agent = run(&["validation", "confirm", "SR-0001"], Some("agent"));
+    let by_agent = run(&["verification", "confirm", "SR-0001"], Some("agent"));
     assert!(
         !by_agent.status.success(),
-        "an agent must not be able to confirm a safety validation"
+        "an agent must not be able to confirm a safety verification"
     );
 
     // A human confirms — and the project validates clean.
     assert!(
-        run(&["validation", "confirm", "SR-0001"], Some("human"))
+        run(&["verification", "confirm", "SR-0001"], Some("human"))
             .status
             .success(),
         "a human confirmation must succeed"
@@ -1103,7 +1103,7 @@ fn req_0145_safety_validation_needs_human_confirmation() {
 }
 
 /// REQ-0146: `req trace` from a safety requirement resolves upward to the
-/// mitigated hazard and inlines the validation dossier (human output and
+/// mitigated hazard and inlines the verification dossier (human output and
 /// --json carry the same chain).
 #[test]
 fn req_0146_trace_from_sr_shows_chain_and_dossier() {
@@ -1189,12 +1189,12 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
         None,
     );
     run(
-        &["validation", "plan", "SR-0001", "--plan", "review+bench"],
+        &["verification", "plan", "SR-0001", "--plan", "review+bench"],
         None,
     );
     run(
         &[
-            "validation",
+            "verification",
             "analysis",
             "SR-0001",
             "--findings",
@@ -1206,7 +1206,7 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
     );
     run(
         &[
-            "validation",
+            "verification",
             "test",
             "SR-0001",
             "--findings",
@@ -1218,7 +1218,7 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
     );
     run(
         &[
-            "validation",
+            "verification",
             "conclude",
             "SR-0001",
             "--statement",
@@ -1227,7 +1227,7 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
         ],
         None,
     );
-    run(&["validation", "confirm", "SR-0001"], Some("human"));
+    run(&["verification", "confirm", "SR-0001"], Some("human"));
 
     // Human output: tracing from the SR resolves UP to the hazard and inlines
     // the dossier.
@@ -1238,20 +1238,20 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
     );
     assert!(
         human.contains("dossier: verdict pass"),
-        "trace must inline the validation dossier verdict:\n{human}"
+        "trace must inline the verification dossier verdict:\n{human}"
     );
     assert!(
         human.contains("human-confirmed"),
         "trace must show the human confirmation:\n{human}"
     );
 
-    // --json carries the chain with each SR's validation dossier.
+    // --json carries the chain with each SR's verification dossier.
     let j = String::from_utf8_lossy(&run(&["trace", "SR-0001", "--json"], None).stdout).to_string();
     let v: serde_json::Value = serde_json::from_str(&j).expect("trace --json parses");
-    let val = &v["chain"][0]["safety_requirements"][0]["validation"];
+    let val = &v["chain"][0]["safety_requirements"][0]["verification"];
     assert!(
         val.get("verdict").is_some() && val.get("human_confirmation").is_some(),
-        "--json chain must include the SR's validation dossier:\n{j}"
+        "--json chain must include the SR's verification dossier:\n{j}"
     );
 }
 
@@ -1349,10 +1349,10 @@ fn setup_marked_confirmed_sr(root: &std::path::Path) {
         ],
         None,
     );
-    run(&["validation", "plan", "SR-0001", "--plan", "p"], None);
+    run(&["verification", "plan", "SR-0001", "--plan", "p"], None);
     run(
         &[
-            "validation",
+            "verification",
             "analysis",
             "SR-0001",
             "--findings",
@@ -1364,7 +1364,7 @@ fn setup_marked_confirmed_sr(root: &std::path::Path) {
     );
     run(
         &[
-            "validation",
+            "verification",
             "test",
             "SR-0001",
             "--findings",
@@ -1376,7 +1376,7 @@ fn setup_marked_confirmed_sr(root: &std::path::Path) {
     );
     run(
         &[
-            "validation",
+            "verification",
             "conclude",
             "SR-0001",
             "--statement",
@@ -1385,7 +1385,7 @@ fn setup_marked_confirmed_sr(root: &std::path::Path) {
         ],
         None,
     );
-    run(&["validation", "confirm", "SR-0001"], Some("human"));
+    run(&["verification", "confirm", "SR-0001"], Some("human"));
 }
 
 fn req_in(root: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -1408,11 +1408,12 @@ fn req_0149_staleness_scopes_to_comment_markers_not_prose() {
     let root = dir.path();
     setup_marked_confirmed_sr(root);
 
-    let shown =
-        String::from_utf8_lossy(&req_in(root, &["validation", "show", "SR-0001", "--json"]).stdout)
-            .to_string();
-    let v: serde_json::Value = serde_json::from_str(&shown).expect("validation show --json");
-    let linked: Vec<String> = v["validation"]["linked_files"]
+    let shown = String::from_utf8_lossy(
+        &req_in(root, &["verification", "show", "SR-0001", "--json"]).stdout,
+    )
+    .to_string();
+    let v: serde_json::Value = serde_json::from_str(&shown).expect("verification show --json");
+    let linked: Vec<String> = v["verification"]["linked_files"]
         .as_array()
         .map(|a| {
             a.iter()
@@ -1603,7 +1604,7 @@ fn verified_sil2_chain() -> Sandbox {
         "--status",
         "proposed",
         "--reason",
-        "advance for validation",
+        "advance for verification",
     ]);
     let _ = s.run(&[
         "sreq",
@@ -1612,7 +1613,7 @@ fn verified_sil2_chain() -> Sandbox {
         "--status",
         "approved",
         "--reason",
-        "advance for validation",
+        "advance for verification",
     ]);
     let _ = s.run(&[
         "sreq",
@@ -1621,18 +1622,18 @@ fn verified_sil2_chain() -> Sandbox {
         "--status",
         "implemented",
         "--reason",
-        "advance for validation",
+        "advance for verification",
     ]);
     // Walk the dossier to Verified (records the SIL snapshot at conclude).
     let _ = s.run(&[
-        "validation",
+        "verification",
         "plan",
         "SR-0001",
         "--plan",
         "analysis + testing of the stop path",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "analysis",
         "SR-0001",
         "--result",
@@ -1641,7 +1642,7 @@ fn verified_sil2_chain() -> Sandbox {
         "reviewed the stop path",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--result",
@@ -1650,7 +1651,7 @@ fn verified_sil2_chain() -> Sandbox {
         "bench test passes",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -1660,7 +1661,7 @@ fn verified_sil2_chain() -> Sandbox {
     // REQ-0187: conclude leaves a safety requirement at Implemented awaiting a
     // human co-sign; the confirm (non-agent actor here) promotes to Verified.
     let _ = s.run(&[
-        "validation",
+        "verification",
         "confirm",
         "SR-0001",
         "--note",
@@ -1756,7 +1757,7 @@ fn req_0160_trace_labels_verification_scope() {
     let s = verified_sil2_chain();
     let trace = stdout(&s.run(&["trace", "HAZ-0001"]));
     assert!(
-        trace.contains("NOT a residual-risk validation"),
+        trace.contains("NOT a residual-risk verification"),
         "trace must state its scope:\n{}",
         trace
     );
@@ -1967,12 +1968,18 @@ fn req_0187_conclude_leaves_sr_awaiting_then_confirm_promotes() {
             "--status",
             st,
             "--reason",
-            "advance for validation",
+            "advance for verification",
         ]);
     }
-    let _ = s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
     let _ = s.run(&[
-        "validation",
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench",
+    ]);
+    let _ = s.run(&[
+        "verification",
         "analysis",
         "SR-0001",
         "--result",
@@ -1981,7 +1988,7 @@ fn req_0187_conclude_leaves_sr_awaiting_then_confirm_promotes() {
         "logic reviewed",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--result",
@@ -1991,7 +1998,7 @@ fn req_0187_conclude_leaves_sr_awaiting_then_confirm_promotes() {
     ]);
     // conclude --promote on an SR must NOT reach Verified.
     let c = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -2008,7 +2015,7 @@ fn req_0187_conclude_leaves_sr_awaiting_then_confirm_promotes() {
     let by_agent = common::req(&[
         "--file",
         s.path().to_str().unwrap(),
-        "validation",
+        "verification",
         "confirm",
         "SR-0001",
     ]);
@@ -2019,7 +2026,7 @@ fn req_0187_conclude_leaves_sr_awaiting_then_confirm_promotes() {
             .args([
                 "--file",
                 s.path().to_str().unwrap(),
-                "validation",
+                "verification",
                 "confirm",
                 "SR-0001",
             ])
@@ -2031,7 +2038,7 @@ fn req_0187_conclude_leaves_sr_awaiting_then_confirm_promotes() {
     let _ = by_agent;
     assert!(!by_agent2.status.success(), "agent must not confirm");
     // Human confirm promotes to Verified.
-    let conf = s.run(&["validation", "confirm", "SR-0001", "--note", "reviewed"]);
+    let conf = s.run(&["verification", "confirm", "SR-0001", "--note", "reviewed"]);
     assert!(conf.status.success(), "{}", stderr(&conf));
     assert!(stdout(&s.run(&["sreq", "show", "SR-0001"])).contains("verified"));
 }
@@ -2068,12 +2075,18 @@ fn req_0188_awaiting_cosign_is_advisory_not_error() {
             "--status",
             st,
             "--reason",
-            "advance for validation",
+            "advance for verification",
         ]);
     }
-    let _ = s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
     let _ = s.run(&[
-        "validation",
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench",
+    ]);
+    let _ = s.run(&[
+        "verification",
         "analysis",
         "SR-0001",
         "--result",
@@ -2082,7 +2095,7 @@ fn req_0188_awaiting_cosign_is_advisory_not_error() {
         "logic reviewed",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--result",
@@ -2091,7 +2104,7 @@ fn req_0188_awaiting_cosign_is_advisory_not_error() {
         "bench passes",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -2145,12 +2158,18 @@ fn req_0189_trace_incomplete_until_cosign() {
             "--status",
             st,
             "--reason",
-            "advance for validation",
+            "advance for verification",
         ]);
     }
-    let _ = s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
     let _ = s.run(&[
-        "validation",
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench",
+    ]);
+    let _ = s.run(&[
+        "verification",
         "analysis",
         "SR-0001",
         "--result",
@@ -2159,7 +2178,7 @@ fn req_0189_trace_incomplete_until_cosign() {
         "logic reviewed",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--result",
@@ -2168,7 +2187,7 @@ fn req_0189_trace_incomplete_until_cosign() {
         "bench passes",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -2188,7 +2207,7 @@ fn req_0189_trace_incomplete_until_cosign() {
         t1
     );
     // After co-sign, trace is complete.
-    let _ = s.run(&["validation", "confirm", "SR-0001"]);
+    let _ = s.run(&["verification", "confirm", "SR-0001"]);
     let t2 = stdout(&s.run(&["trace", "HAZ-0001"]));
     assert!(
         t2.contains("linked and verified"),

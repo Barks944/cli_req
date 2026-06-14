@@ -88,15 +88,15 @@ impl Command {
             Command::Impact(a) => a.json,
             Command::Safety(SafetyCmd::Status(a)) => a.json,
             Command::Safety(SafetyCmd::Calibrate(a)) => a.json,
-            Command::Validation(ValidationCmd::Plan(a)) => a.json,
-            Command::Validation(ValidationCmd::Analysis(a)) => a.json,
-            Command::Validation(ValidationCmd::Test(a)) => a.json,
-            Command::Validation(ValidationCmd::Conclude(a)) => a.json,
-            Command::Validation(ValidationCmd::Confirm(a)) => a.json,
-            Command::Validation(ValidationCmd::Show(a)) => a.json,
-            Command::Validation(ValidationCmd::Backfill(a)) => a.json,
+            Command::Verification(VerificationCmd::Plan(a)) => a.json,
+            Command::Verification(VerificationCmd::Analysis(a)) => a.json,
+            Command::Verification(VerificationCmd::Test(a)) => a.json,
+            Command::Verification(VerificationCmd::Conclude(a)) => a.json,
+            Command::Verification(VerificationCmd::Confirm(a)) => a.json,
+            Command::Verification(VerificationCmd::Show(a)) => a.json,
+            Command::Verification(VerificationCmd::Backfill(a)) => a.json,
             // REQ-0142: provenance report honours --json like the rest.
-            Command::Validation(ValidationCmd::Report(a)) => a.json,
+            Command::Verification(VerificationCmd::Report(a)) => a.json,
             _ => false,
         }
     }
@@ -122,7 +122,7 @@ pub enum Command {
     /// Create parent/child or trace links between requirements.
     Link(LinkArgs),
     // REQ-0190: the whole-project well-formedness check is NOT verification or
-    // validation — it checks the spec conforms to the rule set. Named `conform`
+    // verification — it checks the spec conforms to the rule set. Named `conform`
     // so the V&V vocabulary is reserved for the evidence workflow. The old
     // `validate` name is removed outright (pre-release): no alias.
     /// Check every requirement conforms to the rule set (0 errors to ship).
@@ -230,52 +230,53 @@ pub enum Command {
     /// manage the risk-graph calibration.
     #[command(subcommand)]
     Safety(SafetyCmd),
-    // REQ-0139: marker kept off the --help line (see REQ-0151).
-    /// The staged validation dossier (plan → analysis → testing
-    /// → statement → verdict) that gates promotion to Verified. Works on a
-    /// REQ-NNNN or SR-NNNN id.
-    #[command(subcommand)]
-    Validation(ValidationCmd),
+    // REQ-0139 / REQ-0192: marker kept off the --help line (see REQ-0151).
+    /// The staged verification dossier (plan → analysis → testing → statement
+    /// → verdict) that gates promotion to Verified — conformance ("built it
+    /// right") evidence. The human co-sign is the independent verification
+    /// sign-off. Works on a REQ-NNNN or SR-NNNN id. (Renamed from `verification`.)
+    #[command(name = "verification", subcommand)]
+    Verification(VerificationCmd),
 }
 
-// REQ-0139: subcommands of `req validation`. Each takes a REQ-/SR- id and
+// REQ-0139: subcommands of `req verification`. Each takes a REQ-/SR- id and
 // advances the dossier one stage; the stages must be filled in order.
 #[derive(Subcommand, Debug)]
-pub enum ValidationCmd {
+pub enum VerificationCmd {
     /// Stage 1 — open the dossier and record HOW the obligation will be
     /// validated (the analysis + testing approach).
-    Plan(ValidationPlanArgs),
-    /// Stage 2 — record validation by analysis (code review): findings and
+    Plan(VerificationPlanArgs),
+    /// Stage 2 — record verification by analysis (code review): findings and
     /// a pass/fail outcome.
-    Analysis(ValidationActivityArgs),
-    /// Stage 3 — record validation by testing: findings and a pass/fail
+    Analysis(VerificationActivityArgs),
+    /// Stage 3 — record verification by testing: findings and a pass/fail
     /// outcome, citing recorded test evidence where it exists.
-    Test(ValidationActivityArgs),
-    /// Stage 4 — record the validation statement, derive the verdict, and
+    Test(VerificationActivityArgs),
+    /// Stage 4 — record the verification statement, derive the verdict, and
     /// optionally promote to Verified.
-    Conclude(ValidationConcludeArgs),
+    Conclude(VerificationConcludeArgs),
     // REQ-0145: marker kept off the --help line (see REQ-0151).
-    /// A human co-signs the validation result. Required for a
+    /// A human co-signs the verification result. Required for a
     /// safety requirement (SR-NNNN) before it counts as passed; refuses
     /// REQ_ACTOR_KIND=agent so an agent cannot confirm on a person's behalf.
-    Confirm(ValidationConfirmArgs),
+    Confirm(VerificationConfirmArgs),
     /// Show the dossier for a requirement or safety requirement.
-    Show(ValidationShowArgs),
+    Show(VerificationShowArgs),
     /// Grandfather already-Verified items that pre-date the dossier by
     /// recording an audited exemption so a strict `req conform` passes.
-    Backfill(ValidationBackfillArgs),
+    Backfill(VerificationBackfillArgs),
     // REQ-0142: marker kept off the --help line (see REQ-0151).
     /// Report the true verification provenance of every Verified
     /// item — genuine dossier vs audited exemption vs stale vs ungated.
-    Report(ValidationReportArgs),
+    Report(VerificationReportArgs),
     // REQ-0153: marker kept off the --help line (see REQ-0151).
     /// Re-normalize staleness anchors that a hash-format change invalidated,
     /// only where the source is provably unchanged; drifted items stay stale.
-    RefreshAnchors(ValidationRefreshArgs),
+    RefreshAnchors(VerificationRefreshArgs),
 }
 
 #[derive(Args, Debug)]
-pub struct ValidationPlanArgs {
+pub struct VerificationPlanArgs {
     /// REQ-NNNN or SR-NNNN id.
     pub id: String,
     /// How this obligation will be validated — the analysis (review) and
@@ -294,7 +295,7 @@ pub struct ValidationPlanArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct ValidationActivityArgs {
+pub struct VerificationActivityArgs {
     /// REQ-NNNN or SR-NNNN id.
     pub id: String,
     /// Findings — what was reviewed/run and what was observed.
@@ -312,10 +313,10 @@ pub struct ValidationActivityArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct ValidationConcludeArgs {
+pub struct VerificationConcludeArgs {
     /// REQ-NNNN or SR-NNNN id.
     pub id: String,
-    /// The validation statement supporting the verdict.
+    /// The verification statement supporting the verdict.
     #[arg(long)]
     pub statement: String,
     /// Promote to Verified after concluding (only when the verdict is
@@ -333,9 +334,9 @@ pub struct ValidationConcludeArgs {
     pub json: bool,
 }
 
-// REQ-0145: a human's confirmation of a validation result.
+// REQ-0145: a human's confirmation of a verification result.
 #[derive(Args, Debug)]
-pub struct ValidationConfirmArgs {
+pub struct VerificationConfirmArgs {
     /// REQ-NNNN or SR-NNNN id. Required for safety requirements before they
     /// count as passed.
     pub id: String,
@@ -347,7 +348,7 @@ pub struct ValidationConfirmArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct ValidationShowArgs {
+pub struct VerificationShowArgs {
     /// REQ-NNNN or SR-NNNN id.
     pub id: String,
     #[arg(long)]
@@ -356,7 +357,7 @@ pub struct ValidationShowArgs {
 
 // REQ-0142: arguments for the verification-provenance report.
 #[derive(Args, Debug)]
-pub struct ValidationReportArgs {
+pub struct VerificationReportArgs {
     /// Source root used to judge dossier staleness (hashes linked files).
     #[arg(long, default_value = ".")]
     pub path: PathBuf,
@@ -369,7 +370,7 @@ pub struct ValidationReportArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct ValidationRefreshArgs {
+pub struct VerificationRefreshArgs {
     /// Source root used to hash linked files.
     #[arg(long, default_value = ".")]
     pub path: PathBuf,
@@ -381,7 +382,7 @@ pub struct ValidationRefreshArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct ValidationBackfillArgs {
+pub struct VerificationBackfillArgs {
     /// A single REQ-/SR- id to back-fill. Omit with --all to do every
     /// Verified item lacking a passing dossier.
     pub id: Option<String>,
@@ -1212,12 +1213,12 @@ pub struct RepairArgs {
     /// Required acknowledgement that you reviewed the direct edits.
     #[arg(long)]
     pub confirm_direct_edit: bool,
-    /// Re-sign the file even when validation errors remain. Use when a
-    /// hand-edit broke both the hash AND introduced validation errors,
+    /// Re-sign the file even when verification errors remain. Use when a
+    /// hand-edit broke both the hash AND introduced verification errors,
     /// and other commands refuse to read the file — without this flag
-    /// you'd be stuck (repair refuses due to validation, every other
+    /// you'd be stuck (repair refuses due to verification, every other
     /// command refuses due to the hash). Re-signing surfaces the
-    /// validation errors via `req conform` instead of the integrity
+    /// verification errors via `req conform` instead of the integrity
     /// check, which is the working state you want.
     #[arg(long)]
     pub force: bool,
@@ -1501,7 +1502,7 @@ pub struct ImportArgs {
     /// Show what would be imported without writing.
     #[arg(long)]
     pub dry_run: bool,
-    /// Reject the whole import if any item fails validation.
+    /// Reject the whole import if any item fails verification.
     #[arg(long)]
     pub strict: bool,
     /// JSON output.
@@ -1644,7 +1645,7 @@ pub struct VerifyArgs {
     #[arg(long)]
     pub force: bool,
     // REQ-0139: marker kept off the --help line (see REQ-0151).
-    /// Promote without a validation dossier, recording an
+    /// Promote without a verification dossier, recording an
     /// audited exemption (ordinary requirements only). Requires --reason.
     #[arg(long = "no-dossier", requires = "reason")]
     pub no_dossier: bool,

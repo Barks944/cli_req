@@ -85,8 +85,8 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
                 args.reason.clone(),
             )],
             tests: Vec::new(),
-            // REQ-0139: split children start without a validation dossier.
-            validation: None,
+            // REQ-0139: split children start without a verification dossier.
+            verification: None,
             extra: Default::default(),
         };
         let findings = validate::validate_requirement(&part);
@@ -97,7 +97,7 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
                 .map(|f| format!("[{}] {}", f.field, f.message))
                 .collect();
             return Err(anyhow!(
-                "part #{} failed validation; nothing mutated. {}",
+                "part #{} failed verification; nothing mutated. {}",
                 i + 1,
                 msg.join("; ")
             ));

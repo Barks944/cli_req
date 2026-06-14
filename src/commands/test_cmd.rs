@@ -105,14 +105,14 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         sil_at_verification: None,
         external: None,
     };
-    // REQ-0139: evaluate the validation-dossier gate before taking the
+    // REQ-0139: evaluate the verification-dossier gate before taking the
     // mutable borrow (the gate needs to read project config + the dossier).
     let dossier_ok = project.requirements[&args.id]
-        .validation
+        .verification
         .as_ref()
         .map(|v| v.passed())
         .unwrap_or(false);
-    let exempt_by_tag = project.req_is_validation_exempt(&project.requirements[&args.id]);
+    let exempt_by_tag = project.req_is_verification_exempt(&project.requirements[&args.id]);
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
     r.history.push(super::history(
@@ -138,7 +138,7 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
                 if !dossier_ok && !exempt_by_tag {
                     if args.no_dossier {
                         let reason = args.reason.clone().unwrap_or_default();
-                        r.validation = Some(super::validation::exemption_dossier(
+                        r.verification = Some(super::verification::exemption_dossier(
                             &reason,
                             super::current_actor(),
                             commit.clone(),
@@ -147,7 +147,7 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
                         // REQ-0165: enumerate the legal routes (shared with MCP).
                         return Err(anyhow!(
                             "{}",
-                            super::validation::promotion_blocked_message(&args.id)
+                            super::verification::promotion_blocked_message(&args.id)
                         ));
                     }
                 }
@@ -373,11 +373,11 @@ pub fn hash_files(files: &[std::path::PathBuf]) -> String {
 }
 
 /// REQ-0153: the pre-REQ-0152 hashing algorithm — path string verbatim, raw
-/// file bytes, no normalization. Kept ONLY so `req validation refresh-anchors`
+/// file bytes, no normalization. Kept ONLY so `req verification refresh-anchors`
 /// can prove a dossier's source is byte-identical to what it anchored: if the
 /// legacy hash of the current source still equals the stored hash, the bytes
 /// have not changed since the anchor (so the new normalized hash can be
-/// substituted safely, without re-validation). Never use for new anchors.
+/// substituted safely, without re-verification). Never use for new anchors.
 pub fn hash_files_legacy(files: &[std::path::PathBuf]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -774,17 +774,20 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         // already on tests when we evaluate "is there fresh evidence?".
         if args.promote {
             // REQ-0139: a bulk test run promotes only items that already
-            // carry a passing validation dossier (or, for ordinary reqs, a
+            // carry a passing verification dossier (or, for ordinary reqs, a
             // tag exemption). Items without one are left for the explicit
-            // `req validation` flow rather than erroring the whole run.
+            // `req verification` flow rather than erroring the whole run.
             let dossier_ok: std::collections::BTreeSet<String> = records_to_apply
                 .iter()
                 .filter_map(|(id, _)| {
                     let ok = if let Some(r) = project.requirements.get(id) {
-                        r.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
-                            || project.req_is_validation_exempt(r)
+                        r.verification.as_ref().map(|v| v.passed()).unwrap_or(false)
+                            || project.req_is_verification_exempt(r)
                     } else if let Some(sr) = project.safety_requirements.get(id) {
-                        sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                        sr.verification
+                            .as_ref()
+                            .map(|v| v.passed())
+                            .unwrap_or(false)
                     } else {
                         false
                     };

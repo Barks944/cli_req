@@ -39,7 +39,7 @@ pub fn classify(err: &anyhow::Error) -> &'static str {
         E_INTEGRITY
     } else if lower.contains("no such requirement") || lower.contains("does not exist") {
         E_NOT_FOUND
-    } else if lower.contains("validation error") || lower.contains("rejected:") {
+    } else if lower.contains("verification error") || lower.contains("rejected:") {
         E_VALIDATION
     } else if lower.contains("cycle") {
         E_CYCLE

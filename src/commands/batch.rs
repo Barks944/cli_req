@@ -230,8 +230,8 @@ fn apply_one(
                     reason.clone().or_else(|| default_reason.clone()),
                 )],
                 tests: Vec::new(),
-                // REQ-0139: new requirements start without a validation dossier.
-                validation: None,
+                // REQ-0139: new requirements start without a verification dossier.
+                verification: None,
                 extra: Default::default(),
             };
             let findings = validate::validate_requirement(&req);
@@ -241,7 +241,7 @@ fn apply_one(
                     .iter()
                     .map(|f| format!("[{}] {}", f.field, f.message))
                     .collect();
-                return Err(anyhow!("validation failed: {}", msg.join("; ")));
+                return Err(anyhow!("verification failed: {}", msg.join("; ")));
             }
             let id = project.allocate_id();
             req.id = id.clone();
@@ -343,7 +343,7 @@ fn apply_one(
                     .iter()
                     .map(|f| format!("[{}] {}", f.field, f.message))
                     .collect();
-                return Err(anyhow!("validation failed on {}: {}", id, msg.join("; ")));
+                return Err(anyhow!("verification failed on {}: {}", id, msg.join("; ")));
             }
             r.updated = now;
             r.history.push(super::history(

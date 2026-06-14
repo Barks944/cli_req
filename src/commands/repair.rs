@@ -22,10 +22,10 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
         .flat_map(|(_, fs)| fs.iter())
         .filter(|f| f.error)
         .count();
-    // REQ-0091: --force breaks the deadlock when validation errors block repair.
+    // REQ-0091: --force breaks the deadlock when verification errors block repair.
     if errs > 0 && !args.force {
         eprintln!(
-            "Refusing to repair: file contains {} validation errors. \
+            "Refusing to repair: file contains {} verification errors. \
              Fix them first, or pass --force to re-sign anyway (the \
              errors will then surface via `req conform` instead of \
              the integrity check).",
@@ -44,7 +44,7 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
     storage::save(&path, &project)?;
     if errs > 0 {
         eprintln!(
-            "Re-signed {} with {} validation error(s) still present — \
+            "Re-signed {} with {} verification error(s) still present — \
              surface them via `req conform`.",
             path.display(),
             errs

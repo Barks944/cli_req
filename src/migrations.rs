@@ -43,6 +43,11 @@ pub fn registered_steps() -> Vec<MigrationStep> {
             to: "req-v3",
             apply: v2_to_v3,
         },
+        MigrationStep {
+            from: "req-v3",
+            to: "req-v4",
+            apply: v3_to_v4,
+        },
     ]
 }
 
@@ -63,6 +68,33 @@ fn v1_to_v2(root: Map<String, Value>) -> Result<Map<String, Value>> {
 /// byte-identical as v3 apart from the `_format` tag. Existing
 /// requirements, history, links, and test records are preserved exactly.
 fn v2_to_v3(root: Map<String, Value>) -> Result<Map<String, Value>> {
+    Ok(root)
+}
+
+/// REQ-0192: v3 → v4 renames the dossier key `validation` → `verification`
+/// (the dossier is verification evidence per IEC 61508 / ISO 26262), in every
+/// requirement and safety requirement, and in `_config`. Field VALUES are
+/// untouched — only the key is renamed — so the dossier content is preserved
+/// exactly. Items without a dossier are unchanged.
+fn v3_to_v4(mut root: Map<String, Value>) -> Result<Map<String, Value>> {
+    fn rename_key(obj: &mut Map<String, Value>) {
+        if let Some(v) = obj.remove("validation") {
+            // Don't clobber a `verification` that somehow already exists.
+            obj.entry("verification").or_insert(v);
+        }
+    }
+    for family in ["requirements", "safety_requirements"] {
+        if let Some(Value::Object(items)) = root.get_mut(family) {
+            for item in items.values_mut() {
+                if let Value::Object(o) = item {
+                    rename_key(o);
+                }
+            }
+        }
+    }
+    if let Some(Value::Object(cfg)) = root.get_mut("_config") {
+        rename_key(cfg);
+    }
     Ok(root)
 }
 

@@ -64,20 +64,20 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
     } else {
         100.0 * done as f64 / non_obsolete as f64
     };
-    // REQ-0142: of the verified bucket, how many rest on a GENUINE validation
+    // REQ-0142: of the verified bucket, how many rest on a GENUINE verification
     // dossier vs an audited exemption (backfill / no-dossier waiver) or no
     // dossier at all. `passed()` short-circuits on `exempt`, so without this
     // split the headline "verified" count is misleading. Staleness is not
     // probed here (no source root, and `req status` should stay cheap) — use
-    // `req validation report` for the staleness-aware breakdown.
+    // `req verification report` for the staleness-aware breakdown.
     let mut verified_genuine = 0usize;
     let mut verified_exempt = 0usize;
     for r in &scope {
         if !matches!(r.status, Status::Verified) {
             continue;
         }
-        match crate::commands::validation::classify(r.validation.as_ref(), None, &r.id) {
-            crate::commands::validation::Provenance::Genuine => verified_genuine += 1,
+        match crate::commands::verification::classify(r.verification.as_ref(), None, &r.id) {
+            crate::commands::verification::Provenance::Genuine => verified_genuine += 1,
             _ => verified_exempt += 1,
         }
     }
@@ -160,7 +160,7 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
             verified_genuine,
             verified_exempt,
             if verified_exempt > 0 {
-                "  (run `req validation report` for provenance)"
+                "  (run `req verification report` for provenance)"
             } else {
                 ""
             }

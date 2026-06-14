@@ -171,7 +171,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         updated: now,
         history: vec![super::history("created", None)],
         tests: Vec::new(),
-        validation: None,
+        verification: None,
         extra: Default::default(),
     };
 
@@ -197,7 +197,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     if !findings.is_empty() {
-        eprintln!("Validation:");
+        eprintln!("Verification:");
         for f in &findings {
             eprintln!(
                 "  {} [{}] {}",
@@ -206,7 +206,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
                 f.message
             );
         }
-        // Force the validation block out *before* the stdout "Added"
+        // Force the verification block out *before* the stdout "Added"
         // line so users don't see the success first and miss the
         // warnings underneath when the two streams interleave on a
         // terminal.
@@ -224,7 +224,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         } else {
             return Err(anyhow!(
-                "{} validation errors — fix and retry",
+                "{} verification errors — fix and retry",
                 errors.len()
             ));
         }

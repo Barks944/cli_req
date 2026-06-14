@@ -175,7 +175,11 @@ fn chain_incompleteness(project: &Project, sr_id: &str) -> Option<String> {
                 .into(),
         );
     }
-    let has_pass = sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+    let has_pass = sr
+        .verification
+        .as_ref()
+        .map(|v| v.passed())
+        .unwrap_or(false)
         || sr
             .tests
             .iter()
@@ -322,9 +326,9 @@ fn walkthrough(args: SafetyWalkthroughArgs, file: &Option<PathBuf>) -> Result<()
             project.inherited_sil(sr).map(|s| s.as_str()).unwrap_or("—")
         );
         println!("  status: {}", sr.status.as_str());
-        match sr.validation.as_ref().and_then(|v| v.statement.clone()) {
-            Some(st) => println!("  validation: {}", st),
-            None => println!("  validation: (no concluded statement)"),
+        match sr.verification.as_ref().and_then(|v| v.statement.clone()) {
+            Some(st) => println!("  verification: {}", st),
+            None => println!("  verification: (no concluded statement)"),
         }
         match chain_incompleteness(&project, id) {
             Some(why) => println!("  ⚠ chain incomplete: {} — cannot be acknowledged yet", why),
@@ -357,7 +361,7 @@ fn walkthrough(args: SafetyWalkthroughArgs, file: &Option<PathBuf>) -> Result<()
 fn srs_for_target(project: &Project, raw: &str) -> Result<Vec<String>> {
     let up = raw.trim().to_uppercase();
     let mut ids: Vec<String> = if up.starts_with("SR") {
-        let (id, _) = crate::commands::validation::resolve(project, raw)?;
+        let (id, _) = crate::commands::verification::resolve(project, raw)?;
         vec![id]
     } else if up.starts_with("SF") {
         let sf = up;
@@ -412,8 +416,8 @@ fn acknowledge(args: SafetyAckArgs, file: &Option<PathBuf>) -> Result<()> {
         ));
     }
     let (path, mut project, _lock) = load_for_mutation(file)?;
-    let (id, fam) = crate::commands::validation::resolve(&project, &args.id)?;
-    if !matches!(fam, crate::commands::validation::Family::Sr) {
+    let (id, fam) = crate::commands::verification::resolve(&project, &args.id)?;
+    if !matches!(fam, crate::commands::verification::Family::Sr) {
         return Err(anyhow!("{} is not a safety requirement", args.id));
     }
     // REQ-0174: refuse to acknowledge an incomplete chain (objections allowed).

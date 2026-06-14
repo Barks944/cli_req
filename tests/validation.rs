@@ -1,4 +1,4 @@
-// REQ-0139: the staged validation dossier (plan → analysis → testing →
+// REQ-0139: the staged verification dossier (plan → analysis → testing →
 // statement → verdict) and the promotion gate it drives. Each test maps to
 // the requirement it covers.
 mod common;
@@ -35,7 +35,7 @@ fn req_0139_full_dossier_promotes_a_requirement() {
     implemented_req(&s);
     assert!(s
         .run(&[
-            "validation",
+            "verification",
             "plan",
             "REQ-0001",
             "--plan",
@@ -45,7 +45,7 @@ fn req_0139_full_dossier_promotes_a_requirement() {
         .success());
     assert!(s
         .run(&[
-            "validation",
+            "verification",
             "analysis",
             "REQ-0001",
             "--findings",
@@ -57,7 +57,7 @@ fn req_0139_full_dossier_promotes_a_requirement() {
         .success());
     assert!(s
         .run(&[
-            "validation",
+            "verification",
             "test",
             "REQ-0001",
             "--findings",
@@ -68,7 +68,7 @@ fn req_0139_full_dossier_promotes_a_requirement() {
         .status
         .success());
     let done = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "REQ-0001",
         "--statement",
@@ -100,13 +100,13 @@ fn req_0139_verify_promote_blocked_without_dossier() {
     ]);
     assert!(!out.status.success(), "promote must be blocked");
     assert!(
-        stderr(&out).contains("validation dossier"),
+        stderr(&out).contains("verification dossier"),
         "stderr: {}",
         stderr(&out)
     );
 }
 
-/// REQ-0139: the `validation-exempt` tag lets an ordinary requirement reach
+/// REQ-0139: the `verification-exempt` tag lets an ordinary requirement reach
 /// Verified without a dossier, and the validator stays quiet.
 #[test]
 fn req_0139_exempt_tag_bypasses_the_gate() {
@@ -125,7 +125,7 @@ fn req_0139_exempt_tag_bypasses_the_gate() {
         "--accept",
         "default is thirty seconds",
         "--tag",
-        "validation-exempt",
+        "verification-exempt",
     ]);
     for st in ["proposed", "approved", "implemented"] {
         s.run(&["update", "REQ-0001", "--status", st, "--reason", "step"]);
@@ -176,7 +176,7 @@ fn req_0139_no_dossier_override_records_audited_exemption() {
     ]);
     assert!(ok.status.success(), "override: {}", stderr(&ok));
     assert!(s.run(&["conform"]).status.success());
-    assert!(stdout(&s.run(&["validation", "show", "REQ-0001"])).contains("exemption"));
+    assert!(stdout(&s.run(&["verification", "show", "REQ-0001"])).contains("exemption"));
 }
 
 /// REQ-0139: stage-order is enforced — analysis before plan, testing before
@@ -188,7 +188,7 @@ fn req_0139_stage_order_is_enforced() {
     // analysis before plan
     assert!(!s
         .run(&[
-            "validation",
+            "verification",
             "analysis",
             "REQ-0001",
             "--findings",
@@ -198,11 +198,11 @@ fn req_0139_stage_order_is_enforced() {
         ])
         .status
         .success());
-    s.run(&["validation", "plan", "REQ-0001", "--plan", "p"]);
+    s.run(&["verification", "plan", "REQ-0001", "--plan", "p"]);
     // testing before analysis
     assert!(!s
         .run(&[
-            "validation",
+            "verification",
             "test",
             "REQ-0001",
             "--findings",
@@ -214,7 +214,7 @@ fn req_0139_stage_order_is_enforced() {
         .success());
     // conclude before testing
     s.run(&[
-        "validation",
+        "verification",
         "analysis",
         "REQ-0001",
         "--findings",
@@ -224,7 +224,7 @@ fn req_0139_stage_order_is_enforced() {
     ]);
     assert!(!s
         .run(&[
-            "validation",
+            "verification",
             "conclude",
             "REQ-0001",
             "--statement",
@@ -241,9 +241,9 @@ fn req_0139_stage_order_is_enforced() {
 fn req_0139_fail_verdict_blocks_promotion() {
     let s = Sandbox::new();
     implemented_req(&s);
-    s.run(&["validation", "plan", "REQ-0001", "--plan", "p"]);
+    s.run(&["verification", "plan", "REQ-0001", "--plan", "p"]);
     s.run(&[
-        "validation",
+        "verification",
         "analysis",
         "REQ-0001",
         "--findings",
@@ -252,7 +252,7 @@ fn req_0139_fail_verdict_blocks_promotion() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "REQ-0001",
         "--findings",
@@ -261,7 +261,7 @@ fn req_0139_fail_verdict_blocks_promotion() {
         "fail",
     ]);
     let out = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "REQ-0001",
         "--statement",
@@ -271,13 +271,13 @@ fn req_0139_fail_verdict_blocks_promotion() {
     assert!(!out.status.success(), "FAIL verdict must not promote");
     assert!(stderr(&out).to_lowercase().contains("fail"));
     // Concluding WITHOUT promote is allowed and records the FAIL verdict.
-    let recorded = s.run(&["validation", "conclude", "REQ-0001", "--statement", "s"]);
+    let recorded = s.run(&["verification", "conclude", "REQ-0001", "--statement", "s"]);
     assert!(recorded.status.success(), "{}", stderr(&recorded));
-    assert!(stdout(&s.run(&["validation", "show", "REQ-0001"])).contains("FAIL"));
+    assert!(stdout(&s.run(&["verification", "show", "REQ-0001"])).contains("FAIL"));
 }
 
 /// REQ-V-0032: a Verified requirement with no passing dossier is a hard
-/// validation error.
+/// verification error.
 #[test]
 fn req_0139_validator_flags_verified_without_dossier() {
     let s = Sandbox::new();
@@ -310,7 +310,7 @@ fn req_0139_validator_flags_verified_without_dossier() {
     );
     // backfill clears it.
     let bf = s.run(&[
-        "validation",
+        "verification",
         "backfill",
         "--all",
         "--reason",
@@ -329,9 +329,9 @@ fn req_0139_validator_flags_verified_without_dossier() {
 fn req_0139_reopen_clears_the_verdict() {
     let s = Sandbox::new();
     implemented_req(&s);
-    s.run(&["validation", "plan", "REQ-0001", "--plan", "p"]);
+    s.run(&["verification", "plan", "REQ-0001", "--plan", "p"]);
     s.run(&[
-        "validation",
+        "verification",
         "analysis",
         "REQ-0001",
         "--findings",
@@ -340,7 +340,7 @@ fn req_0139_reopen_clears_the_verdict() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "REQ-0001",
         "--findings",
@@ -348,15 +348,15 @@ fn req_0139_reopen_clears_the_verdict() {
         "--result",
         "pass",
     ]);
-    s.run(&["validation", "conclude", "REQ-0001", "--statement", "s"]);
+    s.run(&["verification", "conclude", "REQ-0001", "--statement", "s"]);
     // A second plan without --reopen is rejected.
     assert!(!s
-        .run(&["validation", "plan", "REQ-0001", "--plan", "p2"])
+        .run(&["verification", "plan", "REQ-0001", "--plan", "p2"])
         .status
         .success());
     // With --reopen + reason it succeeds and the verdict is cleared.
     let re = s.run(&[
-        "validation",
+        "verification",
         "plan",
         "REQ-0001",
         "--plan",
@@ -366,7 +366,7 @@ fn req_0139_reopen_clears_the_verdict() {
         "code changed",
     ]);
     assert!(re.status.success(), "{}", stderr(&re));
-    assert!(stdout(&s.run(&["validation", "show", "REQ-0001"])).contains("not concluded"));
+    assert!(stdout(&s.run(&["verification", "show", "REQ-0001"])).contains("not concluded"));
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +428,7 @@ fn req_0139_safety_requirement_requires_dossier_no_exemption() {
         "SR promote must be blocked without dossier"
     );
     assert!(
-        stderr(&out).contains("validation dossier"),
+        stderr(&out).contains("verification dossier"),
         "stderr: {}",
         stderr(&out)
     );
@@ -440,9 +440,15 @@ fn req_0139_safety_requirement_requires_dossier_no_exemption() {
 fn req_0139_full_dossier_promotes_a_safety_requirement() {
     let s = Sandbox::new();
     implemented_sr(&s, false);
-    s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
     s.run(&[
-        "validation",
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench",
+    ]);
+    s.run(&[
+        "verification",
         "analysis",
         "SR-0001",
         "--findings",
@@ -451,7 +457,7 @@ fn req_0139_full_dossier_promotes_a_safety_requirement() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--findings",
@@ -460,7 +466,7 @@ fn req_0139_full_dossier_promotes_a_safety_requirement() {
         "pass",
     ]);
     let done = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -472,12 +478,12 @@ fn req_0139_full_dossier_promotes_a_safety_requirement() {
         .to_lowercase()
         .contains("verified"));
     // REQ-0145: a Verified safety requirement also needs a human confirmation
-    // of the validation result before the safety case validates clean.
+    // of the verification result before the safety case validates clean.
     assert!(
-        s.run(&["validation", "confirm", "SR-0001"])
+        s.run(&["verification", "confirm", "SR-0001"])
             .status
             .success(),
-        "human confirmation of the SR validation"
+        "human confirmation of the SR verification"
     );
     assert!(
         s.run(&["conform"]).status.success(),
@@ -485,16 +491,16 @@ fn req_0139_full_dossier_promotes_a_safety_requirement() {
     );
 }
 
-/// REQ-0139: the SIL-rigour gate still bites under `validation conclude
+/// REQ-0139: the SIL-rigour gate still bites under `verification conclude
 /// --promote` — a SIL3 SR with only analysis/inspection evidence cannot be
 /// promoted without --force.
 #[test]
 fn req_0139_conclude_promote_respects_sil_gate() {
     let s = Sandbox::new();
     implemented_sr(&s, true); // SIL3, no automated test evidence recorded
-    s.run(&["validation", "plan", "SR-0001", "--plan", "review only"]);
+    s.run(&["verification", "plan", "SR-0001", "--plan", "review only"]);
     s.run(&[
-        "validation",
+        "verification",
         "analysis",
         "SR-0001",
         "--findings",
@@ -503,7 +509,7 @@ fn req_0139_conclude_promote_respects_sil_gate() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--findings",
@@ -512,7 +518,7 @@ fn req_0139_conclude_promote_respects_sil_gate() {
         "pass",
     ]);
     let blocked = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -530,7 +536,7 @@ fn req_0139_conclude_promote_respects_sil_gate() {
     );
     // Concluding without promote still records the dossier.
     assert!(s
-        .run(&["validation", "conclude", "SR-0001", "--statement", "ok"])
+        .run(&["verification", "conclude", "SR-0001", "--statement", "ok"])
         .status
         .success());
 }
@@ -545,9 +551,15 @@ fn req_0139_conclude_promote_respects_sil_gate() {
 fn req_0142_report_marks_genuine_dossier() {
     let s = Sandbox::new();
     implemented_req(&s);
-    s.run(&["validation", "plan", "REQ-0001", "--plan", "review + test"]);
     s.run(&[
-        "validation",
+        "verification",
+        "plan",
+        "REQ-0001",
+        "--plan",
+        "review + test",
+    ]);
+    s.run(&[
+        "verification",
         "analysis",
         "REQ-0001",
         "--findings",
@@ -556,7 +568,7 @@ fn req_0142_report_marks_genuine_dossier() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "REQ-0001",
         "--findings",
@@ -565,14 +577,14 @@ fn req_0142_report_marks_genuine_dossier() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "REQ-0001",
         "--statement",
         "met",
         "--promote",
     ]);
-    let rep = s.run(&["validation", "report", "--json"]);
+    let rep = s.run(&["verification", "report", "--json"]);
     assert!(rep.status.success(), "report: {}", stderr(&rep));
     let out = stdout(&rep);
     assert!(
@@ -582,7 +594,7 @@ fn req_0142_report_marks_genuine_dossier() {
     );
     assert!(out.contains("\"exempt_backfilled\": 0"), "got {}", out);
     // --not-genuine hides the genuine item.
-    let only_bad = stdout(&s.run(&["validation", "report", "--not-genuine"]));
+    let only_bad = stdout(&s.run(&["verification", "report", "--not-genuine"]));
     assert!(
         !only_bad.contains("REQ-0001 "),
         "genuine item should be filtered out; got {}",
@@ -616,18 +628,18 @@ fn req_0142_report_marks_backfilled_exemption() {
         ]);
     }
     s.run(&[
-        "validation",
+        "verification",
         "backfill",
         "--all",
         "--reason",
         "grandfathered",
     ]);
-    let rep = stdout(&s.run(&["validation", "report", "--json"]));
+    let rep = stdout(&s.run(&["verification", "report", "--json"]));
     assert!(rep.contains("\"genuine\": 0"), "got {}", rep);
     assert!(rep.contains("\"exempt_backfilled\": 1"), "got {}", rep);
     assert!(rep.contains("exempt:backfilled"), "got {}", rep);
     // --not-genuine still lists it.
-    let only_bad = stdout(&s.run(&["validation", "report", "--not-genuine"]));
+    let only_bad = stdout(&s.run(&["verification", "report", "--not-genuine"]));
     assert!(only_bad.contains("REQ-0001"), "got {}", only_bad);
     // status splits the verified bucket.
     let st = stdout(&s.run(&["status", "--json"]));
@@ -650,7 +662,7 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
     s.run(&[
         "sreq", "update", "SR-0001", "--status", "verified", "--reason", "force",
     ]);
-    // It is now a hard validation error.
+    // It is now a hard verification error.
     let out = s.run(&["conform", "--json"]);
     assert!(!out.status.success(), "validate should fail");
     assert!(
@@ -660,7 +672,7 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
     );
     // backfill by id is refused for a safety requirement.
     let bf = s.run(&[
-        "validation",
+        "verification",
         "backfill",
         "SR-0001",
         "--reason",
@@ -673,7 +685,13 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
         stderr(&bf)
     );
     // backfill --all skips it, so the error remains.
-    let bfa = s.run(&["validation", "backfill", "--all", "--reason", "grandfather"]);
+    let bfa = s.run(&[
+        "verification",
+        "backfill",
+        "--all",
+        "--reason",
+        "grandfather",
+    ]);
     assert!(bfa.status.success(), "backfill --all: {}", stderr(&bfa));
     assert!(
         !s.run(&["conform"]).status.success(),
@@ -688,9 +706,15 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
 fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
     let s = Sandbox::new();
     implemented_sr(&s, false);
-    s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
     s.run(&[
-        "validation",
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench",
+    ]);
+    s.run(&[
+        "verification",
         "analysis",
         "SR-0001",
         "--findings",
@@ -699,7 +723,7 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--findings",
@@ -710,7 +734,7 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
     // REQ-0187: conclude --promote on a safety requirement records the genuine
     // dossier but leaves it at Implemented awaiting the human co-sign.
     let done = s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -721,7 +745,7 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
 
     // REQ-0188: the SR is enumerated with an awaiting-cosign standing, never as
     // verified/genuine, and never omitted.
-    let rep = stdout(&s.run(&["validation", "report", "--json"]));
+    let rep = stdout(&s.run(&["verification", "report", "--json"]));
     let rv: serde_json::Value = serde_json::from_str(&rep).expect("report json");
     assert_eq!(
         rv["counts"]["genuine"], 0,
@@ -735,7 +759,7 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
         "SR-0001 must be listed as awaiting-cosign: {}",
         rv["safety_requirements"]
     );
-    let human = stdout(&s.run(&["validation", "report"]));
+    let human = stdout(&s.run(&["verification", "report"]));
     assert!(
         human.contains("awaiting-cosign"),
         "human report should label it awaiting-cosign; got {}",
@@ -745,12 +769,12 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
     // A human co-sign (REQ_ACTOR_KIND unset in tests = human) promotes it to
     // Verified and flips its standing to genuine/verified.
     assert!(
-        s.run(&["validation", "confirm", "SR-0001"])
+        s.run(&["verification", "confirm", "SR-0001"])
             .status
             .success(),
-        "human confirmation of the SR validation"
+        "human confirmation of the SR verification"
     );
-    let rep2 = stdout(&s.run(&["validation", "report", "--json"]));
+    let rep2 = stdout(&s.run(&["verification", "report", "--json"]));
     let rv2: serde_json::Value = serde_json::from_str(&rep2).expect("report json");
     assert_eq!(
         rv2["counts"]["genuine"], 1,
@@ -802,13 +826,13 @@ fn req_0185_report_lists_unvalidated_by_stage() {
         "could",
     ]);
     let _ = s.run(&[
-        "validation",
+        "verification",
         "plan",
         "REQ-0002",
         "--plan",
         "will analyse and test B",
     ]);
-    let rep = s.run(&["validation", "report", "--json"]);
+    let rep = s.run(&["verification", "report", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&rep)).expect("report json");
     assert_eq!(
         v["unvalidated_total"], 2,
@@ -841,15 +865,15 @@ fn req_0162_no_dossier_waiver_is_structured() {
     ]);
     assert!(w.status.success(), "no-dossier waiver: {}", stderr(&w));
     // The structured kind is recorded, not inferred from the plan prefix.
-    let show = s.run(&["validation", "show", "REQ-0001", "--json"]);
+    let show = s.run(&["verification", "show", "REQ-0001", "--json"]);
     let dv: serde_json::Value = serde_json::from_str(&stdout(&show)).expect("show json");
     assert_eq!(
-        dv["validation"]["exemption_kind"], "no-dossier",
+        dv["verification"]["exemption_kind"], "no-dossier",
         "structured kind: {}",
         dv
     );
     // And the provenance report classifies it as the no-dossier waiver.
-    let rep = s.run(&["validation", "report", "--json"]);
+    let rep = s.run(&["verification", "report", "--json"]);
     let rv: serde_json::Value = serde_json::from_str(&stdout(&rep)).expect("report json");
     assert!(
         rv["items"]

@@ -84,10 +84,10 @@ fn req_0177_180_183_ingest_attaches_records_and_is_idempotent() {
     assert!(stdout(&first).contains("Ingested 1"), "{}", stdout(&first));
     assert!(stdout(&first).contains("promoted to Verified: REQ-0001"));
     // REQ-0180: the record is bound to the payload commit.
-    let show = run_in(&s, &["validation", "show", "REQ-0001", "--json"]);
+    let show = run_in(&s, &["verification", "show", "REQ-0001", "--json"]);
     let dv: serde_json::Value = serde_json::from_str(&stdout(&show)).unwrap();
     assert_eq!(
-        dv["validation"]["concluded_commit"], sha,
+        dv["verification"]["concluded_commit"], sha,
         "commit-bound dossier"
     );
     // REQ-0177: re-ingesting the same payload creates no duplicate.

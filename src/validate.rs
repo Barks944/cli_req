@@ -10,7 +10,7 @@ use crate::model::{
     Status,
 };
 
-/// A validation finding. `error = true` blocks the operation; otherwise it's a warning.
+/// A verification finding. `error = true` blocks the operation; otherwise it's a warning.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Finding {
     pub error: bool,
@@ -127,15 +127,15 @@ pub const RULES: &[(&str, &str)] = &[
     ),
     (
         "REQ-V-0032",
-        "requirement is Verified but has no passing validation dossier and is not validation-exempt",
+        "requirement is Verified but has no passing verification dossier and is not verification-exempt",
     ),
     (
         "REQ-V-0033",
-        "safety requirement is Verified but lacks a genuine validation dossier (exemptions are not allowed for safety requirements)",
+        "safety requirement is Verified but lacks a genuine verification dossier (exemptions are not allowed for safety requirements)",
     ),
     (
         "REQ-V-0034",
-        "safety requirement is Verified on an agent's dossier but lacks a human confirmation of the validation result (run `req validation confirm`)",
+        "safety requirement is Verified on an agent's dossier but lacks a human confirmation of the verification result (run `req verification confirm`)",
     ),
     (
         "REQ-V-0035",
@@ -599,16 +599,16 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     ));
                 }
             }
-            // REQ-0139 / REQ-V-0032: Verified requires a passing validation
+            // REQ-0139 / REQ-V-0032: Verified requires a passing verification
             // dossier (plan → analysis → testing → statement → verdict)
             // unless the requirement carries a configured exempt tag.
-            let dossier_ok = r.validation.as_ref().map(|v| v.passed()).unwrap_or(false);
-            if !dossier_ok && !p.req_is_validation_exempt(r) {
+            let dossier_ok = r.verification.as_ref().map(|v| v.passed()).unwrap_or(false);
+            if !dossier_ok && !p.req_is_verification_exempt(r) {
                 findings.push(Finding::err(
                     "REQ-V-0032",
-                    "validation",
+                    "verification",
                     format!(
-                        "{} is Verified but has no passing validation dossier — run `req validation plan {} ...` → analysis → test → conclude, or tag it `{}`",
+                        "{} is Verified but has no passing verification dossier — run `req verification plan {} ...` → analysis → test → conclude, or tag it `{}`",
                         r.id,
                         r.id,
                         crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
@@ -628,7 +628,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     // is fed a small JSON stub on stdin and returns
     // `{ "ok": bool, "message": "..." }` on stdout. Failure of the
     // hook itself surfaces as a single REQ-V-0023 warning but does
-    // not stop the rest of validation.
+    // not stop the rest of verification.
     if let Ok(cmd) = std::env::var("REQ_VALIDATE_LLM_CMD") {
         let trimmed = cmd.trim().to_string();
         if !trimmed.is_empty() {
@@ -887,9 +887,9 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                 id,
                 Finding::warn(
                     "REQ-V-0038",
-                    "validation",
+                    "verification",
                     format!(
-                        "{} has a genuine validation dossier and is awaiting a human co-sign — a person must run `req validation confirm {}` to promote it to Verified",
+                        "{} has a genuine verification dossier and is awaiting a human co-sign — a person must run `req verification confirm {}` to promote it to Verified",
                         id, id
                     ),
                 ),
@@ -913,7 +913,7 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             updated: sr.updated,
             history: Vec::new(),
             tests: sr.tests.clone(),
-            validation: None,
+            verification: None,
             extra: Default::default(),
         };
         for f in validate_requirement(&shim) {
@@ -936,33 +936,34 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             // must carry a GENUINE concluded passing dossier. Unlike an
             // ordinary requirement there is no exemption — neither a tag nor
             // an audited back-fill counts. An `exempt` dossier is flagged.
-            let genuine = crate::commands::validation::classify(sr.validation.as_ref(), None, id)
-                .is_genuine();
+            let genuine =
+                crate::commands::verification::classify(sr.verification.as_ref(), None, id)
+                    .is_genuine();
             if !genuine {
-                let exempt = sr.validation.as_ref().map(|v| v.exempt).unwrap_or(false);
+                let exempt = sr.verification.as_ref().map(|v| v.exempt).unwrap_or(false);
                 let why = if exempt {
                     "rests on an audited exemption, which safety requirements may not use"
                 } else {
-                    "has no passing validation dossier"
+                    "has no passing verification dossier"
                 };
                 push(
                     id,
                     Finding::err(
                         "REQ-V-0033",
-                        "validation",
+                        "verification",
                         format!(
-                            "{} is Verified but {} — safety requirements need a genuine dossier; run `req validation plan {} ...` → analysis → test → conclude --promote",
+                            "{} is Verified but {} — safety requirements need a genuine dossier; run `req verification plan {} ...` → analysis → test → conclude --promote",
                             id, why, id
                         ),
                     ),
                 );
             }
             // REQ-0145: a Verified safety requirement also needs a HUMAN
-            // confirmation of the validation result, recorded in addition to
+            // confirmation of the verification result, recorded in addition to
             // the agent's analysis + testing. The agent's dossier alone does
             // not make a safety requirement passed.
             let human_confirmed = sr
-                .validation
+                .verification
                 .as_ref()
                 .map(|v| v.human_confirmation.is_some())
                 .unwrap_or(false);
@@ -971,9 +972,9 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     id,
                     Finding::err(
                         "REQ-V-0034",
-                        "validation",
+                        "verification",
                         format!(
-                            "{} is Verified on an agent's dossier but lacks a human confirmation of the validation result — a person must run `req validation confirm {}` to co-sign it",
+                            "{} is Verified on an agent's dossier but lacks a human confirmation of the verification result — a person must run `req verification confirm {}` to co-sign it",
                             id, id
                         ),
                     ),
@@ -1008,7 +1009,7 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                                 id,
                                 Finding::err(
                                     "REQ-V-0036",
-                                    "validation",
+                                    "verification",
                                     format!(
                                         "{} is Verified at {} but its evidence was justified at {} — the inherited SIL rose after verification; re-verify at the current level (`req sreq verify {} --by automated --promote`)",
                                         id,
@@ -1063,7 +1064,7 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             // the human co-signer if present, else the latest passing evidence.
             let author = sr.history.first().map(|h| h.actor.trim().to_string());
             let verifier = sr
-                .validation
+                .verification
                 .as_ref()
                 .and_then(|v| v.human_confirmation.as_ref())
                 .map(|c| c.actor.clone())
@@ -1081,7 +1082,7 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                         id,
                         Finding::warn(
                             "REQ-V-0037",
-                            "validation",
+                            "verification",
                             format!(
                                 "{} was authored and verified by the same actor ({}) — IEC 61508 wants independence of assessment; have a different competent person verify it",
                                 id, v

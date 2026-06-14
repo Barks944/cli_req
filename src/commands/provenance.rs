@@ -1,26 +1,26 @@
 // REQ-0142 / SR-0004: verification provenance — the *true* status behind a
-// Verified item. `Validation::passed()` short-circuits on `exempt`, so a
+// Verified item. `Verification::passed()` short-circuits on `exempt`, so a
 // backfilled or `--no-dossier` waiver is indistinguishable from a genuine
 // concluded dossier in every headline surface. This classifier recovers that
-// distinction so an agent (or auditor) can tell real validation from a
+// distinction so an agent (or auditor) can tell real verification from a
 // grandfathered exemption in one query.
 //
-// SR-0004 anchors its validation dossier on THIS file alone, so the safety
+// SR-0004 anchors its verification dossier on THIS file alone, so the safety
 // requirement only re-validates when the provenance classifier itself changes
-// — not when unrelated code in the (large) `req validation` surface is edited.
+// — not when unrelated code in the (large) `req verification` surface is edited.
 use std::path::Path;
 
-use crate::model::{Project, Status, TestOutcome, Validation};
+use crate::model::{Project, Status, TestOutcome, Verification};
 
 /// How a *Verified* item's verification stands up to scrutiny. Ordered loosely
 /// from weakest to strongest trust.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Provenance {
-    /// Verified with no validation dossier at all (pre-gate residue, or a
+    /// Verified with no verification dossier at all (pre-gate residue, or a
     /// status forced by other means). The weakest possible standing.
     Ungated,
     /// A passing dossier exists but its `exempt` flag is set: an audited
-    /// `req validation backfill` (grandfathered) waiver.
+    /// `req verification backfill` (grandfathered) waiver.
     ExemptBackfilled,
     /// A passing dossier exists but its `exempt` flag is set: an audited
     /// `req verify --no-dossier` waiver (ordinary requirements only).
@@ -62,7 +62,7 @@ impl Provenance {
 /// Classify a single dossier's provenance. `source_root` is where linked
 /// files are hashed to judge staleness; pass `None` to skip the staleness
 /// probe (treats a genuine dossier as Genuine regardless of drift).
-pub fn classify(v: Option<&Validation>, source_root: Option<&Path>, id: &str) -> Provenance {
+pub fn classify(v: Option<&Verification>, source_root: Option<&Path>, id: &str) -> Provenance {
     let v = match v {
         None => return Provenance::Ungated,
         Some(v) => v,
@@ -107,9 +107,9 @@ pub fn classify(v: Option<&Validation>, source_root: Option<&Path>, id: &str) ->
 /// replaced the old "Verified-but-unconfirmed" hard error.
 pub fn sr_awaiting_cosign(sr: &crate::model::SafetyRequirement) -> bool {
     matches!(sr.status, Status::Implemented)
-        && classify(sr.validation.as_ref(), None, &sr.id) == Provenance::Genuine
+        && classify(sr.verification.as_ref(), None, &sr.id) == Provenance::Genuine
         && sr
-            .validation
+            .verification
             .as_ref()
             .and_then(|v| v.human_confirmation.as_ref())
             .is_none()
@@ -129,10 +129,10 @@ pub fn sr_standing(
         return "awaiting-cosign";
     }
     if matches!(sr.status, Status::Verified) {
-        return match classify(sr.validation.as_ref(), source_root, &sr.id) {
+        return match classify(sr.verification.as_ref(), source_root, &sr.id) {
             Provenance::Genuine => {
                 if sr
-                    .validation
+                    .verification
                     .as_ref()
                     .and_then(|v| v.human_confirmation.as_ref())
                     .is_some()
@@ -147,7 +147,7 @@ pub fn sr_standing(
         };
     }
     // Pre-conclusion: report how far the dossier got.
-    match sr.validation.as_ref() {
+    match sr.verification.as_ref() {
         None => "no-dossier",
         Some(v) if v.analysis.is_none() => "plan-only",
         Some(v) if v.testing.is_none() => "analysed-untested",
@@ -180,7 +180,7 @@ pub fn provenance_report(project: &Project, source_root: Option<&Path>) -> Vec<P
         rows.push(ProvenanceRow {
             id: r.id.clone(),
             family: "requirement",
-            provenance: classify(r.validation.as_ref(), source_root, &r.id),
+            provenance: classify(r.verification.as_ref(), source_root, &r.id),
             sil: None,
         });
     }
@@ -200,10 +200,10 @@ pub fn provenance_report(project: &Project, source_root: Option<&Path>) -> Vec<P
         // human-confirmation step. We do NOT fold this into `classify` because
         // promotion to Verified is gated on `classify().is_genuine()` BEFORE the
         // human confirms (see `gate_safety_requirement`).
-        let mut provenance = classify(sr.validation.as_ref(), source_root, &sr.id);
+        let mut provenance = classify(sr.verification.as_ref(), source_root, &sr.id);
         if provenance == Provenance::Genuine
             && sr
-                .validation
+                .verification
                 .as_ref()
                 .map(|v| v.human_confirmation.is_none())
                 .unwrap_or(false)

@@ -81,9 +81,9 @@ Approved/Implemented/Verified functional reqs cannot lack acceptance.",
   * functional requirements need acceptance criteria
   * link targets must exist; no self-links; parent links cannot cycle
   * approved/implemented/verified functional reqs need acceptance
-  * Verified requirements (REQ + SR) need a passing validation dossier
+  * Verified requirements (REQ + SR) need a passing verification dossier
     (REQ-0139: plan → analysis → testing → statement → verdict). An
-    ordinary requirement may instead carry a `validation-exempt` tag or an
+    ordinary requirement may instead carry a `verification-exempt` tag or an
     audited back-fill; safety requirements have NO exemption — neither a tag
     nor a back-fill, only a genuine dossier (REQ-0143). See REQ-V-0032 /
     REQ-V-0033.
@@ -229,19 +229,19 @@ WHEN YOU FINISH SOMETHING
   req update <id> --status implemented --reason \"...\"
 
   Then VALIDATE it before claiming Verified. Don't one-shot it — walk
-  the validation dossier so the pass/fail is backed by real analysis
+  the verification dossier so the pass/fail is backed by real analysis
   and testing (REQ-0139):
 
-    req validation plan     <id> --plan \"how I'll review + test this\"
-    req validation analysis <id> --findings \"code-review notes\" --result pass
-    req validation test     <id> --findings \"what I ran\" --result pass
-    req validation conclude <id> --statement \"why this passes\" --promote
+    req verification plan     <id> --plan \"how I'll review + test this\"
+    req verification analysis <id> --findings \"code-review notes\" --result pass
+    req verification test     <id> --findings \"what I ran\" --result pass
+    req verification conclude <id> --statement \"why this passes\" --promote
 
   `conclude` derives the verdict (Pass only when BOTH analysis and
   testing passed) and `--promote` flips status to Verified. Promotion
   is BLOCKED without a passing dossier — this holds for `req verify`
   and `req sreq verify --promote` too. A trivial ordinary requirement
-  can carry a `validation-exempt` tag (or use `req verify --no-dossier
+  can carry a `verification-exempt` tag (or use `req verify --no-dossier
   --reason \"...\"`); safety requirements have no exemption. Works on
   both REQ-NNNN and SR-NNNN ids.
 
@@ -250,7 +250,7 @@ WHEN YOU FINISH SOMETHING
 
   CODE CHANGED LATER? The dossier anchors a hash of the linked source,
   so `req stale` flags a Verified item whose code moved since you
-  validated it. Re-validate with `req validation plan <id> --reopen
+  validated it. Re-validate with `req verification plan <id> --reopen
   --reason \"...\"`.
 
 HOW THE FILE IS PROTECTED
@@ -983,7 +983,7 @@ HUMAN CONFIRMATION OF SAFETY VALIDATION (REQ-0145). An agent may author and
 validate a safety requirement's dossier (analysis + testing), but the result
 is NOT considered passed until a HUMAN co-signs it:
 
-  req validation confirm SR-0001
+  req verification confirm SR-0001
 
 `confirm` refuses `REQ_ACTOR_KIND=agent`. A Verified safety requirement that
 carries an agent's dossier but no human confirmation is flagged `REQ-V-0034`
@@ -1126,6 +1126,49 @@ WHAT REQ DOES NOT DO — and you must not let it imply otherwise:
 
   Treat req's output as an organised aid for a competent assessor, never
   as the assessment.",
+    },
+    // REQ-0196 / REQ-0197: the single terminology reference. Every command,
+    // output, history entry and doc uses these words in the senses defined
+    // here, grounded in IEC 61508 / ISO 26262.
+    Section {
+        name: "terminology",
+        summary: "What verification, validation, conformance and Verified mean in req.",
+        body: "req uses these words in their IEC 61508 / ISO 26262 senses. This
+section is the single source of truth; every command, output, history
+entry and doc is meant to match it (REQ-0196 / REQ-0197).
+
+VERIFICATION — \"built it right\"
+  Evidence that a requirement is met as specified. In req this is the
+  staged dossier `req verification` (plan -> analysis -> testing ->
+  conclude), plus, for a safety requirement, an independent human
+  co-sign (`req verification confirm`). Completed verification is the
+  `Verified` state. Verification answers: does the implementation
+  conform to the requirement?
+
+VALIDATION — \"built the right thing\"  (OUT OF SCOPE for req)
+  Confirmation that the chosen requirements meet real needs and reduce
+  residual risk to an acceptable level — the HARA-adequacy / real-world
+  / acceptance judgement. req does NOT do this and models no residual
+  risk; it is your responsibility, performed outside req. req never
+  labels any of its own output or states \"validated\".
+
+  (At the safety-requirement level the human co-sign is independent
+  VERIFICATION review — confirming the evidence supports the claim —
+  not validation. Validation lives above the SR, over the safety goals.)
+
+CONFORMANCE — `req conform`
+  A well-formedness check that the spec file obeys req's rule set
+  (atomic statements, modal verbs, acceptance, links, integrity). It is
+  neither verification nor validation; it says nothing about whether the
+  system meets its requirements. (Formerly misnamed `req validate`.)
+
+VERIFIED
+  The lifecycle state that denotes completed verification of one
+  requirement. It does NOT mean validated or safe.
+
+SIL (functional safety)
+  A *candidate* integrity target derived from the risk-graph parameters
+  you enter — never typed directly. See `req help safety`.",
     },
 ];
 

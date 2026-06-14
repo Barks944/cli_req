@@ -95,7 +95,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Impact(args) => commands::safety_gov::impact(args, &cli.file),
         // REQ-0138: human-only safety governance (accept / status / calibrate).
         Command::Safety(cmd) => commands::safety_gov::run(cmd, &cli.file),
-        // REQ-0139: the staged validation dossier.
-        Command::Validation(cmd) => commands::validation::run(cmd, &cli.file),
+        // REQ-0139: the staged verification dossier.
+        Command::Verification(cmd) => commands::verification::run(cmd, &cli.file),
     }
 }

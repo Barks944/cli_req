@@ -268,10 +268,10 @@ fn req_0134_serve_safety_view_and_api() {
     assert!(body.contains("HAZ-0001"));
 }
 
-// ---------- REQ-0147: web relationship navigation across safety + validation ----------
+// ---------- REQ-0147: web relationship navigation across safety + verification ----------
 
 #[test]
-fn req_0147_web_navigates_safety_chain_and_validation() {
+fn req_0147_web_navigates_safety_chain_and_verification() {
     let s = Sandbox::new();
     s.init("p");
     s.enable_safety();
@@ -315,9 +315,9 @@ fn req_0147_web_navigates_safety_chain_and_validation() {
         "--notes",
         "bench",
     ]);
-    s.run(&["validation", "plan", "SR-0001", "--plan", "p"]);
+    s.run(&["verification", "plan", "SR-0001", "--plan", "p"]);
     s.run(&[
-        "validation",
+        "verification",
         "analysis",
         "SR-0001",
         "--findings",
@@ -326,7 +326,7 @@ fn req_0147_web_navigates_safety_chain_and_validation() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--findings",
@@ -335,14 +335,14 @@ fn req_0147_web_navigates_safety_chain_and_validation() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
         "meets",
         "--promote",
     ]);
-    s.run(&["validation", "confirm", "SR-0001"]); // human (REQ_ACTOR_KIND unset in tests)
+    s.run(&["verification", "confirm", "SR-0001"]); // human (REQ_ACTOR_KIND unset in tests)
 
     let port = pick_free_port();
     let _child = GuardedChild(Some(spawn_server(&s, port)));
@@ -375,7 +375,7 @@ fn req_0147_web_navigates_safety_chain_and_validation() {
     );
 
     // The safety-requirement page links to its function AND shows the
-    // validation dossier with the human confirmation.
+    // verification dossier with the human confirmation.
     let (c3, sr) = http_get(port, "/s/SR-0001");
     assert_eq!(c3, 200);
     assert!(
@@ -383,7 +383,7 @@ fn req_0147_web_navigates_safety_chain_and_validation() {
         "SR page must link the safety function it realizes:\n{sr}"
     );
     assert!(
-        sr.contains("Validation dossier") && sr.contains("human-confirmed"),
-        "SR page must show the validation dossier with the human confirmation:\n{sr}"
+        sr.contains("Verification dossier") && sr.contains("human-confirmed"),
+        "SR page must show the verification dossier with the human confirmation:\n{sr}"
     );
 }
