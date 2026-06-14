@@ -126,3 +126,23 @@ pub fn history(action: impl Into<String>, reason: Option<String>) -> HistoryEntr
         reason,
     }
 }
+
+/// REQ-0161: a forced, irregular change must carry a substantive `--reason`.
+/// An empty or near-empty reason makes a deliberate correction
+/// indistinguishable from a careless override in the audit trail, so reject
+/// anything shorter than `min_len` trimmed characters.
+pub fn ensure_force_reason(reason: &Option<String>, min_len: usize) -> anyhow::Result<()> {
+    let len = reason
+        .as_deref()
+        .map(|r| r.trim().chars().count())
+        .unwrap_or(0);
+    if len < min_len {
+        return Err(anyhow::anyhow!(
+            "a forced change needs a substantive --reason (≥{} characters; got {}). \
+             Explain why this irregular change is correct so the audit trail records the why.",
+            min_len,
+            len
+        ));
+    }
+    Ok(())
+}

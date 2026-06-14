@@ -1463,3 +1463,45 @@ fn req_0148_stale_safety_requirement_is_a_validate_error() {
         "stale SR must be flagged REQ-V-0035:\n{msg}"
     );
 }
+
+/// REQ-0158: a safety requirement obeys the same lifecycle ladder as an
+/// ordinary requirement — a Verified SR cannot be quietly demoted without
+/// an explicit --force (and a substantive --reason, per REQ-0161).
+#[test]
+fn req_0158_safety_requirement_obeys_status_ladder() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "someone is hurt", "-C", "C_C", "-F", "F_B", "-P",
+        "P_B", "-W", "W3",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq", "add", "-t", "R", "-s", "The system shall stop.", "-r", "because", "-a", "stops",
+        "--realizes", "SF-0001",
+    ]);
+    // Seed a Verified state via a forced irregular jump (with a real reason).
+    let up = s.run(&[
+        "sreq", "update", "SR-0001", "--status", "verified", "--force", "--reason",
+        "seed verified state for the ladder test",
+    ]);
+    assert!(up.status.success(), "seed verify: {}", stderr(&up));
+    // Demoting Verified -> Draft without --force must be rejected.
+    let demote = s.run(&["sreq", "update", "SR-0001", "--status", "draft"]);
+    assert!(
+        !demote.status.success(),
+        "SR demotion without --force should be rejected"
+    );
+    assert!(
+        stderr(&demote).contains("irregular transition"),
+        "expected irregular-transition error, got: {}",
+        stderr(&demote)
+    );
+    // With --force and a substantive reason it succeeds.
+    let forced = s.run(&[
+        "sreq", "update", "SR-0001", "--status", "draft", "--force", "--reason",
+        "correcting a bad promotion record",
+    ]);
+    assert!(forced.status.success(), "forced demote: {}", stderr(&forced));
+}

@@ -823,6 +823,8 @@ fn sreq_update(args: SreqUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_sr(&project, &args.id)?;
     let now = Utc::now();
+    // REQ-0161: capture the force-reason floor before the mutable borrow.
+    let min_force_reason_len = project.min_force_reason_len();
     {
         let sr = project.safety_requirements.get_mut(&id).unwrap();
         if let Some(t) = args.title {
@@ -844,7 +846,27 @@ fn sreq_update(args: SreqUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
             sr.priority = p.into();
         }
         if let Some(s) = args.status {
-            sr.status = s.into();
+            // REQ-0158: safety requirements obey the same lifecycle ladder as
+            // ordinary requirements — an irregular transition (backward, a
+            // skip, or leaving Verified for anything but Obsolete) needs an
+            // explicit --force, so a Verified SR cannot be quietly demoted.
+            let to: crate::model::Status = s.into();
+            if sr.status != to {
+                if !crate::model::is_natural_transition(sr.status, to) && !args.force {
+                    return Err(anyhow!(
+                        "{} -> {} is an irregular transition for {}; pass --force \
+                         --reason \"...\" to record an explicit override.",
+                        sr.status.as_str(),
+                        to.as_str(),
+                        id
+                    ));
+                }
+                // REQ-0161: a forced irregular transition needs a substantive reason.
+                if !crate::model::is_natural_transition(sr.status, to) {
+                    super::ensure_force_reason(&args.reason, min_force_reason_len)?;
+                }
+                sr.status = to;
+            }
         }
         for t in &args.add_tag {
             if !sr.tags.contains(t) {

@@ -24,13 +24,22 @@ pub fn run(mut args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
         kind,
         LinkKind::Parent | LinkKind::DependsOn | LinkKind::Refines | LinkKind::Verifies
     );
-    if cycle_checked && !args.remove && creates_cycle(&project, &args.from, &args.to, kind) {
-        return Err(anyhow!(
-            "linking {} -> {} {} would create a cycle",
-            args.from,
-            kind.as_str(),
-            args.to
-        ));
+    if cycle_checked && !args.remove {
+        // REQ-0166: reject the closing edge at link time and name the cycle
+        // path, instead of leaving it for the next full `req validate`.
+        if let Some(path) = cycle_path(&project, &args.from, &args.to, kind) {
+            let chain = std::iter::once(args.from.clone())
+                .chain(path)
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            return Err(anyhow!(
+                "linking {} -> {} {} would create a cycle: {}",
+                args.from,
+                kind.as_str(),
+                args.to,
+                chain
+            ));
+        }
     }
 
     let r = project
@@ -81,35 +90,36 @@ pub fn run(mut args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-/// Walk forward along same-kind links from `target` and report whether the
-/// chain reaches `from` (which would close a cycle once the new link is
-/// added). Generalised from the original parent-only walker so every
-/// asymmetric link kind gets the same protection.
-fn creates_cycle(
+/// REQ-0166: depth-first search forward along *every* same-kind link from
+/// `target`; if the search reaches `from`, adding `from -> target` would
+/// close a cycle, and we return the path `[target, …, from]` so the caller
+/// can name it. The earlier walker followed only the first same-kind edge
+/// per node, so it silently missed cycles that closed through any other
+/// branch. A global visited set is sound here because reachability is
+/// monotonic: a node that cannot reach `from` cannot do so via another path.
+fn cycle_path(
     project: &crate::model::Project,
     from: &str,
     target: &str,
     kind: LinkKind,
-) -> bool {
-    let mut current = target.to_string();
-    let mut visited = Vec::new();
-    loop {
-        if current == from {
-            return true;
+) -> Option<Vec<String>> {
+    use std::collections::HashSet;
+    let mut stack: Vec<(String, Vec<String>)> = vec![(target.to_string(), vec![target.to_string()])];
+    let mut visited: HashSet<String> = HashSet::new();
+    while let Some((node, path)) = stack.pop() {
+        if node == from {
+            return Some(path);
         }
-        if visited.contains(&current) {
-            return false;
+        if !visited.insert(node.clone()) {
+            continue;
         }
-        visited.push(current.clone());
-        let next = project.requirements.get(&current).and_then(|r| {
-            r.links
-                .iter()
-                .find(|l| l.kind == kind)
-                .map(|l| l.target.clone())
-        });
-        match next {
-            Some(n) => current = n,
-            None => return false,
+        if let Some(r) = project.requirements.get(&node) {
+            for l in r.links.iter().filter(|l| l.kind == kind) {
+                let mut next_path = path.clone();
+                next_path.push(l.target.clone());
+                stack.push((l.target.clone(), next_path));
+            }
         }
     }
+    None
 }

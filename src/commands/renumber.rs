@@ -1,12 +1,59 @@
 // Implements REQ-0025 (renumber colliding IDs after merge, rewrite links,
 // record history, support --dry-run).
+// REQ-0159: collision renumber + link rewrite now covers the safety
+// artifact families (HAZ / SF / SR) as well as ordinary requirements, so a
+// merge that renumbers a hazard or safety function no longer leaves its
+// inbound `mitigates` / `realizes` links dangling.
 use anyhow::{anyhow, Context, Result};
+use chrono::{DateTime, Utc};
+use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
 use crate::cli::RenumberArgs;
-use crate::model::{Project, Requirement};
+use crate::model::{Hazard, Link, Project, Requirement, SafetyFunction, SafetyRequirement};
 use crate::storage::{self, load_with_options, resolve_path};
+
+/// The fields renumber needs from any artifact family: a collision key
+/// (created + title), an id to rewrite, link targets to rewrite, and a
+/// history trail to annotate.
+trait Artifact {
+    fn created(&self) -> DateTime<Utc>;
+    fn title(&self) -> &str;
+    fn set_id(&mut self, id: String);
+    fn note_renamed(&mut self, old: &str);
+    fn links_mut(&mut self) -> &mut Vec<Link>;
+}
+
+macro_rules! impl_artifact {
+    ($t:ty) => {
+        impl Artifact for $t {
+            fn created(&self) -> DateTime<Utc> {
+                self.created
+            }
+            fn title(&self) -> &str {
+                &self.title
+            }
+            fn set_id(&mut self, id: String) {
+                self.id = id;
+            }
+            fn note_renamed(&mut self, old: &str) {
+                self.history.push(super::history(
+                    format!("renumbered from {} (merge with base)", old),
+                    None,
+                ));
+            }
+            fn links_mut(&mut self) -> &mut Vec<Link> {
+                &mut self.links
+            }
+        }
+    };
+}
+impl_artifact!(Requirement);
+impl_artifact!(Hazard);
+impl_artifact!(SafetyFunction);
+impl_artifact!(SafetyRequirement);
 
 pub fn run(args: RenumberArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
@@ -15,74 +62,125 @@ pub fn run(args: RenumberArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut current = load_with_options(&path, true)?;
     let base = load_from_git_ref(&args.base, path.file_name().unwrap().to_str().unwrap())?;
 
-    let mut renames: Vec<(String, String)> = Vec::new();
+    // REQ-0159: plan collision renames per family, each drawing from its own
+    // counter, then rewrite links across all families through one map.
     let mut next_id = current.next_id.max(base.next_id);
+    let mut next_haz = current.next_haz_id.max(base.next_haz_id);
+    let mut next_sf = current.next_sf_id.max(base.next_sf_id);
+    let mut next_sr = current.next_sr_id.max(base.next_sr_id);
 
-    // Collisions: same ID exists in both, but content differs from base's version.
-    // These are entries that were added on our side but the ID was also taken on base.
-    let candidate_ids: Vec<String> = current.requirements.keys().cloned().collect();
-    for id in candidate_ids {
-        let base_has = base.requirements.contains_key(&id);
-        if !base_has {
-            continue;
-        }
-        let differs = match (current.requirements.get(&id), base.requirements.get(&id)) {
-            (Some(a), Some(b)) => a.created != b.created || a.title != b.title,
-            _ => false,
-        };
-        if differs {
-            let new_id = format!("REQ-{:04}", next_id);
-            next_id += 1;
-            renames.push((id, new_id));
-        }
-    }
+    let req_renames = plan_renames(
+        &current.requirements,
+        &base.requirements,
+        &mut next_id,
+        "REQ",
+    );
+    let haz_renames = plan_renames(&current.hazards, &base.hazards, &mut next_haz, "HAZ");
+    let sf_renames = plan_renames(
+        &current.safety_functions,
+        &base.safety_functions,
+        &mut next_sf,
+        "SF",
+    );
+    let sr_renames = plan_renames(
+        &current.safety_requirements,
+        &base.safety_requirements,
+        &mut next_sr,
+        "SR",
+    );
 
-    if renames.is_empty() {
+    let all_renames: Vec<(String, String)> = req_renames
+        .iter()
+        .chain(&haz_renames)
+        .chain(&sf_renames)
+        .chain(&sr_renames)
+        .cloned()
+        .collect();
+
+    if all_renames.is_empty() {
         println!("No ID collisions against {}.", args.base);
         return Ok(());
     }
 
     println!("Planned renames:");
-    for (old, new) in &renames {
+    for (old, new) in &all_renames {
         println!("  {} -> {}", old, new);
     }
     if args.dry_run {
         return Ok(());
     }
 
-    apply_renames(&mut current, &renames);
+    // Re-key each family, then rewrite every link target across all families
+    // through one combined map so a renamed HAZ/SF is followed by its inbound
+    // `mitigates` / `realizes` links wherever they live.
+    rekey(&mut current.requirements, &req_renames);
+    rekey(&mut current.hazards, &haz_renames);
+    rekey(&mut current.safety_functions, &sf_renames);
+    rekey(&mut current.safety_requirements, &sr_renames);
+
+    let map: HashMap<String, String> = all_renames.iter().cloned().collect();
+    rewrite_links(current.requirements.values_mut(), &map);
+    rewrite_links(current.hazards.values_mut(), &map);
+    rewrite_links(current.safety_functions.values_mut(), &map);
+    rewrite_links(current.safety_requirements.values_mut(), &map);
+
     current.next_id = next_id;
+    current.next_haz_id = next_haz;
+    current.next_sf_id = next_sf;
+    current.next_sr_id = next_sr;
     storage::save(&path, &current)?;
     println!(
-        "Renumbered {} requirement(s) and re-signed {}.",
-        renames.len(),
+        "Renumbered {} artifact(s) and re-signed {}.",
+        all_renames.len(),
         path.display()
     );
     Ok(())
 }
 
-fn apply_renames(project: &mut Project, renames: &[(String, String)]) {
-    let map: std::collections::HashMap<String, String> = renames.iter().cloned().collect();
-
-    let mut taken: Vec<Requirement> = Vec::new();
-    for (old, _) in renames {
-        if let Some(mut r) = project.requirements.remove(old) {
-            let new_id = map.get(old).unwrap().clone();
-            r.id = new_id.clone();
-            r.history.push(super::history(
-                format!("renumbered from {} (merge with base)", old),
-                None,
-            ));
-            taken.push(r);
+/// REQ-0159: collisions are detected per artifact family (REQ/HAZ/SF/SR).
+/// Same ID in both current and base but content differs — i.e. the ID was
+/// reused on our side for a different artifact than base's.
+fn plan_renames<T: Artifact>(
+    current: &BTreeMap<String, T>,
+    base: &BTreeMap<String, T>,
+    next: &mut u32,
+    prefix: &str,
+) -> Vec<(String, String)> {
+    let mut renames = Vec::new();
+    let mut ids: Vec<&String> = current.keys().collect();
+    ids.sort();
+    for id in ids {
+        let (Some(a), Some(b)) = (current.get(id), base.get(id)) else {
+            continue;
+        };
+        let differs = a.created() != b.created() || a.title() != b.title();
+        if differs {
+            let new_id = format!("{}-{:04}", prefix, *next);
+            *next += 1;
+            renames.push((id.clone(), new_id));
         }
     }
-    for r in taken {
-        project.requirements.insert(r.id.clone(), r);
-    }
+    renames
+}
 
-    // Rewrite link targets.
-    for r in project.requirements.values_mut() {
-        for link in r.links.iter_mut() {
+fn rekey<T: Artifact>(map: &mut BTreeMap<String, T>, renames: &[(String, String)]) {
+    for (old, new) in renames {
+        if let Some(mut a) = map.remove(old) {
+            a.set_id(new.clone());
+            a.note_renamed(old);
+            map.insert(new.clone(), a);
+        }
+    }
+}
+
+/// REQ-0159: rewrite every link target through the combined rename map so a
+/// renamed hazard/SF is followed by its inbound mitigates/realizes links.
+fn rewrite_links<'a, T: Artifact + 'a>(
+    artifacts: impl Iterator<Item = &'a mut T>,
+    map: &HashMap<String, String>,
+) {
+    for a in artifacts {
+        for link in a.links_mut().iter_mut() {
             if let Some(new) = map.get(&link.target) {
                 link.target = new.clone();
             }

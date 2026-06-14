@@ -23,6 +23,8 @@ pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let canonical_id = super::resolve_id(&project, &args.id)?;
     args.id = canonical_id;
+    // REQ-0161: capture the force-reason floor before borrowing the requirement.
+    let min_force_reason_len = project.min_force_reason_len();
     let r = project
         .requirements
         .get_mut(&args.id)
@@ -115,6 +117,10 @@ pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
                     args.id,
                     extra
                 ));
+            }
+            // REQ-0161: a forced irregular transition needs a substantive reason.
+            if !crate::model::is_natural_transition(r.status, s) {
+                super::ensure_force_reason(&args.reason, min_force_reason_len)?;
             }
             changes.push(format!("status {} -> {}", r.status.as_str(), s.as_str()));
             r.status = s;

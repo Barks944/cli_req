@@ -88,11 +88,22 @@ pub struct ValidationConfig {
     /// to `["validation-exempt"]` when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exempt_tags: Option<Vec<String>>,
+    /// REQ-0161: minimum trimmed-character length for the `--reason` on a
+    /// forced, irregular change. Defaults to `DEFAULT_MIN_FORCE_REASON_LEN`
+    /// when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_force_reason_len: Option<usize>,
 }
 
 /// REQ-0139: the default tag that exempts an ordinary requirement from the
 /// validation-dossier gate when no project override is configured.
 pub const DEFAULT_VALIDATION_EXEMPT_TAG: &str = "validation-exempt";
+
+/// REQ-0161: default minimum length (in trimmed characters) for the
+/// `--reason` on a forced, irregular change. A one-character reason makes a
+/// deliberate correction indistinguishable from a careless override; this
+/// is the floor unless a project raises or lowers it via config.
+pub const DEFAULT_MIN_FORCE_REASON_LEN: usize = 12;
 
 impl Project {
     /// REQ-0139: the tags that exempt an ordinary requirement from the
@@ -110,6 +121,16 @@ impl Project {
     pub fn req_is_validation_exempt(&self, r: &Requirement) -> bool {
         let tags = self.validation_exempt_tags();
         r.tags.iter().any(|t| tags.iter().any(|e| e == t))
+    }
+
+    /// REQ-0161: the minimum substantive length required of a `--reason` on
+    /// a forced, irregular change, honouring the project override.
+    pub fn min_force_reason_len(&self) -> usize {
+        self.config
+            .as_ref()
+            .and_then(|c| c.validation.as_ref())
+            .and_then(|v| v.min_force_reason_len)
+            .unwrap_or(DEFAULT_MIN_FORCE_REASON_LEN)
     }
 }
 
