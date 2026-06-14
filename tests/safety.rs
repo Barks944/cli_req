@@ -2193,3 +2193,86 @@ fn req_0189_trace_incomplete_until_cosign() {
         t2
     );
 }
+
+// ---------- REQ-0156: read-only safety-graph impact analysis ----------
+
+fn impact_chain() -> Sandbox {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "HA", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]); // SIL2
+    let _ = s.run(&[
+        "hazard", "add", "-t", "HB", "--harm", "worse", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+        "-W", "W3",
+    ]); // SIL3
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "R",
+        "-s",
+        "The system shall stop on demand.",
+        "-r",
+        "bounds",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    s
+}
+
+#[test]
+fn req_0156_impact_link_shows_before_after_without_mutating() {
+    let s = impact_chain();
+    let before = stdout(&s.run(&["sreq", "show", "SR-0001"]));
+    let out = s.run(&["impact", "--mitigate", "SF-0001=HAZ-0002", "--json"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("impact json");
+    assert_eq!(v["applied"], false);
+    let changes = v["changes"].as_array().unwrap();
+    let sf = changes
+        .iter()
+        .find(|c| c["id"] == "SF-0001")
+        .expect("SF changed");
+    assert_eq!(sf["before"], "SIL2");
+    assert_eq!(sf["after"], "SIL3");
+    assert!(changes
+        .iter()
+        .any(|c| c["id"] == "SR-0001" && c["after"] == "SIL3"));
+    // No mutation: the SR is unchanged on disk.
+    assert_eq!(before, stdout(&s.run(&["sreq", "show", "SR-0001"])));
+}
+
+#[test]
+fn req_0156_impact_calibration_shows_before_after() {
+    let s = impact_chain();
+    let out = s.run(&[
+        "impact",
+        "--calibrate",
+        "C_C/F_B/P_B=W3:SIL1,W2:SIL1,W1:SIL1",
+        "--json",
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("impact json");
+    let changes = v["changes"].as_array().unwrap();
+    assert!(
+        changes
+            .iter()
+            .any(|c| c["id"] == "HAZ-0002" && c["before"] == "SIL3" && c["after"] == "SIL1"),
+        "{}",
+        v["changes"]
+    );
+}
+
+#[test]
+fn req_0156_impact_requires_a_proposed_edit() {
+    let s = impact_chain();
+    let out = s.run(&["impact"]);
+    assert!(!out.status.success(), "impact with no edit should error");
+    assert!(stderr(&out).contains("nothing to analyse"));
+}

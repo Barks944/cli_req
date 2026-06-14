@@ -85,6 +85,7 @@ impl Command {
             Command::Sreq(SreqCmd::Realize(a)) => a.json,
             Command::Sreq(SreqCmd::Verify(a)) => a.json,
             Command::Trace(a) => a.json,
+            Command::Impact(a) => a.json,
             Command::Safety(SafetyCmd::Status(a)) => a.json,
             Command::Safety(SafetyCmd::Calibrate(a)) => a.json,
             Command::Validation(ValidationCmd::Plan(a)) => a.json,
@@ -214,6 +215,11 @@ pub enum Command {
     /// Print the end-to-end safety case for a HAZ/SF/SR id —
     /// hazard → safety function → safety requirements → verification.
     Trace(TraceArgs),
+    // REQ-0156: marker kept off the --help line (see REQ-0151).
+    /// Preview which safety artifacts' derived SIL a proposed change (a
+    /// calibration edit, a mitigates/realizes link, or a hazard
+    /// assessment) would move — without applying it.
+    Impact(ImpactArgs),
     // REQ-0138: marker kept off the --help line (see REQ-0151).
     /// Human-only functional-safety governance — accept the
     /// liability disclaimer (which activates the safety features) and
@@ -796,6 +802,25 @@ pub struct TraceArgs {
     /// A HAZ-NNNN, SF-NNNN, or SR-NNNN id. Tracing from a hazard shows
     /// the whole case; from an SF or SR shows the slice rooted there.
     pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+// REQ-0156: arguments for the read-only safety-graph impact preview.
+#[derive(Args, Debug)]
+pub struct ImpactArgs {
+    /// Proposed calibration edit: "C_D/F_B/P_B=W3:4,W2:3,W1:2".
+    #[arg(long)]
+    pub calibrate: Option<String>,
+    /// Proposed mitigates link: "SF-0001=HAZ-0002".
+    #[arg(long)]
+    pub mitigate: Option<String>,
+    /// Proposed realizes link: "SR-0001=SF-0002".
+    #[arg(long)]
+    pub realize: Option<String>,
+    /// Proposed hazard assessment: "HAZ-0001=C_D/F_B/P_B/W3".
+    #[arg(long)]
+    pub assess: Option<String>,
     #[arg(long)]
     pub json: bool,
 }

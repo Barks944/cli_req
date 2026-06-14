@@ -16,13 +16,13 @@ use chrono::Utc;
 use std::path::{Path, PathBuf};
 
 use crate::cli::{
-    SafetyAcceptArgs, SafetyAckArgs, SafetyCalibrateArgs, SafetyCmd, SafetyStatusArgs,
+    ImpactArgs, SafetyAcceptArgs, SafetyAckArgs, SafetyCalibrateArgs, SafetyCmd, SafetyStatusArgs,
     SafetyWalkthroughArgs,
 };
 use crate::model::{
     calibration_leaf, Avoidance, CalibrationRow, Consequence, DisclaimerAcceptance, Frequency,
-    Project, ProjectConfig, SafetyConfig, Sil, Status, TestOutcome, WalkthroughAck,
-    SAFETY_DISCLAIMER_VERSION,
+    Link, LinkKind, Probability, Project, ProjectConfig, SafetyConfig, Sil, Status, TestOutcome,
+    WalkthroughAck, SAFETY_DISCLAIMER_VERSION,
 };
 use crate::storage::{self, load_for_mutation, resolve_path};
 
@@ -741,6 +741,185 @@ fn parse_p(s: &str) -> Result<Avoidance> {
         "P_B" => Avoidance::Pb,
         o => return Err(anyhow!("bad avoidance '{}' (P_A/P_B)", o)),
     })
+}
+
+fn sil_str(s: Option<Sil>) -> String {
+    s.map(|s| s.as_str().to_string())
+        .unwrap_or_else(|| "—".to_string())
+}
+
+fn parse_w(s: &str) -> Result<Probability> {
+    Ok(match s.trim().to_uppercase().as_str() {
+        "W1" => Probability::W1,
+        "W2" => Probability::W2,
+        "W3" => Probability::W3,
+        o => return Err(anyhow!("bad probability '{}' (W1/W2/W3)", o)),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// REQ-0156: read-only safety-graph impact analysis
+// ---------------------------------------------------------------------------
+
+/// Normalise a typed id of a given family to canonical `PREFIX-NNNN`.
+fn norm_id(prefix: &str, raw: &str) -> String {
+    let t = raw.trim();
+    let up = t.to_uppercase();
+    let digits = if let Some(rest) = up.strip_prefix(&format!("{}-", prefix)) {
+        rest.to_string()
+    } else if t.chars().all(|c| c.is_ascii_digit()) && !t.is_empty() {
+        t.to_string()
+    } else {
+        return up;
+    };
+    match digits.parse::<u32>() {
+        Ok(n) => format!("{}-{:04}", prefix, n),
+        Err(_) => up,
+    }
+}
+
+/// Split a `LHS=RHS` spec, erroring with the flag name on a missing `=`.
+fn split_eq(spec: &str, flag: &str) -> Result<(String, String)> {
+    spec.split_once('=')
+        .map(|(a, b)| (a.trim().to_string(), b.trim().to_string()))
+        .ok_or_else(|| anyhow!("{} expects LHS=RHS (missing '=' in '{}')", flag, spec))
+}
+
+/// SIL snapshot of every safety artifact: HAZ → required, SF → allocated,
+/// SR → inherited.
+fn sil_snapshot(p: &Project) -> std::collections::BTreeMap<String, Option<Sil>> {
+    let mut m = std::collections::BTreeMap::new();
+    for (id, h) in &p.hazards {
+        m.insert(id.clone(), p.required_sil(h));
+    }
+    for (id, sf) in &p.safety_functions {
+        m.insert(id.clone(), p.allocated_sil(sf));
+    }
+    for (id, sr) in &p.safety_requirements {
+        m.insert(id.clone(), p.inherited_sil(sr));
+    }
+    m
+}
+
+/// REQ-0156: report which safety artifacts' derived SIL a proposed change
+/// would move, without applying it. The edit is staged on a clone; the
+/// on-disk project is never written.
+pub fn impact(args: ImpactArgs, file: &Option<PathBuf>) -> Result<()> {
+    let path = resolve_path(file);
+    let project = storage::load(&path)?;
+    let before = sil_snapshot(&project);
+    let mut proposed = project.clone();
+    let mut described: Vec<String> = Vec::new();
+
+    if let Some(spec) = &args.calibrate {
+        let (leaf, row) = parse_set(spec)?;
+        let cfg = proposed.config.get_or_insert_with(ProjectConfig::default);
+        let safety = cfg.safety.get_or_insert_with(SafetyConfig::default);
+        let map = safety.calibration.get_or_insert_with(Default::default);
+        map.insert(leaf.clone(), row);
+        described.push(format!("calibrate {}", leaf));
+    }
+    if let Some(spec) = &args.mitigate {
+        let (sf_raw, haz_raw) = split_eq(spec, "--mitigate")?;
+        let sf = norm_id("SF", &sf_raw);
+        let haz = norm_id("HAZ", &haz_raw);
+        if !project.hazards.contains_key(&haz) {
+            return Err(anyhow!("no such hazard: {}", haz_raw));
+        }
+        let sf_obj = proposed
+            .safety_functions
+            .get_mut(&sf)
+            .ok_or_else(|| anyhow!("no such safety function: {}", sf_raw))?;
+        sf_obj.links.push(Link {
+            kind: LinkKind::Mitigates,
+            target: haz.clone(),
+        });
+        described.push(format!("{} mitigates {}", sf, haz));
+    }
+    if let Some(spec) = &args.realize {
+        let (sr_raw, sf_raw) = split_eq(spec, "--realize")?;
+        let sr = norm_id("SR", &sr_raw);
+        let sf = norm_id("SF", &sf_raw);
+        if !project.safety_functions.contains_key(&sf) {
+            return Err(anyhow!("no such safety function: {}", sf_raw));
+        }
+        let sr_obj = proposed
+            .safety_requirements
+            .get_mut(&sr)
+            .ok_or_else(|| anyhow!("no such safety requirement: {}", sr_raw))?;
+        sr_obj.links.push(Link {
+            kind: LinkKind::Realizes,
+            target: sf.clone(),
+        });
+        described.push(format!("{} realizes {}", sr, sf));
+    }
+    if let Some(spec) = &args.assess {
+        let (haz_raw, params) = split_eq(spec, "--assess")?;
+        let haz = norm_id("HAZ", &haz_raw);
+        let parts: Vec<&str> = params.split('/').collect();
+        if parts.len() != 4 {
+            return Err(anyhow!(
+                "--assess expects HAZ-NNNN=C_x/F_x/P_x/Wn (got '{}')",
+                params
+            ));
+        }
+        let c = parse_c(parts[0])?;
+        let f = parse_f(parts[1])?;
+        let p = parse_p(parts[2])?;
+        let w = parse_w(parts[3])?;
+        let h = proposed
+            .hazards
+            .get_mut(&haz)
+            .ok_or_else(|| anyhow!("no such hazard: {}", haz_raw))?;
+        h.consequence = Some(c);
+        h.frequency = Some(f);
+        h.avoidance = Some(p);
+        h.probability = Some(w);
+        described.push(format!("assess {}", haz));
+    }
+
+    if described.is_empty() {
+        return Err(anyhow!(
+            "nothing to analyse — pass at least one of --calibrate, --mitigate, --realize, --assess"
+        ));
+    }
+
+    let after = sil_snapshot(&proposed);
+    let mut changes: Vec<(String, Option<Sil>, Option<Sil>)> = Vec::new();
+    for (id, b) in &before {
+        let a = after.get(id).copied().unwrap_or(None);
+        if *b != a {
+            changes.push((id.clone(), *b, a));
+        }
+    }
+    changes.sort_by(|x, y| x.0.cmp(&y.0));
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "proposed": described,
+                "changes": changes.iter().map(|(id, b, a)| serde_json::json!({
+                    "id": id,
+                    "before": b.map(|s| s.as_str()),
+                    "after": a.map(|s| s.as_str()),
+                })).collect::<Vec<_>>(),
+                "applied": false,
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Impact of proposed change ({}):", described.join(", "));
+    if changes.is_empty() {
+        println!("  no derived SIL changes.");
+    } else {
+        for (id, b, a) in &changes {
+            println!("  {:<9}  {} → {}", id, sil_str(*b), sil_str(*a));
+        }
+    }
+    println!("\n(no changes written — `req impact` is a read-only preview)");
+    Ok(())
 }
 
 fn atty_stdin() -> bool {

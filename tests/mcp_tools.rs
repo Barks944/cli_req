@@ -89,6 +89,10 @@ const HUMANS_ONLY_TUI: &[&str] = &[
     // (plan/analysis/test/conclude) driven from the CLI/MCP, like `verify`
     // and `test` above — not a single-shot human menu action.
     "validation",
+    // REQ-0156: `req impact` is a read-only safety-graph preview whose
+    // arguments mirror the human-only calibration/link decisions it informs;
+    // it lives with the `req safety` governance surface, not the menu.
+    "impact",
 ];
 
 #[test]
@@ -175,6 +179,10 @@ const HUMANS_ONLY_CLI: &[&str] = &[
     // are deliberate human governance actions — `req safety` is kept off
     // the agent/MCP surface on purpose.
     "safety",
+    // REQ-0156: `req impact` is a read-only safety-graph preview tied to the
+    // human-reviewed calibration/link decisions; kept with the human-only
+    // safety surface rather than exposed as an agent tool.
+    "impact",
 ];
 
 #[test]
