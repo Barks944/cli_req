@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{
     TestResultArg, ValidationActivityArgs, ValidationBackfillArgs, ValidationCmd,
-    ValidationConcludeArgs, ValidationConfirmArgs, ValidationPlanArgs, ValidationReportArgs,
-    ValidationShowArgs,
+    ValidationConcludeArgs, ValidationConfirmArgs, ValidationPlanArgs, ValidationRefreshArgs,
+    ValidationReportArgs, ValidationShowArgs,
 };
 use crate::commands::test_cmd::{auto_linked_files, current_head_sha_opt, hash_files, short};
 use crate::model::{
@@ -82,6 +82,8 @@ pub fn run(cmd: ValidationCmd, file: &Option<PathBuf>) -> Result<()> {
         ValidationCmd::Show(a) => show(a, file),
         ValidationCmd::Backfill(a) => backfill(a, file),
         ValidationCmd::Report(a) => report(a, file),
+        // REQ-0153: re-normalize staleness anchors that are provably unchanged.
+        ValidationCmd::RefreshAnchors(a) => refresh_anchors(a, file),
     }
 }
 
@@ -381,7 +383,10 @@ pub fn op_conclude(
         Some(
             linked
                 .iter()
-                .map(|p| p.to_string_lossy().to_string())
+                // REQ-0152: store forward-slash paths so the dossier is portable
+                // across platforms (and resolves on POSIX even when anchored on
+                // Windows).
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .collect(),
         )
     };
@@ -773,6 +778,150 @@ fn backfill(args: ValidationBackfillArgs, file: &Option<PathBuf>) -> Result<()> 
         println!("Nothing to back-fill — every Verified item already has a passing dossier.");
     } else {
         println!("Back-filled {} item(s): {}", done.len(), done.join(", "));
+    }
+    Ok(())
+}
+
+/// REQ-0153: outcome of `req validation refresh-anchors`.
+pub struct RefreshReport {
+    /// Ordinary requirements whose source was proven byte-identical to its
+    /// anchor and whose content hash was re-normalized in place.
+    pub refreshed: Vec<String>,
+    /// Verified requirements whose source genuinely changed since the anchor —
+    /// left stale; they need real re-validation.
+    pub drifted: Vec<String>,
+    /// Verified safety requirements that are stale under the new hash. Never
+    /// auto-refreshed: REQ-0148/REQ-0145 require a human re-anchor + co-sign.
+    pub safety_pending: Vec<String>,
+}
+
+/// REQ-0153: re-normalize the staleness anchors that the REQ-0152 hash change
+/// invalidated, but ONLY where it is provably safe. For each Verified ordinary
+/// requirement with a content hash:
+///   - if the NEW hash already matches, it is fresh — skip;
+///   - else if the LEGACY hash of the current source still equals the stored
+///     hash, the source bytes are byte-identical to the anchor (the change was
+///     purely the hash format), so re-store the new normalized hash — no
+///     re-validation, the verification still stands;
+///   - else the source genuinely drifted — leave it stale for re-validation.
+///
+/// Safety requirements are never touched here; they are reported as pending a
+/// human re-anchor + co-sign.
+pub fn op_refresh_anchors(project: &mut Project, root: &Path) -> RefreshReport {
+    use crate::commands::test_cmd::{auto_linked_files, hash_files, hash_files_legacy};
+
+    let mut safety_pending: Vec<String> = project
+        .safety_requirements
+        .iter()
+        .filter(|(_, sr)| matches!(sr.status, Status::Verified))
+        .filter_map(|(id, sr)| {
+            let v = sr.validation.as_ref()?;
+            let stored = v.content_hash.as_deref()?;
+            let linked: Vec<PathBuf> = match &v.linked_files {
+                Some(l) => l.iter().map(PathBuf::from).collect(),
+                None => auto_linked_files(id, root),
+            };
+            // Only those actually stale under the new algorithm are pending.
+            (hash_files(&linked) != stored).then(|| id.clone())
+        })
+        .collect();
+    safety_pending.sort();
+
+    let mut refreshed = Vec::new();
+    let mut drifted = Vec::new();
+    let ids: Vec<String> = project.requirements.keys().cloned().collect();
+    for id in ids {
+        let r = &project.requirements[&id];
+        if !matches!(r.status, Status::Verified) {
+            continue;
+        }
+        let Some(v) = &r.validation else { continue };
+        let Some(stored) = v.content_hash.clone() else {
+            continue;
+        };
+        let linked: Vec<PathBuf> = match &v.linked_files {
+            Some(l) => l.iter().map(PathBuf::from).collect(),
+            None => auto_linked_files(&id, root),
+        };
+        let new = hash_files(&linked);
+        if new == stored {
+            continue; // already fresh under the new algorithm
+        }
+        if hash_files_legacy(&linked) == stored {
+            // Proven unchanged: re-store the normalized hash + forward-slash paths.
+            let normalized: Vec<String> = linked
+                .iter()
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .collect();
+            let v = project
+                .requirements
+                .get_mut(&id)
+                .unwrap()
+                .validation
+                .as_mut()
+                .unwrap();
+            v.content_hash = Some(new);
+            v.linked_files = Some(normalized);
+            refreshed.push(id);
+        } else {
+            drifted.push(id);
+        }
+    }
+    refreshed.sort();
+    drifted.sort();
+    RefreshReport {
+        refreshed,
+        drifted,
+        safety_pending,
+    }
+}
+
+fn refresh_anchors(args: ValidationRefreshArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let report = op_refresh_anchors(&mut project, Path::new(&args.path));
+    let changed = !report.refreshed.is_empty();
+    if changed && !args.dry_run {
+        project.updated = Utc::now();
+        storage::save(&path, &project)?;
+    }
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "refreshed": report.refreshed,
+                "drifted": report.drifted,
+                "safety_pending": report.safety_pending,
+                "dry_run": args.dry_run,
+            }))?
+        );
+        return Ok(());
+    }
+    println!(
+        "{} anchor(s) {} (source proven unchanged since the REQ-0152 hash change).",
+        report.refreshed.len(),
+        if args.dry_run {
+            "would be refreshed"
+        } else {
+            "refreshed"
+        }
+    );
+    if !report.drifted.is_empty() {
+        println!(
+            "\n{} requirement(s) genuinely drifted — re-validate (plan --reopen → … → conclude --promote):",
+            report.drifted.len()
+        );
+        for id in &report.drifted {
+            println!("  {id}");
+        }
+    }
+    if !report.safety_pending.is_empty() {
+        println!(
+            "\n{} safety requirement(s) need a human re-anchor + co-sign (never auto-refreshed):",
+            report.safety_pending.len()
+        );
+        for id in &report.safety_pending {
+            println!("  {id}");
+        }
     }
     Ok(())
 }

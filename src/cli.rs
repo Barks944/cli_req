@@ -258,6 +258,10 @@ pub enum ValidationCmd {
     /// Report the true verification provenance of every Verified
     /// item — genuine dossier vs audited exemption vs stale vs ungated.
     Report(ValidationReportArgs),
+    // REQ-0153: marker kept off the --help line (see REQ-0151).
+    /// Re-normalize staleness anchors that a hash-format change invalidated,
+    /// only where the source is provably unchanged; drifted items stay stale.
+    RefreshAnchors(ValidationRefreshArgs),
 }
 
 #[derive(Args, Debug)]
@@ -350,6 +354,18 @@ pub struct ValidationReportArgs {
     /// (exemptions, stale, ungated) — the ones that need attention.
     #[arg(long)]
     pub not_genuine: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ValidationRefreshArgs {
+    /// Source root used to hash linked files.
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Report what would change without writing.
+    #[arg(long)]
+    pub dry_run: bool,
     #[arg(long)]
     pub json: bool,
 }

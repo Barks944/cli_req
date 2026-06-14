@@ -328,7 +328,38 @@ pub fn auto_linked_files(req_id: &str, root: &std::path::Path) -> Vec<std::path:
 /// concatenated with a path separator). Missing files produce an empty
 /// byte block; the path is always included so deletion vs same-content
 /// renames are distinguishable.
+///
+/// REQ-0152: the digest is platform-independent. The path component is
+/// normalized to forward slashes so a dossier anchored on Windows (which
+/// stores `.\src\x.rs`) matches the same logical file on a Linux/macOS CI
+/// checkout, and the file is also READ through that normalized path so a
+/// backslash path stored on Windows still resolves on a POSIX host. Carriage
+/// returns are stripped from the content so a CRLF working tree hashes the same
+/// as an LF one (autocrlf must not change a staleness verdict).
 pub fn hash_files(files: &[std::path::PathBuf]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for p in files {
+        let norm = p.to_string_lossy().replace('\\', "/");
+        hasher.update(norm.as_bytes());
+        hasher.update(b"\0");
+        if let Ok(bytes) = std::fs::read(&norm) {
+            // CRLF -> LF: hash logical content, not the host's line-ending style.
+            let lf: Vec<u8> = bytes.into_iter().filter(|&b| b != b'\r').collect();
+            hasher.update(&lf);
+        }
+        hasher.update(b"\n");
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// REQ-0153: the pre-REQ-0152 hashing algorithm — path string verbatim, raw
+/// file bytes, no normalization. Kept ONLY so `req validation refresh-anchors`
+/// can prove a dossier's source is byte-identical to what it anchored: if the
+/// legacy hash of the current source still equals the stored hash, the bytes
+/// have not changed since the anchor (so the new normalized hash can be
+/// substituted safely, without re-validation). Never use for new anchors.
+pub fn hash_files_legacy(files: &[std::path::PathBuf]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     for p in files {
@@ -814,4 +845,38 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// REQ-0152: hash_files must produce an identical digest regardless of the
+    /// host's path-separator or line-ending conventions, so a dossier anchored
+    /// on Windows is not falsely STALE on a Linux/macOS CI checkout.
+    #[test]
+    fn req_0152_hash_is_platform_independent() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let file = src.join("x.rs");
+
+        // Same logical file referenced via forward-slash vs backslash path.
+        std::fs::write(&file, b"line1\nline2\n").unwrap();
+        let base = dir.path().to_string_lossy().replace('\\', "/");
+        let fwd = std::path::PathBuf::from(format!("{base}/src/x.rs"));
+        let back = std::path::PathBuf::from(format!("{base}/src/x.rs").replace('/', "\\"));
+        assert_eq!(
+            hash_files(std::slice::from_ref(&fwd)),
+            hash_files(std::slice::from_ref(&back)),
+            "path separator must not change the digest"
+        );
+
+        // Same logical content with CRLF vs LF line endings.
+        std::fs::write(&file, b"line1\r\nline2\r\n").unwrap();
+        let crlf = hash_files(std::slice::from_ref(&fwd));
+        std::fs::write(&file, b"line1\nline2\n").unwrap();
+        let lf = hash_files(std::slice::from_ref(&fwd));
+        assert_eq!(crlf, lf, "CRLF and LF content must hash identically");
+    }
 }
