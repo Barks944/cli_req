@@ -101,6 +101,60 @@ pub fn classify(v: Option<&Validation>, source_root: Option<&Path>, id: &str) ->
     Provenance::Genuine
 }
 
+/// REQ-0187/0188: a safety requirement that has a genuine concluded Pass
+/// dossier and sits at Implemented awaiting the human co-sign that will
+/// promote it to Verified. This is the clean, committable resting state that
+/// replaced the old "Verified-but-unconfirmed" hard error.
+pub fn sr_awaiting_cosign(sr: &crate::model::SafetyRequirement) -> bool {
+    matches!(sr.status, Status::Implemented)
+        && classify(sr.validation.as_ref(), None, &sr.id) == Provenance::Genuine
+        && sr
+            .validation
+            .as_ref()
+            .and_then(|v| v.human_confirmation.as_ref())
+            .is_none()
+}
+
+/// REQ-0188: a one-word standing for any safety requirement, regardless of
+/// status, so the report can enumerate every SR and none is hidden by a
+/// status filter or silently read as done.
+pub fn sr_standing(
+    sr: &crate::model::SafetyRequirement,
+    source_root: Option<&std::path::Path>,
+) -> &'static str {
+    if matches!(sr.status, Status::Obsolete) {
+        return "obsolete";
+    }
+    if sr_awaiting_cosign(sr) {
+        return "awaiting-cosign";
+    }
+    if matches!(sr.status, Status::Verified) {
+        return match classify(sr.validation.as_ref(), source_root, &sr.id) {
+            Provenance::Genuine => {
+                if sr
+                    .validation
+                    .as_ref()
+                    .and_then(|v| v.human_confirmation.as_ref())
+                    .is_some()
+                {
+                    "verified"
+                } else {
+                    "unconfirmed"
+                }
+            }
+            Provenance::Stale => "stale",
+            _ => "ungated",
+        };
+    }
+    // Pre-conclusion: report how far the dossier got.
+    match sr.validation.as_ref() {
+        None => "no-dossier",
+        Some(v) if v.analysis.is_none() => "plan-only",
+        Some(v) if v.testing.is_none() => "analysed-untested",
+        Some(_) => "pending-conclusion",
+    }
+}
+
 /// One row of the provenance report.
 pub struct ProvenanceRow {
     pub id: String,

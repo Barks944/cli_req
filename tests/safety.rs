@@ -1053,20 +1053,28 @@ fn req_0145_safety_validation_needs_human_confirmation() {
     .status
     .success());
 
-    // Verified on the agent's dossier, but REQ-V-0034 flags it as not-yet-passed.
+    // REQ-0187/0188: conclude leaves the SR at Implemented awaiting a human
+    // co-sign — a non-blocking advisory (REQ-V-0038), NOT a hard error, so the
+    // spec stays committable while the human signature is outstanding.
     let v1 = run(&["validate"], None);
-    assert!(
-        !v1.status.success(),
-        "an agent-only SR validation must not pass a clean validate"
-    );
     let v1out = format!(
         "{}{}",
         String::from_utf8_lossy(&v1.stdout),
         String::from_utf8_lossy(&v1.stderr)
     );
     assert!(
-        v1out.contains("REQ-V-0034"),
-        "REQ-V-0034 must flag the unconfirmed safety requirement: {v1out}"
+        v1.status.success(),
+        "awaiting-cosign must be a non-blocking advisory, not a hard error: {v1out}"
+    );
+    assert!(
+        v1out.contains("REQ-V-0038"),
+        "REQ-V-0038 advisory must name the awaiting safety requirement: {v1out}"
+    );
+    // It must NOT read as verified yet.
+    assert!(
+        String::from_utf8_lossy(&run(&["sreq", "show", "SR-0001"], None).stdout)
+            .contains("awaiting human co-sign"),
+        "sreq show must surface the awaiting state"
     );
 
     // An agent cannot confirm on a human's behalf.
@@ -1646,6 +1654,15 @@ fn verified_sil2_chain() -> Sandbox {
         "SR-0001 met: stop path verified.",
         "--promote",
     ]);
+    // REQ-0187: conclude leaves a safety requirement at Implemented awaiting a
+    // human co-sign; the confirm (non-agent actor here) promotes to Verified.
+    let _ = s.run(&[
+        "validation",
+        "confirm",
+        "SR-0001",
+        "--note",
+        "reviewed and accepted",
+    ]);
     s
 }
 
@@ -1910,5 +1927,269 @@ fn req_0169_172_walkthrough_gate_and_acknowledge() {
         after.status.success(),
         "gate should pass after ack: {}",
         stderr(&after)
+    );
+}
+
+// ---------- REQ-0187/0188/0189: human co-sign promotes; awaiting state is visible ----------
+
+#[test]
+fn req_0187_conclude_leaves_sr_awaiting_then_confirm_promotes() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the line",
+        "-s",
+        "The system shall stop the line on demand.",
+        "-r",
+        "operator safety",
+        "-a",
+        "stops within 200ms",
+        "--realizes",
+        "SF-0001",
+    ]);
+    for st in ["proposed", "approved", "implemented"] {
+        let _ = s.run(&[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            st,
+            "--reason",
+            "advance for validation",
+        ]);
+    }
+    let _ = s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
+    let _ = s.run(&[
+        "validation",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "logic reviewed",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench passes",
+    ]);
+    // conclude --promote on an SR must NOT reach Verified.
+    let c = s.run(&[
+        "validation",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "stop obligation met",
+        "--promote",
+    ]);
+    assert!(c.status.success(), "{}", stderr(&c));
+    assert!(
+        !stdout(&s.run(&["sreq", "list"])).contains("verified"),
+        "SR must not be Verified after agent conclude"
+    );
+    assert!(stdout(&s.run(&["sreq", "show", "SR-0001"])).contains("awaiting human co-sign"));
+    // An agent may not confirm.
+    let by_agent = common::req(&[
+        "--file",
+        s.path().to_str().unwrap(),
+        "validation",
+        "confirm",
+        "SR-0001",
+    ]);
+    // (default actor kind is unknown here; force agent)
+    let by_agent2 = {
+        use std::process::Command;
+        Command::new(env!("CARGO_BIN_EXE_req"))
+            .args([
+                "--file",
+                s.path().to_str().unwrap(),
+                "validation",
+                "confirm",
+                "SR-0001",
+            ])
+            .env_remove("REQ_FILE")
+            .env("REQ_ACTOR_KIND", "agent")
+            .output()
+            .unwrap()
+    };
+    let _ = by_agent;
+    assert!(!by_agent2.status.success(), "agent must not confirm");
+    // Human confirm promotes to Verified.
+    let conf = s.run(&["validation", "confirm", "SR-0001", "--note", "reviewed"]);
+    assert!(conf.status.success(), "{}", stderr(&conf));
+    assert!(stdout(&s.run(&["sreq", "show", "SR-0001"])).contains("verified"));
+}
+
+#[test]
+fn req_0188_awaiting_cosign_is_advisory_not_error() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the line",
+        "-s",
+        "The system shall stop the line on demand.",
+        "-r",
+        "operator safety",
+        "-a",
+        "stops within 200ms",
+        "--realizes",
+        "SF-0001",
+    ]);
+    for st in ["proposed", "approved", "implemented"] {
+        let _ = s.run(&[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            st,
+            "--reason",
+            "advance for validation",
+        ]);
+    }
+    let _ = s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
+    let _ = s.run(&[
+        "validation",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "logic reviewed",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench passes",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "met",
+        "--promote",
+    ]);
+    // validate: advisory (success), names REQ-V-0038.
+    let v = s.run(&["validate"]);
+    assert!(
+        v.status.success(),
+        "awaiting must not block validate: {}",
+        stdout(&v)
+    );
+    let body = format!("{}{}", stdout(&v), stderr(&v));
+    assert!(
+        body.contains("REQ-V-0038"),
+        "advisory must name the awaiting SR: {}",
+        body
+    );
+}
+
+#[test]
+fn req_0189_trace_incomplete_until_cosign() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the line",
+        "-s",
+        "The system shall stop the line on demand.",
+        "-r",
+        "operator safety",
+        "-a",
+        "stops within 200ms",
+        "--realizes",
+        "SF-0001",
+    ]);
+    for st in ["proposed", "approved", "implemented"] {
+        let _ = s.run(&[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            st,
+            "--reason",
+            "advance for validation",
+        ]);
+    }
+    let _ = s.run(&["validation", "plan", "SR-0001", "--plan", "review + bench"]);
+    let _ = s.run(&[
+        "validation",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "logic reviewed",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench passes",
+    ]);
+    let _ = s.run(&[
+        "validation",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "met",
+        "--promote",
+    ]);
+    // Trace: incomplete, blocking names the awaiting SR (REQ-0189).
+    let t1 = stdout(&s.run(&["trace", "HAZ-0001"]));
+    assert!(
+        t1.contains("incomplete"),
+        "trace must be incomplete pre-cosign: {}",
+        t1
+    );
+    assert!(
+        t1.contains("SR-0001 awaiting human co-sign"),
+        "blocker named: {}",
+        t1
+    );
+    // After co-sign, trace is complete.
+    let _ = s.run(&["validation", "confirm", "SR-0001"]);
+    let t2 = stdout(&s.run(&["trace", "HAZ-0001"]));
+    assert!(
+        t2.contains("linked and verified"),
+        "trace complete after cosign: {}",
+        t2
     );
 }

@@ -3132,6 +3132,9 @@ mod validation_mcp {
             "id": out.id,
             "verdict": out.verdict.as_str(),
             "promoted": out.promoted,
+            // REQ-0187: a safety requirement waits at Implemented for a human
+            // co-sign (`req validation confirm`) before reaching Verified.
+            "awaiting_confirmation": out.awaiting_confirmation,
             "validation": validation::dossier(&p, &out.id, fam),
         }))?)
     }

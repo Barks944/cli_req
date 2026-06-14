@@ -751,13 +751,20 @@ fn sreq_list(args: SreqListArgs, file: &Option<PathBuf>) -> Result<()> {
         println!("No safety requirements.");
         return Ok(());
     }
-    println!("{:<8}  {:<6}  {:<12}  TITLE", "ID", "SIL", "STATUS");
+    println!("{:<8}  {:<6}  {:<14}  TITLE", "ID", "SIL", "STATUS");
     for sr in rows {
+        // REQ-0188: an awaiting-co-sign requirement reads as such, never as a
+        // plain "implemented" that a reviewer might mistake for done.
+        let status = if super::provenance::sr_awaiting_cosign(sr) {
+            "awaiting-cosign"
+        } else {
+            sr.status.as_str()
+        };
         println!(
-            "{:<8}  {:<6}  {:<12}  {}",
+            "{:<8}  {:<6}  {:<14}  {}",
             sr.id,
             sil_str(project.inherited_sil(sr)),
-            sr.status.as_str(),
+            status,
             sr.title
         );
     }
@@ -774,7 +781,16 @@ fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
     println!("{}  {}", sr.id, sr.title);
-    println!("  status:       {}", sr.status.as_str());
+    // REQ-0188: surface the awaiting-co-sign state explicitly.
+    if super::provenance::sr_awaiting_cosign(sr) {
+        println!(
+            "  status:       {} (awaiting human co-sign — `req validation confirm {}`)",
+            sr.status.as_str(),
+            sr.id
+        );
+    } else {
+        println!("  status:       {}", sr.status.as_str());
+    }
     println!("  priority:     {}", sr.priority.as_str());
     println!("  inherits SIL: {}", sil_str(project.inherited_sil(sr)));
     println!("  statement:    {}", sr.statement);
@@ -1110,6 +1126,14 @@ fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
     let mut sr_total = 0;
     let mut sr_verified = 0;
     let mut blocking = Vec::new();
+    // REQ-0189: a realizing safety requirement counts toward completeness only
+    // when the validator also considers it done — genuinely validated, human
+    // co-signed, and not stale — so `req trace` can never claim a hazard's
+    // safety case complete while `req validate` reports findings on the same
+    // requirements. Staleness is judged against the working tree (root "."),
+    // matching how `req validate` (REQ-V-0035) checks it.
+    use crate::commands::provenance::{classify, sr_awaiting_cosign, Provenance};
+    let root = std::path::Path::new(".");
     for sf in &sfs {
         for sr in project
             .safety_requirements
@@ -1117,10 +1141,30 @@ fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
             .filter(|sr| realizes(sr, &sf.id))
         {
             sr_total += 1;
-            if matches!(sr.status, Status::Verified) {
+            let standing = classify(sr.validation.as_ref(), Some(root), &sr.id);
+            let confirmed = sr
+                .validation
+                .as_ref()
+                .and_then(|v| v.human_confirmation.as_ref())
+                .is_some();
+            let clean = matches!(sr.status, Status::Verified)
+                && confirmed
+                && standing == Provenance::Genuine;
+            if clean {
                 sr_verified += 1;
             } else {
-                blocking.push(format!("{} not verified", sr.id));
+                let why = if sr_awaiting_cosign(sr)
+                    || (matches!(sr.status, Status::Verified) && !confirmed)
+                {
+                    "awaiting human co-sign"
+                } else if standing == Provenance::Stale {
+                    "stale"
+                } else if !matches!(sr.status, Status::Verified) {
+                    "not verified"
+                } else {
+                    "not validated"
+                };
+                blocking.push(format!("{} {}", sr.id, why));
             }
         }
     }

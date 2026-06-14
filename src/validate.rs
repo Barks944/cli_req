@@ -149,6 +149,10 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0037",
         "safety requirement was verified by the same actor who authored it (independence of assessment, warn)",
     ),
+    (
+        "REQ-V-0038",
+        "safety requirement has a genuine dossier and awaits a human co-sign to reach Verified (advisory)",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -873,6 +877,23 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
     for (id, sr) in &p.safety_requirements {
         if matches!(sr.status, Status::Obsolete) {
             continue;
+        }
+        // REQ-0188: a safety requirement with a genuine concluded dossier that
+        // sits at Implemented awaiting a human co-sign is surfaced as a
+        // non-blocking advisory — loud at the gate, but it does not block the
+        // commit (the human co-sign is the act that promotes it to Verified).
+        if crate::commands::provenance::sr_awaiting_cosign(sr) {
+            push(
+                id,
+                Finding::warn(
+                    "REQ-V-0038",
+                    "validation",
+                    format!(
+                        "{} has a genuine validation dossier and is awaiting a human co-sign — a person must run `req validation confirm {}` to promote it to Verified",
+                        id, id
+                    ),
+                ),
+            );
         }
         // Reuse the requirement statement-quality rules via a shim so a
         // safety requirement is held to the same bar (modal verb, weasel

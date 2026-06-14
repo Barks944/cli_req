@@ -707,7 +707,8 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
         "--result",
         "pass",
     ]);
-    // Promote to Verified WITHOUT the human co-sign.
+    // REQ-0187: conclude --promote on a safety requirement records the genuine
+    // dossier but leaves it at Implemented awaiting the human co-sign.
     let done = s.run(&[
         "validation",
         "conclude",
@@ -718,34 +719,31 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
     ]);
     assert!(done.status.success(), "conclude: {}", stderr(&done));
 
-    // The dossier is genuine, but the missing co-sign must show as `unconfirmed`,
-    // NOT `genuine` — mirroring the REQ-V-0034 validate error.
+    // REQ-0188: the SR is enumerated with an awaiting-cosign standing, never as
+    // verified/genuine, and never omitted.
     let rep = stdout(&s.run(&["validation", "report", "--json"]));
-    assert!(
-        rep.contains("\"unconfirmed\": 1"),
-        "expected unconfirmed=1; got {}",
+    let rv: serde_json::Value = serde_json::from_str(&rep).expect("report json");
+    assert_eq!(
+        rv["counts"]["genuine"], 0,
+        "un-co-signed SR is not genuine: {}",
         rep
     );
+    let srs = rv["safety_requirements"].as_array().unwrap();
     assert!(
-        rep.contains("\"genuine\": 0"),
-        "an un-co-signed SR must not count as genuine; got {}",
-        rep
+        srs.iter()
+            .any(|x| x["id"] == "SR-0001" && x["standing"] == "awaiting-cosign"),
+        "SR-0001 must be listed as awaiting-cosign: {}",
+        rv["safety_requirements"]
     );
     let human = stdout(&s.run(&["validation", "report"]));
     assert!(
-        human.contains("unconfirmed"),
-        "human report should label it unconfirmed; got {}",
+        human.contains("awaiting-cosign"),
+        "human report should label it awaiting-cosign; got {}",
         human
     );
-    // --not-genuine surfaces it (it is not genuine standing).
-    let only_bad = stdout(&s.run(&["validation", "report", "--not-genuine"]));
-    assert!(
-        only_bad.contains("SR-0001"),
-        "unconfirmed SR must appear under --not-genuine; got {}",
-        only_bad
-    );
 
-    // A human co-sign (REQ_ACTOR_KIND unset in tests = human) flips it genuine.
+    // A human co-sign (REQ_ACTOR_KIND unset in tests = human) promotes it to
+    // Verified and flips its standing to genuine/verified.
     assert!(
         s.run(&["validation", "confirm", "SR-0001"])
             .status
@@ -753,10 +751,20 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
         "human confirmation of the SR validation"
     );
     let rep2 = stdout(&s.run(&["validation", "report", "--json"]));
-    assert!(
-        rep2.contains("\"genuine\": 1") && rep2.contains("\"unconfirmed\": 0"),
+    let rv2: serde_json::Value = serde_json::from_str(&rep2).expect("report json");
+    assert_eq!(
+        rv2["counts"]["genuine"], 1,
         "after co-sign the SR is genuine; got {}",
         rep2
+    );
+    assert!(
+        rv2["safety_requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["id"] == "SR-0001" && x["standing"] == "verified"),
+        "after co-sign SR-0001 standing is verified: {}",
+        rv2["safety_requirements"]
     );
 }
 

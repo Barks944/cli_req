@@ -86,6 +86,10 @@ pub struct ConcludeOutcome {
     pub id: String,
     pub verdict: TestOutcome,
     pub promoted: bool,
+    /// REQ-0187: true when this was a safety requirement whose dossier and
+    /// evidence were recorded but which now waits at Implemented for a human
+    /// co-sign (`req validation confirm`) to reach Verified.
+    pub awaiting_confirmation: bool,
 }
 
 // REQ-0142: the verification-provenance classifier now lives in its own module
@@ -446,6 +450,7 @@ pub fn op_conclude(
             .unwrap_or(false);
 
     let mut promoted = false;
+    let mut awaiting = false;
     {
         let it = item_mut(project, &id, fam);
         {
@@ -458,8 +463,18 @@ pub fn op_conclude(
             v.linked_files = linked_files.clone();
         }
         if will_record {
-            *it.status = Status::Verified;
-            promoted = true;
+            // REQ-0187: an ordinary requirement is promoted to Verified here;
+            // a safety requirement records its genuine dossier + evidence but
+            // stops at Implemented, awaiting the human co-sign that promotes
+            // it. This removes the old unreachable "Verified-but-unconfirmed"
+            // hard-error state an agent could not get out of.
+            if matches!(fam, Family::Sr) {
+                *it.status = Status::Implemented;
+                awaiting = true;
+            } else {
+                *it.status = Status::Verified;
+                promoted = true;
+            }
             it.tests.push(TestRecord {
                 at: now,
                 actor: super::current_actor(),
@@ -482,6 +497,8 @@ pub fn op_conclude(
                 verdict.as_str(),
                 if promoted {
                     " — promoted to Verified"
+                } else if awaiting {
+                    " — awaiting human confirmation"
                 } else {
                     ""
                 }
@@ -494,6 +511,7 @@ pub fn op_conclude(
         id,
         verdict,
         promoted,
+        awaiting_confirmation: awaiting,
     })
 }
 
@@ -728,7 +746,16 @@ fn conclude(args: ValidationConcludeArgs, file: &Option<PathBuf>) -> Result<()> 
             "Concluded validation for {} — verdict {}{}.",
             out.id,
             out.verdict.as_str().to_uppercase(),
-            if out.promoted { " → Verified" } else { "" }
+            if out.promoted {
+                " → Verified".to_string()
+            } else if out.awaiting_confirmation {
+                format!(
+                    " → Implemented, awaiting human co-sign (`req validation confirm {}`)",
+                    out.id
+                )
+            } else {
+                String::new()
+            }
         );
     }
     Ok(())
@@ -747,11 +774,10 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
         ));
     }
     let (id, fam) = resolve(project, raw)?;
-    let now = Utc::now();
-    let actor = super::current_actor();
+    // REQ-0187: read-only preconditions before the mutable borrow. The dossier
+    // must have a concluded Pass verdict to confirm.
     {
-        let it = item_mut(project, &id, fam);
-        let v = it.validation.as_mut().ok_or_else(|| {
+        let v = dossier(project, &id, fam).ok_or_else(|| {
             anyhow!(
                 "{} has no validation dossier to confirm — run `req validation plan {} ...` first.",
                 id,
@@ -765,6 +791,23 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
                 id
             ));
         }
+    }
+    // REQ-0187: for a safety requirement, the co-sign is the act that promotes
+    // to Verified, so re-apply the same status-ladder + SIL-rigour preflight
+    // conclude used. Carry forward an audited SIL-gate exception so a forced
+    // conclude can still be confirmed.
+    if matches!(fam, Family::Sr) {
+        let had_exception = project.safety_requirements[&id]
+            .tests
+            .iter()
+            .any(|t| matches!(t.outcome, TestOutcome::Pass) && t.sil_gate_exception);
+        promote_preflight(project, &id, fam, had_exception)?;
+    }
+    let now = Utc::now();
+    let actor = super::current_actor();
+    {
+        let it = item_mut(project, &id, fam);
+        let v = it.validation.as_mut().unwrap();
         v.human_confirmation = Some(ValidationActivity {
             summary: if note.is_empty() {
                 "human confirmation of the validation result".to_string()
@@ -776,9 +819,20 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
             at: now,
             actor: actor.clone(),
         });
+        // REQ-0187: the human co-sign promotes a safety requirement to Verified.
+        let promoted_sr = matches!(fam, Family::Sr);
+        if promoted_sr {
+            *it.status = Status::Verified;
+        }
         *it.updated = now;
-        it.history
-            .push(super::history("validation result confirmed by human", None));
+        it.history.push(super::history(
+            if promoted_sr {
+                "validation result confirmed by human — promoted to Verified"
+            } else {
+                "validation result confirmed by human"
+            },
+            None,
+        ));
     }
     project.updated = now;
     Ok(id)
@@ -1018,6 +1072,18 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     let rows = provenance_report(&project, Some(&args.path));
     // REQ-0185: the unvalidated surface, grouped by dossier-pipeline stage.
     let unvalidated = unvalidated_rows(&project);
+    // REQ-0188: every safety requirement with its standing, none omitted.
+    let mut sr_standings: Vec<(String, &'static str)> = project
+        .safety_requirements
+        .values()
+        .map(|sr| {
+            (
+                sr.id.clone(),
+                crate::commands::provenance::sr_standing(sr, Some(&args.path)),
+            )
+        })
+        .collect();
+    sr_standings.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut genuine = 0usize;
     let mut backfilled = 0usize;
@@ -1085,6 +1151,10 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
                 "unvalidated_total": unvalidated.len(),
                 "unvalidated_by_stage": unval_by_stage,
                 "unvalidated": unval_items,
+                // REQ-0188: every safety requirement with its standing.
+                "safety_requirements": sr_standings.iter().map(|(id, s)| {
+                    serde_json::json!({ "id": id, "standing": s })
+                }).collect::<Vec<_>>(),
             }))?
         );
         return Ok(());
@@ -1135,6 +1205,25 @@ fn report(args: ValidationReportArgs, file: &Option<PathBuf>) -> Result<()> {
         println!();
         for (id, fam, stage) in &unvalidated {
             println!("  {:<9}  {:<18}  {}", id, stage, fam);
+        }
+    }
+
+    // REQ-0188: every safety requirement and its standing — never omitted by a
+    // status filter, never silently counted as done. The awaiting-cosign state
+    // is its own distinct category.
+    if !sr_standings.is_empty() {
+        println!();
+        let awaiting = sr_standings
+            .iter()
+            .filter(|(_, s)| *s == "awaiting-cosign")
+            .count();
+        println!(
+            "Safety requirements ({} total, {} awaiting human co-sign)",
+            sr_standings.len(),
+            awaiting
+        );
+        for (id, standing) in &sr_standings {
+            println!("  {:<9}  {}", id, standing);
         }
     }
 
