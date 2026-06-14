@@ -26,6 +26,11 @@ permissions:
 # uses the provided input or "dryrun".
 env:
   ARCHIVE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.ref_name || github.ref_name }}
+  # Run JavaScript actions (actions/upload-artifact, softprops/action-gh-release)
+  # on Node 24. They still ship a Node 20 runtime, which GitHub deprecates on
+  # 2026-06-16 and removes on 2026-09-16; opting in now silences the warning and
+  # exercises the runtime that becomes the runner default anyway.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build:
