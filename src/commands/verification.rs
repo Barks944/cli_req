@@ -113,6 +113,9 @@ pub fn run(cmd: VerificationCmd, file: &Option<PathBuf>) -> Result<()> {
         VerificationCmd::Show(a) => show(a, file),
         VerificationCmd::Backfill(a) => backfill(a, file),
         VerificationCmd::Report(a) => report(a, file),
+        // REQ-0191: `status` is an alias of `report` — the obvious name for
+        // "what is the V&V standing of everything?".
+        VerificationCmd::Status(a) => report(a, file),
         // REQ-0153: re-normalize staleness anchors that are provably unchanged.
         VerificationCmd::RefreshAnchors(a) => refresh_anchors(a, file),
     }

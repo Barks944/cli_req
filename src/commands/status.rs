@@ -156,14 +156,8 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
     // REQ-0142: surface the genuine-vs-exempt split under the verified line.
     if counts[4] > 0 {
         println!(
-            "    └─ genuine dossier: {}  ·  exempt/ungated: {}{}",
-            verified_genuine,
-            verified_exempt,
-            if verified_exempt > 0 {
-                "  (run `req verification report` for provenance)"
-            } else {
-                ""
-            }
+            "    └─ genuine verification: {}  ·  exempt/ungated: {}",
+            verified_genuine, verified_exempt,
         );
     }
     println!(
@@ -175,6 +169,12 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
     println!(
         "Delivery progress: {:.1}%  ({} of {} non-obsolete are implemented or verified)",
         delivery_pct, done, non_obsolete
+    );
+    // REQ-0191 / SR-0006: a status view must point to the true V&V standing,
+    // not let "verified" read as the whole story.
+    println!(
+        "\nV&V standing: `req verification status` for every requirement's verification \
+         state (genuine / awaiting human co-sign / exempt / stale / unvalidated)."
     );
     if !defective.is_empty() {
         println!();

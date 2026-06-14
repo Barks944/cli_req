@@ -922,3 +922,44 @@ fn req_0167_records_on_behalf_of_human() {
         body
     );
 }
+
+// ---------- REQ-0191: verification status reachable under an obvious name ----------
+
+#[test]
+fn req_0191_verification_status_alias_and_status_pointer() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Seed requirement here",
+        "-s",
+        "The system shall do a thing.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    // `req verification status` is an alias of the report (same shape).
+    let st = s.run(&["verification", "status", "--json"]);
+    assert!(st.status.success(), "verification status: {}", stderr(&st));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&st)).expect("status json");
+    assert!(
+        v.get("counts").is_some(),
+        "status carries the provenance counts: {}",
+        v
+    );
+    assert!(
+        v.get("unvalidated_total").is_some(),
+        "and the unvalidated surface"
+    );
+    // `req status` points to the true V&V standing.
+    let status = stdout(&s.run(&["status"]));
+    assert!(
+        status.contains("verification status"),
+        "status must point to V&V truth:\n{}",
+        status
+    );
+}

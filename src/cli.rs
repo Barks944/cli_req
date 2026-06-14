@@ -269,6 +269,12 @@ pub enum VerificationCmd {
     /// Report the true verification provenance of every Verified
     /// item — genuine dossier vs audited exemption vs stale vs ungated.
     Report(VerificationReportArgs),
+    // REQ-0191: `status` is the obvious name users reach for; it is an alias
+    // of `report` so the accurate, complete V&V standing of every item is
+    // reachable without knowing the word "report".
+    /// The verification & validation standing of every requirement and safety
+    /// requirement (alias of `report`).
+    Status(VerificationReportArgs),
     // REQ-0153: marker kept off the --help line (see REQ-0151).
     /// Re-normalize staleness anchors that a hash-format change invalidated,
     /// only where the source is provably unchanged; drifted items stay stale.
