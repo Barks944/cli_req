@@ -1300,6 +1300,7 @@ pub struct Hazard {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
+// SF-0007 / SR-0008: the hazard mitigation-adequacy / residual-risk record.
 /// REQ-0202: a hazard's mitigation-adequacy / residual-risk argument. This is
 /// the validation-flavoured analogue of the verification dossier: it captures
 /// *why* the linked safety functions and requirements together reduce the

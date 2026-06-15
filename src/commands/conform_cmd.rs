@@ -51,6 +51,8 @@ pub fn run(args: ConformArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
 
+    // SR-0007: a Verified safety function's dossier goes stale when its source
+    // drifts, like a safety requirement's (the staleness arm of the SF gate).
     // REQ-0201: the same staleness discipline applies to a Verified safety
     // function — its dossier anchors the source that argues it achieves its safe
     // state, so a later code change invalidates the verification until it is

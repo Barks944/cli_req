@@ -65,6 +65,7 @@ use crate::storage::{self, load_for_mutation, load_resolved};
 pub enum Family {
     Req,
     Sr,
+    // SF-0006 / SR-0007: this is the safety-function verification gate itself.
     /// REQ-0201: a safety function (SF-NNNN) carries the same dossier as a
     /// safety requirement, so the one `req verification` surface verifies it
     /// too. Like a safety requirement it needs a human co-sign and cannot be

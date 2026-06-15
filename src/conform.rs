@@ -863,6 +863,8 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
         // residual-risk judgement, so Verified must rest on the recorded,
         // co-signed reasoning instead of a typed status.
         if matches!(h.status, HazardStatus::Verified) {
+            // SR-0008: a Verified hazard must rest on a human-co-signed adequacy
+            // argument (the conformance side of the hazard-adequacy gate).
             let cosigned = h
                 .adequacy
                 .as_ref()
@@ -952,6 +954,8 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             );
         }
         if matches!(sf.status, SafetyFunctionStatus::Verified) {
+            // SR-0007: enforce that a Verified safety function rests on a genuine
+            // human-co-signed dossier (the conformance side of the SF gate).
             // REQ-V-0039: a Verified SF must carry a GENUINE concluded passing
             // dossier — no exemption, no back-fill (the gate rejects both).
             if !genuine {

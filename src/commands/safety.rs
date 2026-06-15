@@ -22,6 +22,8 @@ use crate::model::{
 };
 use crate::storage::{self, load_for_mutation, load_resolved};
 
+// SF-0008 / SR-0009: the achieved-integrity boundary stamp that stops a
+// target-only trace being misread as evidence of achieved integrity (HAZ-0004).
 /// REQ-0203: the achieved-integrity boundary stamp. `req` tracks the
 /// REQUIRED/allocated/inherited integrity TARGET and the verified links
 /// between artifacts — never the ACHIEVED failure measure. Printed on every
@@ -129,6 +131,8 @@ pub fn run_hazard(cmd: HazardCmd, file: &Option<PathBuf>) -> Result<()> {
     }
 }
 
+// SF-0007 / SR-0008: the hazard adequacy gate — a hazard reaches Verified only
+// via a recorded, human-co-signed residual-risk argument.
 // REQ-0202: record the mitigation-adequacy / residual-risk argument for a
 // hazard. req records and forces the reasoning; it does not perform the HARA
 // or pronounce the risk acceptable. An agent may record the argument; a human
@@ -747,6 +751,8 @@ fn sf_update(args: SfUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         if let Some(s) = args.status {
             let next: SafetyFunctionStatus = s.into();
+            // SR-0007: a safety function's Verified status is earned through a
+            // genuine human-co-signed dossier, never typed.
             // REQ-0201: Implemented and Verified are EARNED through the
             // verification dossier, never typed. A safety function reaches
             // Implemented by concluding a passing dossier, and Verified by the
