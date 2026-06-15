@@ -12,12 +12,12 @@ pub fn run(args: ConformArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_, project) = load_resolved(file)?;
     let mut report = conform::conform_project(&project);
 
-    // REQ-0148: a Verified safety requirement whose validated source has
-    // drifted (content-hash staleness) is INVALID until it is re-validated and
+    // REQ-0148: a Verified safety requirement whose verified source has
+    // drifted (content-hash staleness) is INVALID until it is re-verified and
     // re-confirmed by a human. This is a filesystem check (it hashes the linked
     // source), so it lives at the command layer, like `req stale` — but it is a
-    // hard error (REQ-V-0035), so `req validate` and CI block until the safety
-    // requirement is re-validated.
+    // hard error (REQ-V-0035), so `req conform` and CI block until the safety
+    // requirement is re-verified.
     let source_root = std::path::Path::new(".");
     for (id, sr) in &project.safety_requirements {
         if !matches!(sr.status, crate::model::Status::Verified) {
@@ -44,7 +44,7 @@ pub fn run(args: ConformArgs, file: &Option<PathBuf>) -> Result<()> {
                     field: "verification",
                     rule_code: "REQ-V-0035",
                     message: format!(
-                        "{id} is Verified but its validated source has drifted (stale) — a stale safety requirement is invalid until re-validated and re-confirmed by a human: `req verification plan {id} --reopen --reason \"...\"` → analysis → test → conclude --promote, then a human runs `req verification confirm {id}`"
+                        "{id} is Verified but its verified source has drifted (stale) — a stale safety requirement is invalid until re-verified and re-confirmed by a human: `req verification plan {id} --reopen --reason \"...\"` → analysis → test → conclude --promote, then a human runs `req verification confirm {id}`"
                     ),
                 }],
             ));

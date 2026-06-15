@@ -1,5 +1,5 @@
 // Implements REQ-0067: req import — ingest requirements from markdown or
-// JSON; route every item through the validator so the integrity guarantee
+// JSON; route every item through the conformance checker so the integrity guarantee
 // applies to imported content. IDs are re-allocated to avoid collisions
 // with the destination project.
 use anyhow::{anyhow, Context, Result};

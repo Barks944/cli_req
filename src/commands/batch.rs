@@ -1,5 +1,5 @@
 // Implements REQ-0066: req batch — apply many mutations atomically from a
-// JSON document. The whole batch is staged in memory and validated; any
+// JSON document. The whole batch is staged in memory and conformance-checked; any
 // rejection rolls the entire transaction back (file is byte-identical to
 // its pre-batch state). One file write per batch, one history entry per
 // affected requirement.

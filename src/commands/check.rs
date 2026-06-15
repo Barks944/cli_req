@@ -40,7 +40,7 @@ pub fn run(args: CheckArgs, file: &Option<PathBuf>) -> Result<()> {
     // Which requirements changed?
     let changed_reqs: Vec<String> = changed_req_ids(&current, base.as_ref());
 
-    // Validate just those requirements.
+    // Conformance-check just those requirements.
     let mut findings: Vec<serde_json::Value> = Vec::new();
     let mut errs = 0usize;
     let mut warns = 0usize;

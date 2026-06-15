@@ -2,7 +2,7 @@
 //
 // Three artifact families — hazards (HAZ), safety functions (SF), and
 // safety requirements (SR) — plus `req trace`, the end-to-end safety
-// case. Every mutation goes through the same load-lock-validate-save
+// case. Every mutation goes through the same load-lock-conform-save
 // cycle as the requirement commands, records a reasoned history entry,
 // and never lets a caller hand-set a SIL: integrity levels are always
 // derived from the risk graph and the link structure.
@@ -1127,11 +1127,11 @@ fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
     let mut sr_verified = 0;
     let mut blocking = Vec::new();
     // REQ-0189: a realizing safety requirement counts toward completeness only
-    // when the validator also considers it done — genuinely validated, human
-    // co-signed, and not stale — so `req trace` can never claim a hazard's
-    // safety case complete while `req validate` reports findings on the same
+    // when the conformance checker also considers it done — genuinely verified,
+    // human co-signed, and not stale — so `req trace` can never claim a hazard's
+    // safety case complete while `req conform` reports findings on the same
     // requirements. Staleness is judged against the working tree (root "."),
-    // matching how `req validate` (REQ-V-0035) checks it.
+    // matching how `req conform` (REQ-V-0035) checks it.
     use crate::commands::provenance::{classify, sr_awaiting_cosign, Provenance};
     let root = std::path::Path::new(".");
     for sf in &sfs {
@@ -1162,7 +1162,7 @@ fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
                 } else if !matches!(sr.status, Status::Verified) {
                     "not verified"
                 } else {
-                    "not validated"
+                    "not genuinely verified"
                 };
                 blocking.push(format!("{} {}", sr.id, why));
             }
@@ -1324,7 +1324,7 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                 None => println!("            evidence: none                       ✗ unverified"),
             }
             // REQ-0146: inline the verification dossier so a reviewer sees how
-            // each safety requirement was validated within the chain, not just
+            // each safety requirement was verified within the chain, not just
             // its status.
             match &sr.verification {
                 Some(val) => {

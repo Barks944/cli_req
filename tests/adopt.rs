@@ -95,8 +95,8 @@ fn req_0109_adopt_auto_adds_placeholder_acceptance_for_functional() {
     ]);
     assert!(out.status.success(), "add: {}", stderr(&out));
 
-    // Strip acceptance via JSON edit + repair so the validator sees it
-    // as empty at adopt time.
+    // Strip acceptance via JSON edit + repair so the conformance checker
+    // sees it as empty at adopt time.
     let mut json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(s.path()).unwrap()).unwrap();
     json["requirements"]["REQ-0001"]["acceptance"] = serde_json::json!([]);

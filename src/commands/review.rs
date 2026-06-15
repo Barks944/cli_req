@@ -2,7 +2,7 @@
 // REQ-0106: --summary mode is status-aware; pre-commit no longer
 //           duplicates the post-commit summary.
 // Single-shot "what should this PR have done with the spec?" report.
-// Wraps validate, coverage, stale, audit, and the changed-requirement
+// Wraps conform, coverage, stale, audit, and the changed-requirement
 // diff into one markdown (or JSON) document scoped to <base>..HEAD.
 // Designed to be pasted into a PR description or piped into a CI
 // comment.
@@ -75,14 +75,14 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     // --- changed requirements diff -----------------------------------
     let (added, removed, changed) = diff_buckets(base.as_ref(), &current);
 
-    // --- validate ----------------------------------------------------
+    // --- conform -----------------------------------------------------
     // REQ-0131: in --new mode (implied by --staged unless --all is set)
-    // the validator section is scoped to requirements added or changed
+    // the conformance section is scoped to requirements added or changed
     // in this range. Findings on untouched requirements are suppressed
     // so the per-commit gate stays sharp instead of reprinting the
     // project-wide backlog every commit — the desensitisation failure
     // mode of any linter. Full-project ERROR enforcement is unaffected:
-    // the pre-commit hook runs the dedicated `req validate` on staged
+    // the pre-commit hook runs the dedicated `req conform` on staged
     // .req files, and CI runs it on the whole project, so a structurally
     // broken spec still cannot be committed or merged.
     let new_scope = (args.new || args.staged) && !args.all;
@@ -417,7 +417,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     let audit_summary = audit_summary_for_file(&path);
 
     // REQ-0131 / REQ-0132: the JSON report mirrors the markdown — scoped
-    // validator findings plus the REQ-NONE opt-out lists — so tooling and
+    // conformance findings plus the REQ-NONE opt-out lists — so tooling and
     // the gate agree.
     if args.json {
         println!(
@@ -490,7 +490,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         "OK"
     };
     out.push_str(&format!(
-        "**Status:** {} — {} req(s) added / {} changed / {} removed; validate {} error(s), {} warning(s); coverage {} ghost(s), {} markerless source file(s); {} stale, {} drifted record(s).\n\n",
+        "**Status:** {} — {} req(s) added / {} changed / {} removed; conform {} error(s), {} warning(s); coverage {} ghost(s), {} markerless source file(s); {} stale, {} drifted record(s).\n\n",
         gate_emoji,
         added.len(),
         changed.len(),
@@ -535,7 +535,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     if !val_findings.is_empty() {
-        out.push_str("## Validator findings\n\n");
+        out.push_str("## Conformance findings\n\n");
         for (id, fs) in &val_findings {
             for f in fs {
                 let sev = if f.error { "ERR " } else { "WARN" };
@@ -644,7 +644,7 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
         || !markerless_changed_source.is_empty()
         || !optout_missing_reason.is_empty()
         || (args.no_defects && !defects.is_empty());
-    // Validate errors are always fatal. The wider gate (coverage
+    // Conformance errors are always fatal. The wider gate (coverage
     // ghosts, markerless changed source, defects when --no-defects)
     // only flips the exit code in --gate mode, so the default
     // `req review` stays advisory.

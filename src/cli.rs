@@ -135,7 +135,7 @@ pub enum Command {
     Version(VersionArgs),
     /// Suggest a single next requirement to work on (dependency-aware).
     Next(NextArgs),
-    /// Validate requirements changed since a git ref + coverage for changed files.
+    /// Conformance-check requirements changed since a git ref + coverage for changed files.
     Check(CheckArgs),
     /// Report per-clone setup health (hooks, merge driver, signing, gitattributes).
     Doctor(DoctorArgs),
@@ -152,7 +152,7 @@ pub enum Command {
     Stale(StaleArgs),
     /// Apply many mutations atomically from a JSON document.
     Batch(BatchArgs),
-    /// Import requirements from markdown or JSON; routed through the validator.
+    /// Import requirements from markdown or JSON; routed through the conformance checker.
     Import(ImportArgs),
     /// Migrate project.req from an older _format to the current one (backs up first).
     Migrate(MigrateArgs),
@@ -170,7 +170,7 @@ pub enum Command {
     Help(HelpArgs),
     /// Recompute the integrity hash after an intentional direct edit.
     Repair(RepairArgs),
-    /// Install git hooks (pre-commit validate, merge driver registration).
+    /// Install git hooks (pre-commit conform, merge driver registration).
     Hooks(HooksArgs),
     /// Resolve requirement-ID collisions after merging from another branch.
     Renumber(RenumberArgs),
@@ -178,13 +178,13 @@ pub enum Command {
     Coverage(CoverageArgs),
     /// Walk the git history of the .req file and report commit/signer per change.
     Audit(AuditArgs),
-    /// Single markdown PR-review report: validate, coverage, stale,
+    /// Single markdown PR-review report: conform, coverage, stale,
     /// audit, and changed-requirement diff scoped to a git rev range.
     Review(ReviewArgs),
     /// Interactive split of a compound requirement into atomic ones.
     Split(SplitArgs),
     // REQ-0101: marker kept off the --help line (see REQ-0151).
-    /// Project-wide quality audit beyond the validator: marker
+    /// Project-wide quality audit beyond the conformance checker: marker
     /// coverage, rationale length, acceptance count, test-record presence.
     Lint(LintArgs),
     // REQ-0104: marker kept off the --help line (see REQ-0151).
@@ -246,7 +246,7 @@ pub enum Command {
 #[derive(Subcommand, Debug)]
 pub enum VerificationCmd {
     /// Stage 1 — open the dossier and record HOW the obligation will be
-    /// validated (the analysis + testing approach).
+    /// verified (the analysis + testing approach).
     Plan(VerificationPlanArgs),
     /// Stage 2 — record verification by analysis (code review): findings and
     /// a pass/fail outcome.
@@ -272,9 +272,9 @@ pub enum VerificationCmd {
     /// item — genuine dossier vs audited exemption vs stale vs ungated.
     Report(VerificationReportArgs),
     // REQ-0191: `status` is the obvious name users reach for; it is an alias
-    // of `report` so the accurate, complete V&V standing of every item is
-    // reachable without knowing the word "report".
-    /// The verification & validation standing of every requirement and safety
+    // of `report` so the accurate, complete verification standing of every item
+    // is reachable without knowing the word "report".
+    /// The verification standing of every requirement and safety
     /// requirement (alias of `report`).
     Status(VerificationReportArgs),
     // REQ-0153: marker kept off the --help line (see REQ-0151).
@@ -292,12 +292,12 @@ pub enum VerificationCmd {
 pub struct VerificationPlanArgs {
     /// REQ-NNNN or SR-NNNN id.
     pub id: String,
-    /// How this obligation will be validated — the analysis (review) and
+    /// How this obligation will be verified — the analysis (review) and
     /// testing approach.
     #[arg(long)]
     pub plan: String,
     /// Re-open a concluded dossier (clears the prior verdict/statement so
-    /// the item can be re-validated). Requires --reason.
+    /// the item can be re-verified). Requires --reason.
     #[arg(long, requires = "reason")]
     pub reopen: bool,
     /// Justification, required with --reopen. Recorded in history.
@@ -1018,7 +1018,7 @@ pub struct SetupArgs {
 #[derive(Args, Debug)]
 pub struct PrecheckArgs {
     /// Skip one or more steps (repeatable). Names: fmt, clippy, test,
-    /// validate, coverage, review. Use this only for tight inner loops —
+    /// conform, coverage, review. Use this only for tight inner loops —
     /// the default is to run everything CI runs.
     #[arg(long = "skip", value_name = "STEP")]
     pub skip: Vec<String>,
@@ -1094,7 +1094,7 @@ pub struct ReviewArgs {
     /// hunk-level enforcement on real PRs.
     #[arg(long = "marker-near-hunks", default_value_t = 0)]
     pub marker_near_hunks: u32,
-    /// Exit non-zero when the report finds anything blocking: validate
+    /// Exit non-zero when the report finds anything blocking: conformance
     /// errors, coverage ghosts, source files changed in this range
     /// that carry zero REQ markers, OR — critically — a missing/
     /// invalid base ref (no silent fail-open on a CI YAML typo).
@@ -1109,7 +1109,7 @@ pub struct ReviewArgs {
     #[arg(long, requires = "gate")]
     pub no_defects: bool,
     // REQ-0131: marker kept off the --help line (see REQ-0151).
-    /// Scope validator findings to requirements ADDED or
+    /// Scope conformance findings to requirements ADDED or
     /// CHANGED in this range, suppressing findings on requirements the
     /// commit did not touch. `--staged` implies this. The per-commit
     /// gate stays sharp instead of reprinting the whole project's
@@ -1118,7 +1118,7 @@ pub struct ReviewArgs {
     #[arg(long, conflicts_with = "all")]
     pub new: bool,
     // REQ-0131: marker kept off the --help line (see REQ-0151).
-    /// Force the full-project validator sweep even under
+    /// Force the full-project conformance sweep even under
     /// `--staged`. This is the deliberate hygiene view — the name for
     /// the default, advisory `req review` behaviour, made explicit so
     /// it composes in scripts.

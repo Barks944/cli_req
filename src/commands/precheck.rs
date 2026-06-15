@@ -90,7 +90,7 @@ pub fn run(args: PrecheckArgs, project_file: &Option<PathBuf>) -> Result<()> {
     for s in &skip {
         if !steps.iter().any(|step| step.name == s) {
             anyhow::bail!(
-                "unknown --skip step `{}`; known: fmt, clippy, test, validate, coverage, review",
+                "unknown --skip step `{}`; known: fmt, clippy, test, conform, coverage, review",
                 s
             );
         }
@@ -122,7 +122,7 @@ pub fn run(args: PrecheckArgs, project_file: &Option<PathBuf>) -> Result<()> {
             ProgramSpec::SelfReq(extra) => {
                 let mut c = Command::new(&self_exe);
                 // Pipe the same --file the user invoked precheck with
-                // so coverage/review/validate see the same project.
+                // so coverage/review/conform see the same project.
                 if let Some(p) = project_file.as_ref() {
                     c.arg("--file").arg(p);
                 }

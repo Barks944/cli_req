@@ -6,7 +6,7 @@
 // grandfathered exemption in one query.
 //
 // SR-0004 anchors its verification dossier on THIS file alone, so the safety
-// requirement only re-validates when the provenance classifier itself changes
+// requirement only re-verifies when the provenance classifier itself changes
 // — not when unrelated code in the (large) `req verification` surface is edited.
 use std::path::Path;
 
@@ -26,7 +26,7 @@ pub enum Provenance {
     /// `req verify --no-dossier` waiver (ordinary requirements only).
     ExemptNoDossier,
     /// A genuine concluded Pass dossier whose anchored source has since
-    /// drifted — the verification no longer stands until re-validated.
+    /// drifted — the verification no longer stands until re-verified.
     Stale,
     /// REQ-0150: a safety requirement with a genuine, fresh, concluded Pass
     /// dossier that nonetheless lacks the mandatory human confirmation

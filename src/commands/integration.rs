@@ -196,7 +196,7 @@ pub struct IngestReport {
     pub withheld_safety: Vec<String>,
 }
 
-/// REQ-0178: validate the whole payload before any mutation, so a malformed
+/// REQ-0178: check the whole payload before any mutation, so a malformed
 /// or partially-unknown payload leaves project.req byte-identical.
 fn preflight(project: &Project, payload: &ResultPayload) -> Result<()> {
     if payload.schema != RESULT_SCHEMA {

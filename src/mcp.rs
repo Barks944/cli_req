@@ -38,7 +38,7 @@ impl std::fmt::Display for RuleViolation {
 impl std::error::Error for RuleViolation {}
 
 impl RuleViolation {
-    /// Build a rejection from validator findings (errors only), preserving
+    /// Build a rejection from conformance findings (errors only), preserving
     /// each finding's rule code and the existing `[field] message` prose.
     fn from_findings(prefix: &str, errs: &[&conform::Finding]) -> Self {
         let message = format!(
@@ -224,9 +224,9 @@ const SERVER_GUIDANCE: &str = "\
 This is the `req` MCP server for managed requirements. When the user describes \
 new behaviour the system should have, call `req_add`. Before starting work on \
 a feature call `req_list` and `req_show`. Before declaring work complete call \
-`req_conform`. To VALIDATE a requirement (REQ-NNNN or SR-NNNN) and move it to \
+`req_conform`. To VERIFY a requirement (REQ-NNNN or SR-NNNN) and move it to \
 Verified, do NOT one-shot it: walk the verification dossier — `req_verification_plan` \
-(how you'll validate), then `req_verification_analysis` (code review + result), then \
+(how you'll verify), then `req_verification_analysis` (code review + result), then \
 `req_verification_test` (testing + result), then `req_verification_conclude` (statement \
 + derived verdict, promote=true to flip to Verified). Promotion is BLOCKED without a \
 passing dossier. Never read project.req directly — its integrity hash will \
@@ -267,7 +267,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_add",
-        description: "Create a new requirement. Call this when the user describes new behaviour the system should have. The validator enforces best practice (modal verb shall/must/should/will, acceptance criteria for functional, no weasel words, no broken links). Bad input is REJECTED — rewrite the statement, don't try to bypass the rules. Returns the allocated REQ-NNNN ID.",
+        description: "Create a new requirement. Call this when the user describes new behaviour the system should have. The conformance checker enforces best practice (modal verb shall/must/should/will, acceptance criteria for functional, no weasel words, no broken links). Bad input is REJECTED — rewrite the statement, don't try to bypass the rules. Returns the allocated REQ-NNNN ID.",
         schema: add_schema,
     },
     ToolDef {
@@ -306,7 +306,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_help",
-        description: "Fetch a structured documentation section. Call with section=\"_index\" (the default) for the full, authoritative list of section names with one-line summaries — the section set evolves, so do not hardcode it. Useful starting points once you have the index: section=\"agents\" for the trigger table, section=\"best-practice\" when uncertain about validator rules, section=\"integration\" for hooks and CI wiring.",
+        description: "Fetch a structured documentation section. Call with section=\"_index\" (the default) for the full, authoritative list of section names with one-line summaries — the section set evolves, so do not hardcode it. Useful starting points once you have the index: section=\"agents\" for the trigger table, section=\"best-practice\" when uncertain about conformance rules, section=\"integration\" for hooks and CI wiring.",
         schema: help_schema,
     },
     // ---------- agent-facing tools added in v0.1 ----------
@@ -322,7 +322,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_check",
-        description: "Incremental validate + coverage scoped to changes since a git ref. Use when reviewing a branch: returns errors/warnings only for requirements that changed since `base`, plus coverage findings only for source files changed since `base`. Cheaper than a full validate on every iteration.",
+        description: "Incremental conform + coverage scoped to changes since a git ref. Use when reviewing a branch: returns errors/warnings only for requirements that changed since `base`, plus coverage findings only for source files changed since `base`. Cheaper than a full conform on every iteration.",
         schema: check_schema,
     },
     ToolDef {
@@ -367,7 +367,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_import",
-        description: "Ingest requirements from markdown (level-2/3 headings as titles) or JSON (an array of candidates, or another project.req's requirements map). Every imported item goes through the validator. Set dry_run=true to preview without writing.",
+        description: "Ingest requirements from markdown (level-2/3 headings as titles) or JSON (an array of candidates, or another project.req's requirements map). Every imported item goes through the conformance checker. Set dry_run=true to preview without writing.",
         schema: import_schema,
     },
     ToolDef {
@@ -392,7 +392,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_review",
-        description: "Single-shot PR-review report: validate + coverage + stale + audit + changed-requirement diff, scoped to a git rev range, returned as markdown. Use this to attach a spec impact summary to a pull request or CI run.",
+        description: "Single-shot PR-review report: conform + coverage + stale + audit + changed-requirement diff, scoped to a git rev range, returned as markdown. Use this to attach a spec impact summary to a pull request or CI run.",
         schema: review_schema,
     },
     ToolDef {
@@ -409,7 +409,7 @@ const TOOLS: &[ToolDef] = &[
     // REQ-0101: req_lint MCP tool.
     ToolDef {
         name: "req_lint",
-        description: "Project-wide quality audit beyond the validator. Returns markdown (default) or JSON with sections for validator findings, requirements lacking source markers, short rationales, single-acceptance functionals, and active requirements with no test record. Read-only; lint observations never gate.",
+        description: "Project-wide quality audit beyond the conformance checker. Returns markdown (default) or JSON with sections for conformance findings, requirements lacking source markers, short rationales, single-acceptance functionals, and active requirements with no test record. Read-only; lint observations never gate.",
         schema: lint_schema,
     },
     // REQ-0134: functional-safety tools (IEC 61508). Hazards -> safety
@@ -504,7 +504,7 @@ const TOOLS: &[ToolDef] = &[
     // dossier. Walk the stages in order: plan -> analysis -> test -> conclude.
     ToolDef {
         name: "req_verification_plan",
-        description: "STAGE 1 of validating a requirement. Open the verification dossier for a REQ-NNNN or SR-NNNN by recording the PLAN: how you will validate it — what you will review (analysis) and how you will test it. A passing dossier is REQUIRED before that requirement can be promoted to Verified. Pass id and plan. Use reopen=true with a reason to re-validate a concluded dossier (e.g. after code changed).",
+        description: "STAGE 1 of verifying a requirement. Open the verification dossier for a REQ-NNNN or SR-NNNN by recording the PLAN: how you will verify it — what you will review (analysis) and how you will test it. A passing dossier is REQUIRED before that requirement can be promoted to Verified. Pass id and plan. Use reopen=true with a reason to re-open a concluded dossier (e.g. after code changed).",
         schema: verification_plan_schema,
     },
     ToolDef {
@@ -548,8 +548,8 @@ fn review_schema() -> Value {
             "path": { "type": "string", "description": "Directory to scan for `// REQ-NNNN` markers (default: repo root)." },
             "gate": { "type": "boolean", "description": "Surface the markerless-source / ghost findings as a non-zero exit so callers can treat the report as a CI gate." },
             "staged": { "type": "boolean", "description": "Scope the report to staged changes (`git diff --cached`) instead of `<base>..HEAD`. Mirrors the pre-commit hook." },
-            "new": { "type": "boolean", "description": "Scope validator findings to requirements added or changed in this range (implied by `staged`). Suppresses backlog warnings on untouched requirements." },
-            "all": { "type": "boolean", "description": "Force the full-project validator sweep even under `staged` — the deliberate hygiene view." },
+            "new": { "type": "boolean", "description": "Scope conformance findings to requirements added or changed in this range (implied by `staged`). Suppresses backlog warnings on untouched requirements." },
+            "all": { "type": "boolean", "description": "Force the full-project conformance sweep even under `staged` — the deliberate hygiene view." },
             "json": { "type": "boolean", "description": "Return JSON instead of markdown. Defaults to true on MCP." }
         }
     })
@@ -867,8 +867,8 @@ fn verification_plan_schema() -> Value {
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "REQ-NNNN or SR-NNNN" },
-            "plan": { "type": "string", "description": "How you will validate this — the analysis (review) and testing approach." },
-            "reopen": { "type": "boolean", "description": "Re-open a concluded dossier to re-validate (clears the prior verdict). Requires reason." },
+            "plan": { "type": "string", "description": "How you will verify this — the analysis (review) and testing approach." },
+            "reopen": { "type": "boolean", "description": "Re-open a concluded dossier to re-verify (clears the prior verdict). Requires reason." },
             "reason": { "type": "string" }
         },
         "required": ["id", "plan"]
@@ -1377,7 +1377,7 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
             target: parent,
         });
     }
-    // Validate BEFORE allocating an ID, so a rejected add does not burn one.
+    // Conformance-check BEFORE allocating an ID, so a rejected add does not burn one.
     let mut req = Requirement {
         id: String::new(),
         title,
@@ -1837,7 +1837,7 @@ fn tool_help(args: &Value) -> Result<String> {
     }
     match help_text::section(&section) {
         // REQ-0045: render the rule-code catalogue into the body so agents
-        // reading help over MCP see every validator code, not a placeholder.
+        // reading help over MCP see every conformance code, not a placeholder.
         Some(s) => Ok(
             json!({ "name": s.name, "summary": s.summary, "body": help_text::render_body(s.body) })
                 .to_string(),
@@ -2944,7 +2944,7 @@ fn tool_lint(args: &Value, file: &Path) -> Result<String> {
         .args(&argv)
         .output()
         .context("invoke self for lint")?;
-    // lint exits non-zero only on validator errors; treat any output as
+    // lint exits non-zero only on conformance errors; treat any output as
     // the report and let the caller inspect it.
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }

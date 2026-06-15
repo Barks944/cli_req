@@ -170,11 +170,11 @@ pub fn run(args: StatusArgs, file: &Option<PathBuf>) -> Result<()> {
         "Delivery progress: {:.1}%  ({} of {} non-obsolete are implemented or verified)",
         delivery_pct, done, non_obsolete
     );
-    // REQ-0191 / SR-0006: a status view must point to the true V&V standing,
-    // not let "verified" read as the whole story.
+    // REQ-0191 / SR-0006: a status view must point to the true verification
+    // standing, not let "verified" read as the whole story.
     println!(
-        "\nV&V standing: `req verification status` for every requirement's verification \
-         state (genuine / awaiting human co-sign / exempt / stale / unvalidated)."
+        "\nVerification standing: `req verification status` for every requirement's verification \
+         state (genuine / awaiting human co-sign / exempt / stale / unverified)."
     );
     if !defective.is_empty() {
         println!();

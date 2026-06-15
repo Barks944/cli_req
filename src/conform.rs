@@ -95,7 +95,7 @@ pub const RULES: &[(&str, &str)] = &[
     ),
     (
         "REQ-V-0023",
-        "external statement-quality hook flagged this requirement (opt-in via REQ_VALIDATE_LLM_CMD)",
+        "external statement-quality hook flagged this requirement (opt-in via REQ_CONFORM_LLM_CMD)",
     ),
     (
         "REQ-V-0024",
@@ -140,7 +140,7 @@ pub const RULES: &[(&str, &str)] = &[
     ),
     (
         "REQ-V-0035",
-        "safety requirement is Verified but its validated source has drifted (stale) — re-validate and have a human re-confirm",
+        "safety requirement is Verified but its verified source has drifted (stale) — re-verify and have a human re-confirm",
     ),
     (
         "REQ-V-0036",
@@ -622,15 +622,15 @@ pub fn conform_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         }
     }
     // REQ-0087 / REQ-V-0023: opt-in external statement-quality hook.
-    // REQ-0097: bounded parallelism via REQ_VALIDATE_LLM_CONCURRENCY. The CLI
-    // stays deterministic by default; only when REQ_VALIDATE_LLM_CMD
+    // REQ-0097: bounded parallelism via REQ_CONFORM_LLM_CONCURRENCY. The CLI
+    // stays deterministic by default; only when REQ_CONFORM_LLM_CMD
     // is set do we shell out (per non-obsolete requirement) to ask
     // an external judge whether the statement is testable. The hook
     // is fed a small JSON stub on stdin and returns
     // `{ "ok": bool, "message": "..." }` on stdout. Failure of the
     // hook itself surfaces as a single REQ-V-0023 warning but does
-    // not stop the rest of verification.
-    if let Ok(cmd) = std::env::var("REQ_VALIDATE_LLM_CMD") {
+    // not stop the rest of the conformance check.
+    if let Ok(cmd) = std::env::var("REQ_CONFORM_LLM_CMD") {
         let trimmed = cmd.trim().to_string();
         if !trimmed.is_empty() {
             // REQ-0097: configurable concurrency cap. Default 1 keeps
@@ -638,7 +638,7 @@ pub fn conform_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             // in. Higher values fan out across non-obsolete reqs in
             // a thread pool; findings are sorted by id afterwards so
             // output stays stable regardless of completion order.
-            let concurrency: usize = std::env::var("REQ_VALIDATE_LLM_CONCURRENCY")
+            let concurrency: usize = std::env::var("REQ_CONFORM_LLM_CONCURRENCY")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .filter(|n: &usize| *n >= 1)
@@ -747,8 +747,8 @@ pub fn conform_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
         }
     }
-    // REQ-0137: functional-safety artifacts validate on the same pass so
-    // the pre-commit hook and CI gate cover the whole spec.
+    // REQ-0137: functional-safety artifacts are conformance-checked on the same
+    // pass so the pre-commit hook and CI gate cover the whole spec.
     for (id, findings) in conform_safety(p) {
         if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| *rid == id) {
             existing.extend(findings);
@@ -764,7 +764,7 @@ pub fn conform_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     out
 }
 
-/// REQ-0137: validate the functional-safety artifacts. The integrity of
+/// REQ-0137: conformance-check the functional-safety artifacts. The integrity of
 /// the SIL derivation chain is enforced here — a SIL 3/4 safety
 /// requirement cannot stay Verified on inspection-only evidence without
 /// an audited exception, an assessed hazard must carry its full risk
@@ -1112,7 +1112,7 @@ fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
     // with Git Bash or WSL on PATH can run sh-script hooks without
     // cmd.exe's quirks. Default is the platform shell. Common values:
     //   sh   bash   pwsh   powershell   cmd
-    let (shell, flag): (String, String) = match std::env::var("REQ_VALIDATE_LLM_SHELL") {
+    let (shell, flag): (String, String) = match std::env::var("REQ_CONFORM_LLM_SHELL") {
         Ok(s) if !s.trim().is_empty() => {
             let s = s.trim().to_string();
             let f = if s.eq_ignore_ascii_case("cmd") {
@@ -1140,7 +1140,7 @@ fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
         .spawn()
         .map_err(|e| {
             format!(
-                "spawn `{}` (override with REQ_VALIDATE_LLM_SHELL): {}",
+                "spawn `{}` (override with REQ_CONFORM_LLM_SHELL): {}",
                 shell, e
             )
         })?;
@@ -1156,7 +1156,7 @@ fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
         // Explicit drop here makes the close intent unmissable.
         drop(stdin);
     }
-    // Hard ten-second cap. A hung hook should never lock validate.
+    // Hard ten-second cap. A hung hook should never lock the conformance check.
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match child.try_wait() {

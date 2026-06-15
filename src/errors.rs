@@ -7,7 +7,7 @@ use serde_json::json;
 
 pub const E_INTEGRITY: &str = "REQ-E-INTEGRITY";
 pub const E_NOT_FOUND: &str = "REQ-E-NOT-FOUND";
-pub const E_VALIDATION: &str = "REQ-E-VALIDATION";
+pub const E_CONFORMANCE: &str = "REQ-E-CONFORMANCE";
 pub const E_CYCLE: &str = "REQ-E-CYCLE";
 pub const E_DUPLICATE: &str = "REQ-E-DUPLICATE";
 pub const E_INVALID_INPUT: &str = "REQ-E-INVALID-INPUT";
@@ -40,7 +40,7 @@ pub fn classify(err: &anyhow::Error) -> &'static str {
     } else if lower.contains("no such requirement") || lower.contains("does not exist") {
         E_NOT_FOUND
     } else if lower.contains("verification error") || lower.contains("rejected:") {
-        E_VALIDATION
+        E_CONFORMANCE
     } else if lower.contains("cycle") {
         E_CYCLE
     } else if lower.contains("already exists") || lower.contains("duplicate") {
@@ -56,7 +56,7 @@ pub fn hint_for(code: &str) -> Option<&'static str> {
     match code {
         E_INTEGRITY => Some(E_INTEGRITY_HINT),
         E_NOT_FOUND => Some("Run `req list` to see existing IDs."),
-        E_VALIDATION => {
+        E_CONFORMANCE => {
             Some("Run `req help best-practice` (or `req help errors`) for the rule catalog.")
         }
         E_CYCLE => {

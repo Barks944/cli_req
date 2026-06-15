@@ -95,7 +95,7 @@ fn precommit_body(strict: bool) -> String {
         r#"#!/bin/sh
 {marker}
 {mode_line}
-# Validates staged .req files AND checks for code changes without REQ
+# Conformance-checks staged .req files AND checks for code changes without REQ
 # markers. Remove with `req hooks --uninstall` or by deleting this file.
 set -e
 if ! command -v req >/dev/null 2>&1; then
@@ -304,7 +304,7 @@ fn ensure_gitattributes_lines(path: &Path, lines: &[&str]) -> Result<()> {
 
 /// REQ-0044: write/update .claude/settings.json so a fresh Claude Code session
 /// in this repo has the req binary on its permissions allowlist and a Stop
-/// hook that runs `req validate`. Idempotent: merges with any pre-existing
+/// hook that runs `req conform`. Idempotent: merges with any pre-existing
 /// settings rather than clobbering them.
 fn install_claude_code(repo: &Path) -> Result<()> {
     use serde_json::{json, Value};

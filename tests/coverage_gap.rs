@@ -148,20 +148,20 @@ fn req_0094_status_value_case_insensitive() {
     );
 }
 
-/// REQ-0091: `repair --force` re-signs a hand-edited file even with validation
+/// REQ-0091: `repair --force` re-signs a hand-edited file even with conformance
 /// errors; without --force it refuses; afterwards conform surfaces the errors.
 #[test]
 fn req_0091_repair_force_resigns_despite_errors() {
     let s = Sandbox::new();
     s.init("p");
     add_one(&s);
-    // Hand-edit: break integrity AND introduce a validation error.
+    // Hand-edit: break integrity AND introduce a conformance error.
     let path = s.path();
     let body = std::fs::read_to_string(&path)
         .unwrap()
         .replace("The system shall stop on operator demand.", "short");
     std::fs::write(&path, body).unwrap();
-    // AC1: repair without --force refuses on validation errors.
+    // AC1: repair without --force refuses on conformance errors.
     assert!(!s.run(&["repair", "--confirm-direct-edit"]).status.success());
     // AC2: repair --force re-signs and warns errors remain.
     let o = s.run(&["repair", "--confirm-direct-edit", "--force"]);
@@ -192,7 +192,7 @@ fn req_0101_lint_audits_quality_dimensions() {
     let js = s.run(&["lint", "--path", &dir, "--json"]);
     assert!(js.status.success());
     let v: serde_json::Value = serde_json::from_str(&stdout(&js)).expect("lint json");
-    assert!(v["quality"].is_object() && v["validator"].is_object(), "json shape: {}", stdout(&js));
+    assert!(v["quality"].is_object() && v["conformance"].is_object(), "json shape: {}", stdout(&js));
 }
 
 /// REQ-0107: lint excludes inspection-only requirements from the

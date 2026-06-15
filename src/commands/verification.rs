@@ -271,7 +271,7 @@ pub fn op_plan(
             if v.is_concluded() && !reopen {
                 return Err(anyhow!(
                     "{} already has a concluded verification dossier — pass --reopen --reason \"...\" \
-                     to re-validate (this clears the prior verdict).",
+                     to re-verify (this clears the prior verdict).",
                     id
                 ));
             }
@@ -399,7 +399,7 @@ pub fn op_conclude(
         if matches!(verdict, TestOutcome::Fail) {
             return Err(anyhow!(
                 "{}'s verification verdict is FAIL — cannot promote a failed verification to Verified. \
-                 Fix the issue, then `req verification plan {} --reopen --reason \"...\"` and re-validate.",
+                 Fix the issue, then `req verification plan {} --reopen --reason \"...\"` and re-verify.",
                 id, id
             ));
         }
@@ -571,10 +571,10 @@ pub fn op_backfill(
     if let Some(raw) = raw_id {
         let (id, fam) = resolve(project, raw)?;
         // REQ-0143: safety requirements have NO exemption — they must be
-        // validated genuinely, never grandfathered.
+        // verified genuinely, never grandfathered.
         if matches!(fam, Family::Sr) {
             return Err(anyhow!(
-                "{} is a safety requirement — safety requirements cannot be exempted. Validate it \
+                "{} is a safety requirement — safety requirements cannot be exempted. Verify it \
                  genuinely with `req verification plan {} ...` → analysis → test → conclude --promote.",
                 id, id
             ));
@@ -1000,7 +1000,7 @@ fn refresh_anchors(args: VerificationRefreshArgs, file: &Option<PathBuf>) -> Res
     );
     if !report.drifted.is_empty() {
         println!(
-            "\n{} requirement(s) genuinely drifted — re-validate (plan --reopen → … → conclude --promote):",
+            "\n{} requirement(s) genuinely drifted — re-verify (plan --reopen → … → conclude --promote):",
             report.drifted.len()
         );
         for id in &report.drifted {
@@ -1197,7 +1197,7 @@ fn reverify(args: VerificationReverifyArgs, file: &Option<PathBuf>) -> Result<()
 // rolls up the counts, so the headline "verified" number can be read with
 // its provenance instead of taken at face value.
 /// REQ-0185: classify a not-yet-passing item by how far its verification
-/// dossier progressed, so the report shows the unvalidated surface instead
+/// dossier progressed, so the report shows the unverified surface instead
 /// of only the verified one. Returns `None` for Verified/Obsolete items
 /// (Verified ones are reported by provenance; Obsolete are out of scope).
 fn unverified_stage(
@@ -1222,7 +1222,7 @@ fn unverified_stage(
 }
 
 /// REQ-0185: the ordered pipeline stages, worst-progressed first.
-const UNVALIDATED_STAGES: &[&str] = &[
+const UNVERIFIED_STAGES: &[&str] = &[
     "no-plan",
     "plan-only",
     "analysis-failing",
@@ -1303,9 +1303,9 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
                 })
             })
             .collect();
-        // REQ-0185: per-stage counts for the unvalidated surface.
+        // REQ-0185: per-stage counts for the unverified surface.
         let mut unval_by_stage = serde_json::Map::new();
-        for stage in UNVALIDATED_STAGES {
+        for stage in UNVERIFIED_STAGES {
             let n = unverified.iter().filter(|(_, _, s)| s == stage).count();
             if n > 0 {
                 unval_by_stage.insert((*stage).to_string(), serde_json::json!(n));
@@ -1329,10 +1329,10 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
                     "ungated": ungated,
                 },
                 "items": items,
-                // REQ-0185: the unvalidated surface alongside the verified one.
-                "unvalidated_total": unverified.len(),
-                "unvalidated_by_stage": unval_by_stage,
-                "unvalidated": unval_items,
+                // REQ-0185: the unverified surface alongside the verified one.
+                "unverified_total": unverified.len(),
+                "unverified_by_stage": unval_by_stage,
+                "unverified": unval_items,
                 // REQ-0188: every safety requirement with its standing.
                 "safety_requirements": sr_standings.iter().map(|(id, s)| {
                     serde_json::json!({ "id": id, "standing": s })
@@ -1369,15 +1369,15 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
         ungated
     );
 
-    // REQ-0185: the unvalidated surface — everything that has NOT reached a
+    // REQ-0185: the unverified surface — everything that has NOT reached a
     // passing verification, grouped by how far its dossier progressed. Without
     // this the report shows only verified items and hides what work remains.
     println!();
     println!(
-        "Unvalidated ({} item(s) with no passing dossier)",
+        "Unverified ({} item(s) with no passing dossier)",
         unverified.len()
     );
-    for stage in UNVALIDATED_STAGES {
+    for stage in UNVERIFIED_STAGES {
         let n = unverified.iter().filter(|(_, _, s)| s == stage).count();
         if n > 0 {
             println!("  {:<18}: {:>4}", stage, n);

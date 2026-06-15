@@ -27,7 +27,7 @@ struct AppState {
 
 pub fn run(args: ServeArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
-    storage::load(&path).context("validate project before binding socket")?;
+    storage::load(&path).context("load project before binding socket")?;
 
     let state = AppState {
         file: path.clone(),

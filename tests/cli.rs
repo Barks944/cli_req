@@ -1,5 +1,5 @@
 // End-to-end smoke tests covering the main user journey: init, add, list,
-// show, update, delete, link, export, validate. Each is named after the
+// show, update, delete, link, export, conform. Each is named after the
 // requirement it most directly exercises.
 mod common;
 use common::{stderr, stdout, Sandbox};

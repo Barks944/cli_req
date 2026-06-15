@@ -374,7 +374,7 @@ fn req_0017_mcp_req_add_verification_failure_returns_iserror() {
     let r = &responses[1]["result"];
     assert_eq!(
         r["isError"], true,
-        "validator failure should set isError=true: {}",
+        "conformance failure should set isError=true: {}",
         r
     );
     let msg = r["content"][0]["text"].as_str().unwrap();
@@ -603,7 +603,7 @@ fn req_0017_mcp_req_validate_emits_finding_counts() {
         "--title",
         "Valid baseline requirement here",
         "--statement",
-        "The system shall validate cleanly under the MCP tool.",
+        "The system shall conform cleanly under the MCP tool.",
         "--rationale",
         "Fixture.",
         "--kind",
@@ -619,7 +619,7 @@ fn req_0017_mcp_req_validate_emits_finding_counts() {
         ],
     );
     let body = text_of(&responses[1]);
-    let v: serde_json::Value = serde_json::from_str(&body).expect("validate json");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("conform json");
     assert_eq!(v["errors"], 0);
     assert!(v["warnings"].is_number());
 }
@@ -790,11 +790,11 @@ fn req_import_missing_source_returns_clean_envelope() {
 
 #[test]
 fn mcp_validate_reports_link_cycles() {
-    // REQ-V-0021 is graph-level; MCP req_validate must surface it too.
+    // REQ-V-0021 is graph-level; MCP req_conform must surface it too.
     let s = Sandbox::new();
     s.init("p");
     // Build two reqs and inject a depends-on cycle directly (the
-    // direct CLI rejects it; we need a way to test the validator's
+    // direct CLI rejects it; we need a way to test the conformance checker's
     // detection independent of the prevention).
     for (i, title) in [
         "MCP cycle fixture requirement number one",
@@ -835,7 +835,7 @@ fn mcp_validate_reports_link_cycles() {
     let text = text_of(&responses[1]);
     assert!(
         text.contains("REQ-V-0021"),
-        "MCP req_validate should surface REQ-V-0021: {}",
+        "MCP req_conform should surface REQ-V-0021: {}",
         text
     );
 }

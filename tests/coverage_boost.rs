@@ -47,7 +47,7 @@ fn req_0007_weasel_word_fast_produces_warning() {
     // Save succeeds (warning, not error)
     assert!(out.status.success(), "weasel words are advisory");
     let combined = format!("{}{}", stdout(&out), stderr(&out));
-    // `req add` prints warnings without rule codes; `req validate` adds them.
+    // `req add` prints warnings without rule codes; `req conform` adds them.
     assert!(
         combined.contains("fast"),
         "warning should cite the term `fast`"
@@ -56,7 +56,7 @@ fn req_0007_weasel_word_fast_produces_warning() {
     let vbody = stdout(&val);
     assert!(
         vbody.contains("REQ-V-0009"),
-        "validate should emit the rule code, got:\n{}",
+        "conform should emit the rule code, got:\n{}",
         vbody
     );
 }
@@ -942,9 +942,9 @@ fn batch_link_cycle_blocked() {
 #[test]
 fn validate_detects_link_cycles() {
     // P1: even if a cycle slips in (batch on an old binary, merge,
-    // manual repair), `req validate` must surface it as REQ-V-0021.
+    // manual repair), `req conform` must surface it as REQ-V-0021.
     // We can't easily install a cycle through the CLI now, but we can
-    // verify the rule by hand-corrupting + repairing + validating.
+    // verify the rule by hand-corrupting + repairing + conforming.
     let s = Sandbox::new();
     s.init("p");
     for (i, title) in [
@@ -960,11 +960,11 @@ fn validate_detects_link_cycles() {
             title,
             "--statement",
             &format!(
-                "The system shall expose validate-time cycle detection {}.",
+                "The system shall expose conform-time cycle detection {}.",
                 i + 1
             ),
             "--rationale",
-            "Validate cycle fixture.",
+            "Conform cycle fixture.",
             "--kind",
             "constraint",
             "--priority",
@@ -991,7 +991,7 @@ fn validate_detects_link_cycles() {
     let body = format!("{}{}", stdout(&out), stderr(&out));
     assert!(
         body.contains("REQ-V-0021"),
-        "validate should report cycle via REQ-V-0021: {}",
+        "conform should report cycle via REQ-V-0021: {}",
         body
     );
 }
@@ -1000,7 +1000,7 @@ fn validate_detects_link_cycles() {
 fn repair_force_bypasses_verification_errors() {
     // The previous flow: hand-edit + invalid + hash-broken => stuck.
     // Repair refused, every other command refused, only escape was
-    // more hand-editing. --force re-signs so validate can surface the
+    // more hand-editing. --force re-signs so conform can surface the
     // problems via the normal channel.
     let s = Sandbox::new();
     s.init("p");
@@ -1033,10 +1033,10 @@ fn repair_force_bypasses_verification_errors() {
         "--force should re-sign anyway: {}",
         stderr(&forced)
     );
-    let validate_out = s.run(&["conform"]);
+    let conform_out = s.run(&["conform"]);
     assert!(
-        !validate_out.status.success(),
-        "validate must now surface the errors (it could not while the hash was bad)"
+        !conform_out.status.success(),
+        "conform must now surface the errors (it could not while the hash was bad)"
     );
 }
 
@@ -1767,7 +1767,7 @@ fn split_keep_original_does_not_retire() {
 fn review_emits_markdown_for_clean_repo() {
     // Review must work even outside a real PR scenario — when there's
     // no base ref to diff against, it should fall back gracefully and
-    // still emit the validate / coverage / stale sections.
+    // still emit the conform / coverage / stale sections.
     let s = Sandbox::new();
     s.init("p");
     let _ = s.run(&[
@@ -1796,7 +1796,7 @@ fn review_emits_markdown_for_clean_repo() {
 #[test]
 fn validate_llm_hook_runs_when_env_set() {
     // Wire a trivial hook script that always reports ok:false; ensure
-    // REQ-V-0023 appears in the validate output.
+    // REQ-V-0023 appears in the conform output.
     let s = Sandbox::new();
     s.init("p");
     let _ = s.run(&[
@@ -1820,7 +1820,7 @@ fn validate_llm_hook_runs_when_env_set() {
     };
     let out = Command::new(env!("CARGO_BIN_EXE_req"))
         .args(["--file", s.path().to_str().unwrap(), "conform"])
-        .env("REQ_VALIDATE_LLM_CMD", &hook_cmd)
+        .env("REQ_CONFORM_LLM_CMD", &hook_cmd)
         .output()
         .expect("invoke req");
     let body = format!(
@@ -1830,7 +1830,7 @@ fn validate_llm_hook_runs_when_env_set() {
     );
     assert!(
         body.contains("REQ-V-0023") || body.contains("LLM hook"),
-        "validate should surface the hook verdict: {}",
+        "conform should surface the hook verdict: {}",
         body
     );
 }
@@ -2705,18 +2705,18 @@ fn req_0032_unlinked_files_mode_lists_files_without_markers() {
     );
 }
 
-// ---------- REQ-0082: project self-validates with zero findings ----------
+// ---------- REQ-0082: project self-conforms with zero findings ----------
 
 #[test]
 fn req_0082_project_self_validates_cleanly() {
     // Run against the project.req at the repo root via CWD (cargo test sets it).
     let out = common::req(&["conform"]);
-    assert!(out.status.success(), "validate failed: {}", stderr(&out));
+    assert!(out.status.success(), "conform failed: {}", stderr(&out));
     let body = stdout(&out);
     let re = regex_lite("^OK — [0-9]+ requirement");
     assert!(
         re || body.starts_with("OK — "),
-        "unexpected validate body:\n{}",
+        "unexpected conform body:\n{}",
         body
     );
 }

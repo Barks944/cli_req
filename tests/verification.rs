@@ -27,7 +27,7 @@ fn implemented_req(s: &Sandbox) {
 }
 
 /// REQ-0139: the full dossier walks plan → analysis → testing → conclude
-/// and `--promote` flips status to Verified; the project then validates
+/// and `--promote` flips status to Verified; the project then conforms
 /// cleanly (no REQ-V-0032).
 #[test]
 fn req_0139_full_dossier_promotes_a_requirement() {
@@ -79,7 +79,7 @@ fn req_0139_full_dossier_promotes_a_requirement() {
     assert!(stdout(&s.run(&["show", "REQ-0001"])).contains("verified"));
     assert!(
         s.run(&["conform"]).status.success(),
-        "should validate clean"
+        "should conform clean"
     );
 }
 
@@ -107,7 +107,7 @@ fn req_0139_verify_promote_blocked_without_dossier() {
 }
 
 /// REQ-0139: the `verification-exempt` tag lets an ordinary requirement reach
-/// Verified without a dossier, and the validator stays quiet.
+/// Verified without a dossier, and the conformance checker stays quiet.
 #[test]
 fn req_0139_exempt_tag_bypasses_the_gate() {
     let s = Sandbox::new();
@@ -161,7 +161,7 @@ fn req_0139_no_dossier_override_records_audited_exemption() {
         "--no-dossier",
     ]);
     assert!(!no_reason.status.success(), "--no-dossier needs --reason");
-    // With a reason → promotes and validates clean.
+    // With a reason → promotes and conforms clean.
     let ok = s.run(&[
         "verify",
         "REQ-0001",
@@ -302,7 +302,7 @@ fn req_0139_validator_flags_verified_without_dossier() {
         ]);
     }
     let out = s.run(&["conform", "--json"]);
-    assert!(!out.status.success(), "validate should fail");
+    assert!(!out.status.success(), "conform should fail");
     assert!(
         stdout(&out).contains("REQ-V-0032"),
         "expected REQ-V-0032; got {}",
@@ -319,12 +319,12 @@ fn req_0139_validator_flags_verified_without_dossier() {
     assert!(bf.status.success(), "backfill: {}", stderr(&bf));
     assert!(
         s.run(&["conform"]).status.success(),
-        "validate clean after backfill"
+        "conform clean after backfill"
     );
 }
 
 /// REQ-0139: re-opening a concluded dossier clears the verdict so the item
-/// can be re-validated (e.g. after code changed).
+/// can be re-verified (e.g. after code changed).
 #[test]
 fn req_0139_reopen_clears_the_verdict() {
     let s = Sandbox::new();
@@ -435,7 +435,7 @@ fn req_0139_safety_requirement_requires_dossier_no_exemption() {
 }
 
 /// REQ-0139: a full dossier promotes a (low-SIL) safety requirement, and
-/// the safety case validates with no REQ-V-0033.
+/// the safety case conforms with no REQ-V-0033.
 #[test]
 fn req_0139_full_dossier_promotes_a_safety_requirement() {
     let s = Sandbox::new();
@@ -478,7 +478,7 @@ fn req_0139_full_dossier_promotes_a_safety_requirement() {
         .to_lowercase()
         .contains("verified"));
     // REQ-0145: a Verified safety requirement also needs a human confirmation
-    // of the verification result before the safety case validates clean.
+    // of the verification result before the safety case conforms clean.
     assert!(
         s.run(&["verification", "confirm", "SR-0001"])
             .status
@@ -487,7 +487,7 @@ fn req_0139_full_dossier_promotes_a_safety_requirement() {
     );
     assert!(
         s.run(&["conform"]).status.success(),
-        "safety case validates clean"
+        "safety case conforms clean"
     );
 }
 
@@ -662,9 +662,9 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
     s.run(&[
         "sreq", "update", "SR-0001", "--status", "verified", "--reason", "force",
     ]);
-    // It is now a hard verification error.
+    // It is now a hard conformance error.
     let out = s.run(&["conform", "--json"]);
-    assert!(!out.status.success(), "validate should fail");
+    assert!(!out.status.success(), "conform should fail");
     assert!(
         stdout(&out).contains("REQ-V-0033"),
         "expected REQ-V-0033; got {}",
@@ -792,7 +792,7 @@ fn req_0150_genuine_but_unconfirmed_sr_reports_unconfirmed() {
     );
 }
 
-// ---------- REQ-0185: report surfaces the unvalidated requirements ----------
+// ---------- REQ-0185: report surfaces the unverified requirements ----------
 
 #[test]
 fn req_0185_report_lists_unvalidated_by_stage() {
@@ -835,11 +835,11 @@ fn req_0185_report_lists_unvalidated_by_stage() {
     let rep = s.run(&["verification", "report", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&rep)).expect("report json");
     assert_eq!(
-        v["unvalidated_total"], 2,
-        "both reqs are unvalidated: {}",
+        v["unverified_total"], 2,
+        "both reqs are unverified: {}",
         v
     );
-    let by = &v["unvalidated_by_stage"];
+    let by = &v["unverified_by_stage"];
     assert_eq!(by["no-plan"], 1, "one bare draft: {}", by);
     assert_eq!(by["plan-only"], 1, "one planned-only: {}", by);
 }
@@ -952,10 +952,10 @@ fn req_0191_verification_status_alias_and_status_pointer() {
         v
     );
     assert!(
-        v.get("unvalidated_total").is_some(),
-        "and the unvalidated surface"
+        v.get("unverified_total").is_some(),
+        "and the unverified surface"
     );
-    // `req status` points to the true V&V standing.
+    // `req status` points to the true verification standing.
     let status = stdout(&s.run(&["status"]));
     assert!(
         status.contains("verification status"),

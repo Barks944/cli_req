@@ -386,7 +386,7 @@ fn req_0120_installed_agents_uses_placeholder_req_ids() {
     );
 }
 
-// REQ-0119: import schema must agree with the validator on what's required.
+// REQ-0119: import schema must agree with the conformance checker on what's required.
 #[test]
 fn req_0119_import_schema_requires_rationale() {
     let out = common::req(&["schema", "import"]);
@@ -398,7 +398,7 @@ fn req_0119_import_schema_requires_rationale() {
     let required_strs: Vec<&str> = required.iter().filter_map(|x| x.as_str()).collect();
     assert!(
         required_strs.contains(&"rationale"),
-        "import schema must list rationale as required (the validator does); got: {:?}",
+        "import schema must list rationale as required (the conformance checker does); got: {:?}",
         required_strs
     );
 }

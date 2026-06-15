@@ -1,6 +1,6 @@
 // REQ-0085: req split — assisted remediation for REQ-V-0010 compound findings.
 // Interactive (or flag-driven) split of a compound requirement into
-// atomic ones. The validator can flag REQ-V-0010; this command is
+// atomic ones. The conformance checker can flag REQ-V-0010; this command is
 // the assisted fix. The original is soft-retired to Obsolete (with a
 // reason that names the replacements) and the new parts inherit the
 // original's kind, priority, tags. Inbound links are NOT auto-
@@ -48,7 +48,7 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
         ));
     }
 
-    // Validate each part *before* we mutate, so a failure leaves the
+    // Conformance-check each part *before* we mutate, so a failure leaves the
     // project untouched.
     let now = Utc::now();
     let mut staged: Vec<Requirement> = Vec::new();

@@ -26,7 +26,7 @@ pub fn run(mut args: LinkArgs, file: &Option<PathBuf>) -> Result<()> {
     );
     if cycle_checked && !args.remove {
         // REQ-0166: reject the closing edge at link time and name the cycle
-        // path, instead of leaving it for the next full `req validate`.
+        // path, instead of leaving it for the next full `req conform`.
         if let Some(path) = cycle_path(&project, &args.from, &args.to, kind) {
             let chain = std::iter::once(args.from.clone())
                 .chain(path)

@@ -154,7 +154,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     let now = Utc::now();
-    // Build with placeholder id; validate BEFORE allocating so failed adds
+    // Build with placeholder id; conformance-check BEFORE allocating so failed adds
     // do not consume IDs (REQ-0010: stable sequential allocation).
     let mut req = Requirement {
         id: String::new(),
@@ -332,7 +332,7 @@ fn merge_from_json(mut args: AddArgs, src: &str) -> Result<AddArgs> {
     Ok(args)
 }
 
-// REQ-0095: dedup-warn on recently-obsolete reqs. Reuses validate's
+// REQ-0095: dedup-warn on recently-obsolete reqs. Reuses the conformance checker's
 // Jaccard token-set heuristic with the same 0.65 threshold so the
 // warning fires on the same conceptual overlap REQ-V-0020 catches.
 // Window is 60 days from now: longer than that and "re-adding the

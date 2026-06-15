@@ -347,7 +347,7 @@ impl Project {
             .filter_map(|l| self.hazards.get(&l.target))
             // REQ-0135: a retired hazard must not keep feeding its SIL
             // into a live function's allocation — that would disagree
-            // with the validator, which only counts live mitigations.
+            // with the conformance checker, which only counts live mitigations.
             .filter(|h| !matches!(h.status, HazardStatus::Obsolete))
             // REQ-0138: use the project's calibration, not the default.
             .filter_map(|h| self.required_sil(h))
@@ -445,7 +445,7 @@ pub struct TestRecord {
     /// deliberately overrode the SIL-rigour gate (a SIL 3/4 safety
     /// requirement verified on inspection-only evidence). This is the
     /// structured, non-forgeable record of an audited exception — the
-    /// validator keys REQ-V-0031 off this field, not off a substring in
+    /// conformance checker keys REQ-V-0031 off this field, not off a substring in
     /// `notes`, so the exception cannot be faked by hand-writing notes.
     /// The justifying `--reason` is recorded in `notes`.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -511,7 +511,7 @@ impl TestOutcome {
 // A requirement (or safety requirement) reaches Verified only after a
 // staged verification an agent must fill IN ORDER:
 //
-//   1. plan      — how the obligation will be validated (analysis + testing).
+//   1. plan      — how the obligation will be verified (analysis + testing).
 //   2. analysis  — verification by analysis (code review): findings + pass/fail.
 //   3. testing   — verification by testing: findings + pass/fail, referencing
 //                  recorded TestRecords when they exist, else structured prose.
@@ -986,7 +986,7 @@ impl LinkKind {
 //
 // The derivation chain (C/F/P/W -> required -> allocated -> inherited)
 // means an agent cannot quietly assign a convenient integrity level: the
-// only inputs are the qualitative risk parameters, and the validator
+// only inputs are the qualitative risk parameters, and the conformance checker
 // recomputes everything downstream.
 // ============================================================================
 
@@ -1255,7 +1255,7 @@ impl HazardStatus {
 
 /// REQ-0134: a hazardous event and its risk assessment. The four risk
 /// parameters are optional so a hazard can be logged at `Identified`
-/// before it is assessed; the validator requires them from `Assessed`
+/// before it is assessed; the conformance checker requires them from `Assessed`
 /// onward. The SIL is never stored — `required_sil()` derives it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hazard {

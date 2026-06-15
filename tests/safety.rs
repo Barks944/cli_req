@@ -228,7 +228,7 @@ fn req_0135_recording_inspection_without_promote_is_allowed() {
 }
 
 /// REQ-0135: an Obsolete hazard stops feeding its SIL into a live safety
-/// function's allocation (model agrees with the validator).
+/// function's allocation (model agrees with the conformance checker).
 #[test]
 fn req_0135_obsolete_hazard_drops_from_allocation() {
     let s = Sandbox::new();
@@ -348,9 +348,9 @@ fn req_0136_trace_is_honest_about_what_it_asserts() {
     );
 }
 
-/// REQ-0137: the validator flags a hazard with no harm narrative. (Built
+/// REQ-0137: the conformance checker flags a hazard with no harm narrative. (Built
 /// via batch-free path: a normal add always has harm, so we drive the
-/// rule by checking a well-formed chain validates clean, and that the
+/// rule by checking a well-formed chain conforms clean, and that the
 /// rule codes are present in the catalogue surfaced by `req help`.)
 #[test]
 fn req_0137_wellformed_safety_chain_validates_clean() {
@@ -379,7 +379,7 @@ fn req_0137_wellformed_safety_chain_validates_clean() {
     let out = s.run(&["conform"]);
     assert!(
         out.status.success(),
-        "well-formed safety chain must validate: {}",
+        "well-formed safety chain must conform: {}",
         stdout(&out)
     );
 }
@@ -715,7 +715,7 @@ fn req_0138_governance_gate_agent_refusal_and_calibration() {
 }
 
 /// REQ-0137 (SF-0002 protective path): a BROKEN safety case must FAIL
-/// `req validate` with a non-zero exit, not merely print — this is the
+/// `req conform` with a non-zero exit, not merely print — this is the
 /// "a broken safety case fails CI" half of SF-0002, which the clean-case
 /// test above (`req_0137_wellformed_safety_chain_validates_clean`) does
 /// not exercise. We drive rule REQ-V-0027 by retiring the only safety
@@ -745,7 +745,7 @@ fn req_0137_broken_safety_case_fails_validate() {
     // A safety function mitigating the hazard auto-advances it to Mitigated.
     s.run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
 
-    // Baseline: a well-formed chain validates clean (guards against the
+    // Baseline: a well-formed chain conforms clean (guards against the
     // test passing for the wrong reason).
     assert!(
         s.run(&["conform"]).status.success(),
@@ -772,12 +772,12 @@ fn req_0137_broken_safety_case_fails_validate() {
     let broken = s.run(&["conform"]);
     assert!(
         !broken.status.success(),
-        "a broken safety case must fail validate with a non-zero exit"
+        "a broken safety case must fail conform with a non-zero exit"
     );
     let out = stdout(&broken) + &stderr(&broken);
     assert!(
         out.contains("REQ-V-0027"),
-        "validate must flag the mitigated-hazard-without-live-SF rule:\n{}",
+        "conform must flag the mitigated-hazard-without-live-SF rule:\n{}",
         out
     );
 }
@@ -928,7 +928,7 @@ fn req_0144_stale_disclaimer_version_blocks_safety_features() {
     );
 }
 
-/// REQ-0145: a safety requirement validated by an agent is NOT passed until a
+/// REQ-0145: a safety requirement verified by an agent is NOT passed until a
 /// human confirms the result. REQ-V-0034 flags the unconfirmed SR; an agent
 /// cannot confirm; a human's confirmation clears the finding.
 #[test]
@@ -1087,7 +1087,7 @@ fn req_0145_safety_verification_needs_human_confirmation() {
         "an agent must not be able to confirm a safety verification"
     );
 
-    // A human confirms — and the project validates clean.
+    // A human confirms — and the project conforms clean.
     assert!(
         run(&["verification", "confirm", "SR-0001"], Some("human"))
             .status
@@ -1097,7 +1097,7 @@ fn req_0145_safety_verification_needs_human_confirmation() {
     let v2 = run(&["conform"], None);
     assert!(
         v2.status.success(),
-        "after human confirmation the project validates clean: {}",
+        "after human confirmation the project conforms clean: {}",
         String::from_utf8_lossy(&v2.stderr)
     );
 }
@@ -1438,7 +1438,7 @@ fn req_0149_staleness_scopes_to_comment_markers_not_prose() {
     );
 }
 
-/// REQ-0148: once the validated source drifts, the SR is a hard validate error.
+/// REQ-0148: once the verified source drifts, the SR is a hard conformance error.
 #[test]
 fn req_0148_stale_safety_requirement_is_a_validate_error() {
     let dir = tempfile::Builder::new()
@@ -1448,10 +1448,10 @@ fn req_0148_stale_safety_requirement_is_a_validate_error() {
     let root = dir.path();
     setup_marked_confirmed_sr(root);
 
-    // Confirmed + fresh → validate clean.
+    // Confirmed + fresh → conform clean.
     assert!(
         req_in(root, &["conform"]).status.success(),
-        "a freshly validated + confirmed SR should pass"
+        "a freshly verified + confirmed SR should pass"
     );
 
     // Drift the marker file → stale → REQ-V-0035 error.
@@ -1463,7 +1463,7 @@ fn req_0148_stale_safety_requirement_is_a_validate_error() {
     let out = req_in(root, &["conform"]);
     assert!(
         !out.status.success(),
-        "a stale safety requirement must fail validate"
+        "a stale safety requirement must fail conform"
     );
     let msg = format!(
         "{}{}",
@@ -2164,11 +2164,11 @@ fn req_0188_awaiting_cosign_is_advisory_not_error() {
         "met",
         "--promote",
     ]);
-    // validate: advisory (success), names REQ-V-0038.
+    // conform: advisory (success), names REQ-V-0038.
     let v = s.run(&["conform"]);
     assert!(
         v.status.success(),
-        "awaiting must not block validate: {}",
+        "awaiting must not block conform: {}",
         stdout(&v)
     );
     let body = format!("{}{}", stdout(&v), stderr(&v));

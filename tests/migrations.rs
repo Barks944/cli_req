@@ -119,11 +119,11 @@ fn req_0116_v1_fixture_migrates_to_v2_with_ids_preserved() {
         stdout(&out)
     );
 
-    // Validate post-migration.
+    // Conformance-check post-migration.
     let val = common::req(&["--file", &target_s, "conform"]);
     assert!(
         val.status.success(),
-        "post-migrate validate failed: {}",
+        "post-migrate conform failed: {}",
         stderr(&val)
     );
 
