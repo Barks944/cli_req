@@ -32,11 +32,11 @@
 
 It exists because **conversational coding loses track of requirements.** The agent and the user have a session, they build something, the conversation ends. Without something that survives the conversation, the next session starts blind. `req` is what survives: a tool both humans and agents reach for, with hooks that nudge at commit time and a session-start brief that says "where are we right now?"
 
-### The mental model: where spec-memory and validation-memory meet
+### The mental model: where spec-memory and verification-memory meet
 
-`req` is your project's **spec-memory** — what the system is *supposed* to do, surviving between conversations. A test/validation tool (your test runner, a validation-statement harness, your CI evidence trail) is your project's **validation-memory** — what the system was *observed* to do, and when.
+`req` is your project's **spec-memory** — what the system is *supposed* to do, surviving between conversations. A test/verification tool (your test runner, an evidence-dossier harness, your CI evidence trail) is your project's **verification-memory** — what the system was *observed* to do, and when.
 
-They are two different memories, and they meet at one join key: **`(commit_sha, req_id)`**. A requirement (`req_id`) describes intent; a validation record pins that intent to a concrete state of the code (`commit_sha`) where it was checked. That join is why the hooks, the `// REQ-NNNN:` markers, and `req verify --cites` exist — each one is a thread tying a requirement to the commit where it was implemented or validated. `req test record` and `req stale` live on this same join: a record is *fresh* when its `commit_sha` still matches the code behind its `req_id`, and *stale* when the code moved on.
+They are two different memories, and they meet at one join key: **`(commit_sha, req_id)`**. A requirement (`req_id`) describes intent; a verification record pins that intent to a concrete state of the code (`commit_sha`) where it was checked. That join is why the hooks, the `// REQ-NNNN:` markers, and `req verify --cites` exist — each one is a thread tying a requirement to the commit where it was implemented or verified. `req test record` and `req stale` live on this same join: a record is *fresh* when its `commit_sha` still matches the code behind its `req_id`, and *stale* when the code moved on.
 
 Once that clicks, the hooks stop feeling like friction and start reading as what keeps the two memories from drifting apart. If you only take one idea from this README, take the join key.
 
@@ -88,7 +88,7 @@ Requirements rot when they live in wikis, drift when they live in code comments,
 - **Agent-shaped**: a session-start `req brief`, an MCP server (`req mcp`), and an AGENTS.md template that explains the workflow in the agent's voice.
 - **Optional IEC 61508 safety layer**: hazards, safety functions, and safety requirements with a *derived* SIL — off until a human signs on (see [Functional safety](#functional-safety-optional)).
 
-The validator IS the product. The CLI is the only legitimate way to mutate the file.
+The conformance checker IS the product. The CLI is the only legitimate way to mutate the file.
 
 ---
 
@@ -123,7 +123,7 @@ If you're joining a project that already has a `project.req`, your installed
 refuse to read newer formats and tell you to upgrade rather than silently
 mis-reading; the symptom is an `unsupported _format` error pointing you at
 this section. Pre-commit hooks and Claude Code Stop hooks invoke `req
-validate`, so a stale binary will fail every commit until upgraded.
+conform`, so a stale binary will fail every commit until upgraded.
 
 ---
 
@@ -153,7 +153,7 @@ req show REQ-0001
 # change something — always with a reason
 req update REQ-0001 --status approved --reason "Reviewed in 2026-05-17 sync"
 
-# validate before you commit (the pre-commit hook does this for you)
+# conform before you commit (the pre-commit hook does this for you)
 req conform
 ```
 
@@ -266,7 +266,7 @@ That command writes a managed block, between sentinel markers, into `AGENTS.md`.
 - Never read or write `project.req` directly.
 - Every mutation goes through `req <subcommand>` with a `--reason`.
 - Use `// REQ-NNNN` markers in source; `req coverage` ties spec to code.
-- Don't argue with the validator — rewrite.
+- Don't argue with the conformance checker — rewrite.
 
 ---
 
@@ -299,9 +299,9 @@ Day-to-day
   req next [--status ... --tag ...]         Suggest one requirement to work on
   req split REQ-0007 --into "..." --into "..."  Break a compound req into atomic parts
   req batch path/to/changes.json            Transactional multi-mutation
-  req import -f markdown spec.md            Bulk ingest through the validator
+  req import -f markdown spec.md            Bulk ingest through the conformance checker
   req adopt --all-drafts --to verified      Retroactive backfill of existing work
-  req lint [--path src]                     Quality audit beyond the validator
+  req lint [--path src]                     Quality audit beyond the conformance checker
 
 Evidence & verification
   req test record REQ-0007 --result pass --notes "..."
@@ -315,7 +315,7 @@ Evidence & verification
 
 Integration & review
   req hooks install [--strict] [--claude-code]
-                                            Pre-commit (validate + marker gate) +
+                                            Pre-commit (conform + marker gate) +
                                             post-commit summary + merge driver
                                             (+ .claude/settings.json allowlist)
   req doctor                                Per-clone setup audit (gates 5 checks)
@@ -329,7 +329,7 @@ Integration & review
   req coverage --strict --allow REQ-NNNN... CI gate; non-zero on findings
   req review [--gate] [--staged] [--new]    One-shot PR-style spec review report
   req diff origin/main..HEAD                Per-requirement changes between revs
-  req check origin/main                     Incremental validate + scoped coverage
+  req check origin/main                     Incremental conform + scoped coverage
   req audit [--gate --require-good-signature --require-signer NAME]
                                             Git signature trail / CI gate
   req migrate                               Migrate project.req to the current _format

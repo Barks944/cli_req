@@ -8,6 +8,19 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+### Changed
+- **Terminology corrected to IEC 61508 / ISO 26262 senses (REQ-0196 / REQ-0197):**
+  the conformance check (well-formedness / rule-set) is no longer misnamed
+  "validation". The command `req validate` is now `req conform` and the engine is
+  the "conformance checker" (formerly "the validator"). User-facing strings, JSON
+  keys (`unvalidated_*` → `unverified_*`), lint output (`validator` → `conformance`),
+  environment variables (`REQ_VALIDATE_LLM_*` → `REQ_CONFORM_LLM_*`), and the error
+  code `E_VALIDATION` → `E_CONFORMANCE` were renamed accordingly. Evidence-of-meeting
+  a requirement is "verification" (→ `Verified`); "validation" (building the right
+  thing / residual risk) remains out of scope for req. README and the AGENTS.md
+  managed block were refreshed from the corrected help text. `REQ-V-NNNN` rule codes
+  are unchanged. See `req help terminology`.
+
 ## [0.5.0-rc.5] — 2026-06-14
 
 Maintenance release. Functionally identical to rc.4; cleans up the validation
