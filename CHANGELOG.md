@@ -8,6 +8,28 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.5.0-rc.6] — 2026-06-15
+
+Next-level features: the IEC 61508 safety-governance layer, a human-facing
+verification walkthrough, test-driven re-anchoring, and the V&V terminology
+correction. The whole spec re-verified from scratch — 191 requirements genuine
+and all 6 safety requirements human co-signed; `req conform` reports 0 errors.
+
+### Added
+- **Guided safety walkthrough (REQ-0169 / REQ-0170 / REQ-0171 / REQ-0174):**
+  steps a human from hazard → safety function → safety requirement → evidence in
+  a top-down narrative layout, recording the acknowledgement against the trace.
+- **Full verification dossier in the walkthrough (REQ-0198):** shows verdict,
+  staleness and co-sign state by default; `--full` adds the analysis and testing
+  detail.
+- **Interactive walkthrough navigation (REQ-0199):** `-i`/`--interactive` scrolls
+  safety requirements with ←/→ and accepts/objects/quits inline (`console`).
+- **`req verification reverify --by-tests` (REQ-0200):** re-anchors stale ordinary
+  requirements whose `req_NNNN_*` tests still pass by ingesting a captured
+  `cargo test` log (`--from-file`), excluding safety requirements.
+- **External-test provenance in `req show` (REQ-0179)** and **mapping-version
+  stamping on ingested records (REQ-0182).**
+
 ### Changed
 - **Terminology corrected to IEC 61508 / ISO 26262 senses (REQ-0196 / REQ-0197):**
   the conformance check (well-formedness / rule-set) is no longer misnamed
