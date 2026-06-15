@@ -106,8 +106,12 @@ jobs:
         # The base ref differs:
         #   - pull_request: origin/<base-branch> (the PR target)
         #   - push:         HEAD~1 (the previous commit on this branch)
-        # REQ-0100: --marker-near-hunks 50 matches the strict pre-commit
-        # hook this project installs (`req hooks install --strict`).
+        # REQ-0100: file-level matching here (changed file must carry a REQ
+        # marker), NOT --marker-near-hunks. The strict hunk-level check stays
+        # on the per-commit pre-commit hook (`req hooks install --strict`),
+        # where it's cheap and precise; applying it to the *cumulative*
+        # branch/merge diff just flags large-rename churn far from a marker
+        # in files that are already requirement-backed.
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE="origin/${{ github.base_ref }}"
@@ -115,8 +119,7 @@ jobs:
             BASE="HEAD~1"
           fi
           ./target/release/req${{ matrix.os == 'windows-latest' && '.exe' || '' }} \
-            review --base "$BASE" --path . --gate \
-              --marker-near-hunks 50
+            review --base "$BASE" --path . --gate
 
   lint:
     name: lint
