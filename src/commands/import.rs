@@ -1,5 +1,5 @@
 // Implements REQ-0067: req import — ingest requirements from markdown or
-// JSON; route every item through the validator so the integrity guarantee
+// JSON; route every item through the conformance checker so the integrity guarantee
 // applies to imported content. IDs are re-allocated to avoid collisions
 // with the destination project.
 use anyhow::{anyhow, Context, Result};
@@ -9,9 +9,9 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use crate::cli::{ImportArgs, ImportFormat};
+use crate::conform;
 use crate::model::{Kind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
 
 pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
     let raw = if args.source == "-" {
@@ -58,10 +58,10 @@ pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
                 Some(format!("source: {}", args.source)),
             )],
             tests: Vec::new(),
-            validation: None,
+            verification: None,
             extra: Default::default(),
         };
-        let findings = validate::validate_requirement(&req);
+        let findings = conform::conform_requirement(&req);
         let errs: Vec<String> = findings
             .iter()
             .filter(|f| f.error)

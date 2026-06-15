@@ -2,6 +2,7 @@
 // Top-level dispatch for REQ-0001 (single managed CLI binary).
 mod cli;
 mod commands;
+mod conform;
 mod errors;
 mod help_text;
 mod mcp;
@@ -10,7 +11,6 @@ mod model;
 mod source_walk;
 mod storage;
 mod tui;
-mod validate;
 mod web;
 
 use anyhow::Result;
@@ -48,7 +48,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Update(args) => commands::update::run(args, &cli.file),
         Command::Delete(args) => commands::delete::run(args, &cli.file),
         Command::Link(args) => commands::link::run(args, &cli.file),
-        Command::Validate(args) => commands::validate_cmd::run(args, &cli.file),
+        Command::Conform(args) => commands::conform_cmd::run(args, &cli.file),
         Command::Status(args) => commands::status::run(args, &cli.file),
         Command::Test(t) => commands::test_cmd::run(t, &cli.file),
         Command::Verify(args) => commands::test_cmd::verify(args, &cli.file),
@@ -74,7 +74,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Audit(args) => commands::audit::run(args, &cli.file),
         Command::Review(args) => commands::review::run(args, &cli.file),
         Command::Split(args) => commands::split::run(args, &cli.file),
-        // REQ-0101: project-wide quality audit beyond the validator.
+        // REQ-0101: project-wide quality audit beyond the conformance checker.
         Command::Lint(args) => commands::lint::run(args, &cli.file),
         // REQ-0104: session-start brief.
         Command::Brief(args) => commands::brief::run(args, &cli.file),
@@ -91,9 +91,11 @@ fn run(cli: Cli) -> Result<()> {
         Command::Sf(cmd) => commands::safety::run_sf(cmd, &cli.file),
         Command::Sreq(cmd) => commands::safety::run_sreq(cmd, &cli.file),
         Command::Trace(args) => commands::safety::run_trace(args, &cli.file),
+        // REQ-0156: read-only safety-graph impact analysis.
+        Command::Impact(args) => commands::safety_gov::impact(args, &cli.file),
         // REQ-0138: human-only safety governance (accept / status / calibrate).
         Command::Safety(cmd) => commands::safety_gov::run(cmd, &cli.file),
-        // REQ-0139: the staged validation dossier.
-        Command::Validation(cmd) => commands::validation::run(cmd, &cli.file),
+        // REQ-0139: the staged verification dossier.
+        Command::Verification(cmd) => commands::verification::run(cmd, &cli.file),
     }
 }

@@ -74,42 +74,116 @@ pub struct ProjectConfig {
     /// calibration in use and the one-time liability acknowledgement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub safety: Option<SafetyConfig>,
-    /// REQ-0139: validation-dossier policy (which tags exempt an ordinary
+    /// REQ-0139: verification-dossier policy (which tags exempt an ordinary
     /// requirement from the mandatory dossier gate).
+    // REQ-0192: serialised as `verification` (alias `verification` for old files).
+    #[serde(
+        rename = "verification",
+        alias = "validation",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub verification: Option<VerificationConfig>,
+    /// REQ-0182: external test-system integration — the verdict-vocabulary
+    /// mapping used when ingesting bench results.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub validation: Option<ValidationConfig>,
+    pub test_integration: Option<TestIntegrationConfig>,
 }
 
-/// REQ-0139: per-project validation-dossier policy.
+/// REQ-0182: how an external system's verdict vocabulary maps onto the local
+/// pass/fail result model. Keys are the external verdict strings; values are
+/// `pass` or `fail`. Overrides merge over the built-in defaults.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ValidationConfig {
+pub struct TestIntegrationConfig {
+    /// REQ-0182: an explicit version identifying the verdict-mapping vocabulary,
+    /// so a bench's verdict-vocabulary change is a visible, tracked config bump
+    /// rather than a silent semantic drift. Recorded on each ingested record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict_map: Option<BTreeMap<String, String>>,
+}
+
+/// REQ-0139: per-project verification-dossier policy.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VerificationConfig {
     /// Tags that exempt an ordinary requirement (never a safety
-    /// requirement) from the mandatory validation-dossier gate. Defaults
-    /// to `["validation-exempt"]` when unset.
+    /// requirement) from the mandatory verification-dossier gate. Defaults
+    /// to `["verification-exempt"]` when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exempt_tags: Option<Vec<String>>,
+    /// REQ-0161: minimum trimmed-character length for the `--reason` on a
+    /// forced, irregular change. Defaults to `DEFAULT_MIN_FORCE_REASON_LEN`
+    /// when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_force_reason_len: Option<usize>,
 }
 
 /// REQ-0139: the default tag that exempts an ordinary requirement from the
-/// validation-dossier gate when no project override is configured.
-pub const DEFAULT_VALIDATION_EXEMPT_TAG: &str = "validation-exempt";
+/// verification-dossier gate when no project override is configured.
+pub const DEFAULT_VERIFICATION_EXEMPT_TAG: &str = "verification-exempt";
+
+/// REQ-0161: default minimum length (in trimmed characters) for the
+/// `--reason` on a forced, irregular change. A one-character reason makes a
+/// deliberate correction indistinguishable from a careless override; this
+/// is the floor unless a project raises or lowers it via config.
+pub const DEFAULT_MIN_FORCE_REASON_LEN: usize = 12;
 
 impl Project {
     /// REQ-0139: the tags that exempt an ordinary requirement from the
-    /// validation gate, honouring the project override.
-    pub fn validation_exempt_tags(&self) -> Vec<String> {
+    /// verification gate, honouring the project override.
+    pub fn verification_exempt_tags(&self) -> Vec<String> {
         self.config
             .as_ref()
-            .and_then(|c| c.validation.as_ref())
+            .and_then(|c| c.verification.as_ref())
             .and_then(|v| v.exempt_tags.clone())
-            .unwrap_or_else(|| vec![DEFAULT_VALIDATION_EXEMPT_TAG.to_string()])
+            .unwrap_or_else(|| vec![DEFAULT_VERIFICATION_EXEMPT_TAG.to_string()])
     }
 
     /// REQ-0139: whether an ordinary requirement is exempt from the
-    /// validation gate by virtue of carrying a configured exempt tag.
-    pub fn req_is_validation_exempt(&self, r: &Requirement) -> bool {
-        let tags = self.validation_exempt_tags();
+    /// verification gate by virtue of carrying a configured exempt tag.
+    pub fn req_is_verification_exempt(&self, r: &Requirement) -> bool {
+        let tags = self.verification_exempt_tags();
         r.tags.iter().any(|t| tags.iter().any(|e| e == t))
+    }
+
+    /// REQ-0155 / REQ-0157: a Verified safety requirement whose current
+    /// inherited SIL is higher than the SIL its latest passing evidence was
+    /// justified against — its verification no longer stands at the current
+    /// integrity level and must be redone. Returns `(id, evidence_sil,
+    /// current_sil)` for each such requirement.
+    pub fn sil_escalated_srs(&self) -> Vec<(String, Sil, Sil)> {
+        let mut out = Vec::new();
+        for (id, sr) in &self.safety_requirements {
+            if !matches!(sr.status, Status::Verified) {
+                continue;
+            }
+            let Some(current) = self.inherited_sil(sr) else {
+                continue;
+            };
+            let evidence = sr
+                .tests
+                .iter()
+                .rev()
+                .find(|t| matches!(t.outcome, TestOutcome::Pass))
+                .and_then(|t| t.sil_at_verification);
+            if let Some(ev) = evidence {
+                if current.rank() > ev.rank() {
+                    out.push((id.clone(), ev, current));
+                }
+            }
+        }
+        out
+    }
+
+    /// REQ-0161: the minimum substantive length required of a `--reason` on
+    /// a forced, irregular change, honouring the project override.
+    pub fn min_force_reason_len(&self) -> usize {
+        self.config
+            .as_ref()
+            .and_then(|c| c.verification.as_ref())
+            .and_then(|v| v.min_force_reason_len)
+            .unwrap_or(DEFAULT_MIN_FORCE_REASON_LEN)
     }
 }
 
@@ -273,7 +347,7 @@ impl Project {
             .filter_map(|l| self.hazards.get(&l.target))
             // REQ-0135: a retired hazard must not keep feeding its SIL
             // into a live function's allocation — that would disagree
-            // with the validator, which only counts live mitigations.
+            // with the conformance checker, which only counts live mitigations.
             .filter(|h| !matches!(h.status, HazardStatus::Obsolete))
             // REQ-0138: use the project's calibration, not the default.
             .filter_map(|h| self.required_sil(h))
@@ -321,15 +395,23 @@ pub struct Requirement {
     /// load forward-compatibly.
     #[serde(default)]
     pub tests: Vec<TestRecord>,
-    /// REQ-0139: the structured validation dossier — plan → analysis →
-    /// testing → statement → verdict. Absent until a validation is
+    /// REQ-0139: the structured verification dossier — plan → analysis →
+    /// testing → statement → verdict. Absent until a verification is
     /// opened; serialised only when present so projects that never use
     /// it keep a byte-identical file (and integrity hash).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub validation: Option<Validation>,
+    // REQ-0192: the dossier is VERIFICATION (built-it-right evidence). The
+    // on-disk key is `verification`; `verification` is read as an alias so
+    // req-v3 files load before they are migrated (REQ-0192 v3→v4 migration).
+    #[serde(
+        rename = "verification",
+        alias = "validation",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub verification: Option<Verification>,
     /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
     /// Preserves any per-requirement field a newer `req` writes (the
-    /// silent-drop of `validation` by a stale binary is what motivated it).
+    /// silent-drop of `verification` by a stale binary is what motivated it).
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
 }
@@ -363,11 +445,45 @@ pub struct TestRecord {
     /// deliberately overrode the SIL-rigour gate (a SIL 3/4 safety
     /// requirement verified on inspection-only evidence). This is the
     /// structured, non-forgeable record of an audited exception — the
-    /// validator keys REQ-V-0031 off this field, not off a substring in
+    /// conformance checker keys REQ-V-0031 off this field, not off a substring in
     /// `notes`, so the exception cannot be faked by hand-writing notes.
     /// The justifying `--reason` is recorded in `notes`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub sil_gate_exception: bool,
+    /// REQ-0154: the inherited SIL in effect for this safety requirement at
+    /// the moment the evidence was captured. SILs are derived lazily on read,
+    /// so a later calibration change or a newly-linked higher-SIL hazard can
+    /// move a requirement's effective SIL away from the level its evidence
+    /// was justified against; this snapshot is what lets REQ-0155 detect that
+    /// drift. `None` for ordinary requirements (no SIL) and for records
+    /// written before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sil_at_verification: Option<Sil>,
+    /// REQ-0179: when this evidence was ingested from an external test system
+    /// (a physical bench, CI rig, …), its provenance — which system, which
+    /// environment. None means the record was produced locally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external: Option<ExternalSource>,
+}
+
+/// REQ-0179: provenance for a test record ingested from an external system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalSource {
+    /// The originating system's identity, e.g. "at_test".
+    pub system: String,
+    /// The named test environment / bench, e.g. "bench-944".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    /// The external system's own verdict vocabulary value, preserved verbatim
+    /// (e.g. "bench_cap_suspected") so a mapped Pass/Fail never loses nuance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_verdict: Option<String>,
+    /// REQ-0182: the verdict-mapping version (`_config.test_integration.version`)
+    /// in effect when this record was ingested, so the translation that
+    /// produced the local verdict is traceable and a vocabulary change is
+    /// visible after the fact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mapping_version: Option<String>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -390,16 +506,16 @@ impl TestOutcome {
 }
 
 // ============================================================================
-// REQ-0139: the validation dossier
+// REQ-0139: the verification dossier
 //
 // A requirement (or safety requirement) reaches Verified only after a
-// staged validation an agent must fill IN ORDER:
+// staged verification an agent must fill IN ORDER:
 //
-//   1. plan      — how the obligation will be validated (analysis + testing).
-//   2. analysis  — validation by analysis (code review): findings + pass/fail.
-//   3. testing   — validation by testing: findings + pass/fail, referencing
+//   1. plan      — how the obligation will be verified (analysis + testing).
+//   2. analysis  — verification by analysis (code review): findings + pass/fail.
+//   3. testing   — verification by testing: findings + pass/fail, referencing
 //                  recorded TestRecords when they exist, else structured prose.
-//   4. statement — the written validation statement and the final verdict.
+//   4. statement — the written verification statement and the final verdict.
 //
 // The verdict is DERIVED (Pass only when both activity outcomes pass), never
 // free-typed, and a passing dossier is the precondition for promotion to
@@ -408,12 +524,12 @@ impl TestOutcome {
 // does not stand forever once the code it covers moves.
 // ============================================================================
 
-/// REQ-0139: one validation activity (the analysis stage or the testing
+/// REQ-0139: one verification activity (the analysis stage or the testing
 /// stage). Carries the findings, this dimension's pass/fail outcome, and
 /// supporting references (files/commits reviewed, or test names / test
 /// records cited).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidationActivity {
+pub struct VerificationActivity {
     pub summary: String,
     pub outcome: TestOutcome,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -422,16 +538,16 @@ pub struct ValidationActivity {
     pub actor: String,
 }
 
-/// REQ-0139: the staged validation dossier attached to a requirement or
+/// REQ-0139: the staged verification dossier attached to a requirement or
 /// safety requirement. Stages fill in order; `verdict` stays `None` until
 /// `conclude` derives it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Validation {
+pub struct Verification {
     pub plan: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub analysis: Option<ValidationActivity>,
+    pub analysis: Option<VerificationActivity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub testing: Option<ValidationActivity>,
+    pub testing: Option<VerificationActivity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub statement: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -455,16 +571,35 @@ pub struct Validation {
     pub content_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_files: Option<Vec<String>>,
-    /// REQ-0145: a human's confirmation of the validation result. For a
+    /// REQ-0145: a human's confirmation of the verification result. For a
     /// safety requirement this is REQUIRED in addition to the agent's
     /// analysis + testing before the verification counts as passed; an
-    /// agent cannot record it (`req validation confirm` refuses
+    /// agent cannot record it (`req verification confirm` refuses
     /// REQ_ACTOR_KIND=agent). None until a human confirms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub human_confirmation: Option<ValidationActivity>,
+    pub human_confirmation: Option<VerificationActivity>,
+    /// REQ-0162: when `exempt` is set, which kind of waiver this is, stored
+    /// as structured data rather than inferred from a magic prefix on the
+    /// free-text `plan`. None on a non-exempt dossier and on legacy exempt
+    /// dossiers written before this field existed (migrated by `req migrate`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exemption_kind: Option<ExemptionKind>,
 }
 
-impl Validation {
+/// REQ-0162: the two audited ways an item may be Verified without a genuine
+/// concluded dossier. Recorded explicitly so provenance classification never
+/// has to parse the plan text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExemptionKind {
+    /// `req verify --no-dossier` waiver (ordinary requirements only).
+    #[serde(rename = "no-dossier")]
+    NoDossier,
+    /// `req verification backfill` grandfathering of a pre-gate Verified item.
+    #[serde(rename = "backfilled")]
+    Backfilled,
+}
+
+impl Verification {
     /// A fresh dossier holding only the plan.
     pub fn opened(plan: String, actor: String, commit: String, at: DateTime<Utc>) -> Self {
         Self {
@@ -482,6 +617,7 @@ impl Validation {
             content_hash: None,
             linked_files: None,
             human_confirmation: None,
+            exemption_kind: None,
         }
     }
 
@@ -489,7 +625,7 @@ impl Validation {
         self.verdict.is_some()
     }
 
-    /// Whether this dossier satisfies the promotion / validation gate: a
+    /// Whether this dossier satisfies the promotion / verification gate: a
     /// concluded Pass verdict, or an audited exemption.
     pub fn passed(&self) -> bool {
         self.exempt || matches!(self.verdict, Some(TestOutcome::Pass))
@@ -552,6 +688,13 @@ pub struct HistoryEntry {
     pub actor_kind: ActorKind,
     pub action: String,
     pub reason: Option<String>,
+    /// REQ-0167: the human on whose behalf an agent made this change, taken
+    /// from `REQ_ON_BEHALF_OF`. None for direct human edits or when unset;
+    /// restores a chain of accountability that `actor_kind=agent` alone
+    /// flattens. Skipped from the file when absent so existing files and the
+    /// integrity hash are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of: Option<String>,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -843,7 +986,7 @@ impl LinkKind {
 //
 // The derivation chain (C/F/P/W -> required -> allocated -> inherited)
 // means an agent cannot quietly assign a convenient integrity level: the
-// only inputs are the qualitative risk parameters, and the validator
+// only inputs are the qualitative risk parameters, and the conformance checker
 // recomputes everything downstream.
 // ============================================================================
 
@@ -1112,7 +1255,7 @@ impl HazardStatus {
 
 /// REQ-0134: a hazardous event and its risk assessment. The four risk
 /// parameters are optional so a hazard can be logged at `Identified`
-/// before it is assessed; the validator requires them from `Assessed`
+/// before it is assessed; the conformance checker requires them from `Assessed`
 /// onward. The SIL is never stored — `required_sil()` derives it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hazard {
@@ -1237,13 +1380,43 @@ pub struct SafetyRequirement {
     pub history: Vec<HistoryEntry>,
     #[serde(default)]
     pub tests: Vec<TestRecord>,
-    /// REQ-0139: the staged validation dossier. Mandatory (no tag
+    /// REQ-0139: the staged verification dossier. Mandatory (no tag
     /// exemption) before a safety requirement may reach Verified.
+    // REQ-0192: the dossier is VERIFICATION (built-it-right evidence). The
+    // on-disk key is `verification`; `verification` is read as an alias so
+    // req-v3 files load before they are migrated (REQ-0192 v3→v4 migration).
+    #[serde(
+        rename = "verification",
+        alias = "validation",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub verification: Option<Verification>,
+    /// REQ-0171: the most recent guided-walkthrough acknowledgement — a human
+    /// reviewer's confirmation that they were walked through this requirement's
+    /// hazard → SF → SR → evidence chain. Anchored to the commit it was made
+    /// against so it goes stale when the chain changes (REQ-0172).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub validation: Option<Validation>,
+    pub walkthrough: Option<WalkthroughAck>,
     /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// REQ-0171: a human reviewer's per-requirement acknowledgement from the
+/// guided safety walkthrough, anchored to reviewer, time, and commit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalkthroughAck {
+    pub reviewer: String,
+    pub at: DateTime<Utc>,
+    pub commit: String,
+    /// True when the reviewer declined (raised an objection) rather than
+    /// acknowledging — this records the objection and does not satisfy the
+    /// acceptance gate (REQ-0170).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub objected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[cfg(test)]

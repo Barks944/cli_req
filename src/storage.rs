@@ -1,5 +1,5 @@
 // Implements REQ-0002 (git-diffable JSON), REQ-0003 (integrity hash),
-// REQ-0004 (in-file warning + instructions), REQ-0019 (atomic writes),
+// REQ-0004 (in-file warning + instructions), REQ-0022 (atomic writes),
 // REQ-0062 (advisory file lock around mutation sequences).
 // Discharges REQ-0020 (constraint: agents shall not edit project.req
 // directly) by making the integrity hash the enforcement mechanism — any
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::Project;
 
-pub const FORMAT_TAG: &str = "req-v3";
+pub const FORMAT_TAG: &str = "req-v4";
 pub const FORMAT_TAG_DIR: &str = "req-v1-dir";
 
 /// REQ-0141: monotonic schema-revision counter, written into every file's
@@ -34,7 +34,7 @@ pub const FORMAT_TAG_DIR: &str = "req-v1-dir";
 ///
 /// Revision history:
 ///   1 — introduced the guard; baseline for the req-v3 shape that already
-///       carries per-requirement `validation` (REQ-0139) and the
+///       carries per-requirement `verification` (REQ-0139) and the
 ///       functional-safety artifacts (REQ-0134).
 pub const SCHEMA_REV: u64 = 1;
 
@@ -79,7 +79,7 @@ pub fn instructions_block() -> Vec<String> {
         "".into(),
         "This file is the source of truth for a managed requirements project. It is".into(),
         "git-diffable so humans can review changes in pull requests, but every".into(),
-        "mutation must go through the `req` CLI so that best-practice validation".into(),
+        "mutation must go through the `req` CLI so that best-practice verification".into(),
         "runs (atomic statements, modal verbs, acceptance criteria, no weasel words,".into(),
         "no broken links, etc.).".into(),
         "".into(),
@@ -95,7 +95,7 @@ pub fn instructions_block() -> Vec<String> {
         "  req show REQ-0001                          full detail for one".into(),
         "  req update REQ-0001 --status approved --reason \"team review\"".into(),
         "  req link REQ-0002 REQ-0001 -k parent       hierarchy / traceability".into(),
-        "  req validate                               run rules across the project".into(),
+        "  req conform                               run rules across the project".into(),
         "  req export -f markdown -o reqs.md          publish".into(),
         "  req tui                                    interactive terminal browser".into(),
         "  req help <section>                         structured help; try: overview,".into(),

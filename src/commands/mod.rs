@@ -4,6 +4,7 @@ pub mod audit;
 pub mod batch;
 pub mod brief;
 pub mod check;
+pub mod conform_cmd;
 pub mod coverage;
 pub mod delete;
 pub mod diff;
@@ -13,6 +14,7 @@ pub mod help_cmd;
 pub mod hooks;
 pub mod import;
 pub mod init;
+pub mod integration;
 pub mod link;
 pub mod lint;
 pub mod list;
@@ -36,8 +38,7 @@ pub mod stale;
 pub mod status;
 pub mod test_cmd;
 pub mod update;
-pub mod validate_cmd;
-pub mod validation;
+pub mod verification;
 pub mod version;
 
 use chrono::Utc;
@@ -117,6 +118,16 @@ pub fn current_actor_kind() -> ActorKind {
     }
 }
 
+/// REQ-0167: the human on whose behalf the acting agent is working, from
+/// `REQ_ON_BEHALF_OF`. Empty/unset yields None. Trimmed so a stray blank
+/// does not record an empty attribution.
+pub fn current_on_behalf_of() -> Option<String> {
+    env::var("REQ_ON_BEHALF_OF")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub fn history(action: impl Into<String>, reason: Option<String>) -> HistoryEntry {
     HistoryEntry {
         at: Utc::now(),
@@ -124,5 +135,26 @@ pub fn history(action: impl Into<String>, reason: Option<String>) -> HistoryEntr
         actor_kind: current_actor_kind(),
         action: action.into(),
         reason,
+        on_behalf_of: current_on_behalf_of(),
     }
+}
+
+/// REQ-0161: a forced, irregular change must carry a substantive `--reason`.
+/// An empty or near-empty reason makes a deliberate correction
+/// indistinguishable from a careless override in the audit trail, so reject
+/// anything shorter than `min_len` trimmed characters.
+pub fn ensure_force_reason(reason: &Option<String>, min_len: usize) -> anyhow::Result<()> {
+    let len = reason
+        .as_deref()
+        .map(|r| r.trim().chars().count())
+        .unwrap_or(0);
+    if len < min_len {
+        return Err(anyhow::anyhow!(
+            "a forced change needs a substantive --reason (≥{} characters; got {}). \
+             Explain why this irregular change is correct so the audit trail records the why.",
+            min_len,
+            len
+        ));
+    }
+    Ok(())
 }

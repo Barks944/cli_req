@@ -1,4 +1,4 @@
-// Implements REQ-0041 (incremental validation + scoped coverage since a git ref).
+// Implements REQ-0041 (incremental verification + scoped coverage since a git ref).
 use anyhow::{anyhow, Context, Result};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -8,9 +8,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::cli::CheckArgs;
+use crate::conform;
 use crate::model::Project;
 use crate::storage::{self, resolve_path};
-use crate::validate;
 
 static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
 
@@ -40,13 +40,13 @@ pub fn run(args: CheckArgs, file: &Option<PathBuf>) -> Result<()> {
     // Which requirements changed?
     let changed_reqs: Vec<String> = changed_req_ids(&current, base.as_ref());
 
-    // Validate just those requirements.
+    // Conformance-check just those requirements.
     let mut findings: Vec<serde_json::Value> = Vec::new();
     let mut errs = 0usize;
     let mut warns = 0usize;
     for id in &changed_reqs {
         if let Some(r) = current.requirements.get(id) {
-            for f in validate::validate_requirement(r) {
+            for f in conform::conform_requirement(r) {
                 if f.error {
                     errs += 1
                 } else {

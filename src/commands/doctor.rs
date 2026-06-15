@@ -34,7 +34,9 @@ pub fn run(args: DoctorArgs) -> Result<()> {
     if pre_commit.exists() {
         let body = std::fs::read_to_string(&pre_commit).unwrap_or_default();
         let managed = body.contains("# managed-by: req-hooks");
-        let runs_validate = body.contains("req validate");
+        // Detect the conform step; keep matching the legacy "req validate"
+        // string so pre-rename hooks are still recognised as managed.
+        let runs_conform = body.contains("req conform") || body.contains("req validate");
         let mode = if body.contains("# mode: strict") {
             " [strict mode]"
         } else if body.contains("# mode: default") {
@@ -44,8 +46,8 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         };
         checks.push(Check {
             name: "pre-commit hook".into(),
-            ok: managed && runs_validate,
-            detail: if managed && runs_validate {
+            ok: managed && runs_conform,
+            detail: if managed && runs_conform {
                 format!("present at {}{}", pre_commit.display(), mode)
             } else if pre_commit.exists() {
                 "present but not managed by req — run `req hooks install --force`".into()

@@ -32,7 +32,7 @@ cli_req/
     ├── cli.rs               clap surface — one source of truth
     ├── model.rs             Project / Requirement / Kind / Priority / Status / Link
     ├── storage.rs           JSON I/O + SHA-256 integrity hash
-    ├── validate.rs          best-practice rules
+    ├── conform.rs           conformance rules
     ├── help_text.rs         `req help <section>` content
     ├── tui.rs               dialoguer-based interactive browser
     ├── web.rs               STUB — local web server
@@ -58,9 +58,9 @@ sessions stack up into real progress instead of drifting apart.
    know. Use `req add` / `req update` / `req delete` / etc. — there's
    a CLI verb for every mutation you'd want.
 
-2. **The validator is the product.** Statements need a normative modal
+2. **The conformance checker is the product.** Statements need a normative modal
    verb (`shall` / `must` / `should` / `will`) and one obligation each.
-   If the validator rejects something, rewrite the requirement, don't
+   If the conformance checker rejects something, rewrite the requirement, don't
    try to relax the rule.
 
 3. **Mutations go through `commands::*`, not direct `Project` access.**
@@ -70,14 +70,14 @@ sessions stack up into real progress instead of drifting apart.
    when you mutate. Never edit or drop existing history entries.
 
 5. **`req <subcommand>` is the agent surface — no fast-paths that skip
-   validation.** Whatever a human can do with the tool, an agent can do
+   conformance.** Whatever a human can do with the tool, an agent can do
    too — through the same commands or via `req mcp`.
 
 6. **New reserved top-level fields need a `_format` bump.** The reserved
    keys are `_warning`, `_instructions`, `_format`, `_integrity`.
 
 7. **New behaviour gets a REQ first, then the code, then a marker.**
-   If you're about to add a new command, a new validator rule, or a
+   If you're about to add a new command, a new conformance rule, or a
    non-trivial behaviour change: write the requirement first with
    `req add`, implement, then drop a `// REQ-NNNN:` comment near the
    code that lives the requirement. The pre-commit gate catches you
@@ -118,7 +118,7 @@ applies to any project using `req`.
 
 ```sh
 cargo build --release
-./target/release/req validate          # 0 errors required to ship
+./target/release/req conform           # 0 errors required to ship
 ./target/release/req coverage --path src
 ```
 
@@ -129,7 +129,7 @@ new behaviour.
 
 ```sh
 ./target/release/req help                # section index
-./target/release/req help best-practice  # the validator's contract
+./target/release/req help best-practice  # the conformance checker's contract
 ./target/release/req help version-control
 ./target/release/req help integration
 ./target/release/req list --tag <topic>  # narrow to the area you're touching
@@ -166,7 +166,7 @@ Updating a requirement — always include `--reason`:
 Linking — parent for hierarchy, depends-on / verifies for trace:
 
 ```sh
-./target/release/req link REQ-0026 REQ-0019 -k depends-on
+./target/release/req link REQ-0026 REQ-0022 -k depends-on
 ```
 
 Soft-delete (default) preserves links and history:
@@ -193,7 +193,7 @@ requirements (ghosts). Aim for: every functional requirement at
 
 ```sh
 cargo build --release
-./target/release/req validate           # must be 0 errors
+./target/release/req conform            # must be 0 errors
 ./target/release/req coverage --path src
 git diff project.req                    # human-readable, by design
 ```
@@ -208,7 +208,7 @@ The .req file is git-tracked normal JSON. Three things change the
 default workflow:
 
 - **Pre-commit hook.** Run `req hooks install` once per clone. It writes
-  `.git/hooks/pre-commit` that runs `req validate` on staged .req files.
+  `.git/hooks/pre-commit` that runs `req conform` on staged .req files.
 
 - **Merge driver.** `req hooks install` also adds
   `*.req merge=req-merge` to `.gitattributes`. Activate it in your
@@ -247,7 +247,7 @@ git config commit.gpgsign true            # or use SSH-signed commits
   Obsolete is the terminal sink for retired requirements.
 - **clap help strings stay tight and accurate** — they're the primary UX
   for humans and agents alike, and they ship with the binary.
-- **`req help <section>` stays in sync** with the validator and the
+- **`req help <section>` stays in sync** with the conformance checker and the
   command surface. Adding a rule? Document it. Adding a command? Add a
   section (or extend one).
 
@@ -257,7 +257,7 @@ git config commit.gpgsign true            # or use SSH-signed commits
   --release -- --test-threads=1` is the canonical invocation. CI runs
   each test binary serially to keep the concurrency suite within the
   30s file-lock timeout.
-- **`cargo-llvm-cov` line coverage ~58%**; validate.rs / storage.rs are
+- **`cargo-llvm-cov` line coverage ~58%**; conform.rs / storage.rs are
   > 85%, mcp.rs and web.rs ~50%, tui.rs is intentionally 0% (dialoguer
   interactive code is hard to fixture).
 - **All three surfaces are at parity** (REQ-0083): CLI, MCP, TUI offer
@@ -265,7 +265,7 @@ git config commit.gpgsign true            # or use SSH-signed commits
   build if a new CLI command lands without a matching MCP tool *and*
   TUI menu entry, modulo a documented humans-only exclusion list.
 - **CI gates on:** `cargo fmt --check`, `cargo clippy -D warnings`,
-  `cargo build -D warnings`, `cargo test`, `req validate`,
+  `cargo build -D warnings`, `cargo test`, `req conform`,
   `req coverage --strict --allow REQ-0051 REQ-0052 REQ-0061 REQ-0082`.
 - **CI advisory:** `req doctor`, `req stale --path .`.
 - **No auth/multi-user model.** `REQ_ACTOR` / `USER` / `USERNAME`
@@ -279,7 +279,7 @@ git config commit.gpgsign true            # or use SSH-signed commits
 # project lifecycle
 req init -n <name>                       # create project.req
 req tui                                  # interactive menu (16 actions)
-req validate                             # rules across the project
+req conform                              # rules across the project
 req status                               # delivery_progress_pct
 req export -f markdown -o reqs.md        # publish
 
@@ -292,7 +292,7 @@ req link REQ-0008 REQ-0007 -k parent
 req delete REQ-0007 --reason "..."       # soft; --hard if no inbound links
 req next                                 # dependency-aware next pick
 req batch path/to/changes.json           # transactional multi-mutation
-req import -f markdown spec.md           # bulk ingest through the validator
+req import -f markdown spec.md           # bulk ingest through the conformance checker
 
 # evidence
 req test record REQ-0007 --result pass --notes "..."
@@ -308,7 +308,7 @@ req renumber --base origin/main          # post-merge ID collisions
 req coverage [--by-file | --unlinked-files | --remap OLD=NEW]
 req coverage --strict --allow REQ-NNNN   # CI gate
 req diff origin/main..HEAD               # per-requirement transitions
-req check origin/main                    # incremental validate + coverage
+req check origin/main                    # incremental conform + coverage
 req audit                                # git signature trail
 req audit --gate --require-good-signature
 req mcp                                  # JSON-RPC stdio server
@@ -334,7 +334,7 @@ cargo fmt --check
 cargo clippy --release --locked -D warnings
 cargo build --release
 cargo test --release -- --test-threads=1
-req validate
+req conform
 req coverage --path . --strict --allow REQ-0051 --allow REQ-0052 \
                                 --allow REQ-0061 --allow REQ-0082
 ```
@@ -385,8 +385,8 @@ WHEN THE USER ASKS FOR SOMETHING NEW
   req add --title "..." \        record the requirement BEFORE you write
           --statement "..." \    the code. The statement should have a
           --rationale "..." \    modal verb (shall / must / should / will)
-          --kind functional \    and describe one obligation. The validator
-          --priority must \      tells you if it doesn't.
+          --kind functional \    and describe one obligation. The conformance
+          --priority must \      checker tells you if it doesn't.
           --accept "..."
 
   Then drop a `// REQ-NNNN:` comment in the file that implements it.
@@ -397,10 +397,10 @@ WHEN THE USER ASKS FOR SOMETHING NEW
 WHILE YOU WORK
 
   req coverage --path src      where are the markers? what's orphaned?
-  req validate                 are the requirements well-formed?
+  req conform                 are the requirements well-formed?
   req lint                     softer audit (rationale length, etc.)
   req precheck                 run the local CI gate suite (REQ-NNNN) —
-                               fmt + clippy + test + validate + coverage
+                               fmt + clippy + test + conform + coverage
                                + review, in CI's order. Catches the
                                environment-skew failures (rustfmt drift,
                                fixture-config flakiness) that otherwise
@@ -426,11 +426,31 @@ WORKING WITH AN EXISTING PROJECT (RETROFIT)
 WHEN YOU FINISH SOMETHING
 
   req update <id> --status implemented --reason "..."
-  req verify <id> --by inspection --notes "..." --promote
 
-  These advance the requirement up the lifecycle. The post-commit
-  hook nudges you about this — if you cited a REQ but didn't advance
-  its status, the hook prints a suggestion.
+  Then VERIFY it before claiming Verified. Don't one-shot it — walk
+  the verification dossier so the pass/fail is backed by real analysis
+  and testing (REQ-NNNN):
+
+    req verification plan     <id> --plan "how I'll review + test this"
+    req verification analysis <id> --findings "code-review notes" --result pass
+    req verification test     <id> --findings "what I ran" --result pass
+    req verification conclude <id> --statement "why this passes" --promote
+
+  `conclude` derives the verdict (Pass only when BOTH analysis and
+  testing passed) and `--promote` flips status to Verified. Promotion
+  is BLOCKED without a passing dossier — this holds for `req verify`
+  and `req sreq verify --promote` too. A trivial ordinary requirement
+  can carry a `verification-exempt` tag (or use `req verify --no-dossier
+  --reason "..."`); safety requirements have no exemption. Works on
+  both REQ-NNNN and SR-NNNN ids.
+
+  The post-commit hook nudges you about advancing status — if you
+  cited a REQ but didn't advance it, the hook prints a suggestion.
+
+  CODE CHANGED LATER? The dossier anchors a hash of the linked source,
+  so `req stale` flags a Verified item whose code moved since you
+  verified it. Re-verify with `req verification plan <id> --reopen
+  --reason "..."`.
 
 HOW THE FILE IS PROTECTED
 
@@ -448,7 +468,7 @@ HOW THE FILE IS PROTECTED
 
 RULES THAT MATTER (the short list)
 
-  * One obligation per requirement (the validator catches compounds).
+  * One obligation per requirement (the conformance checker catches compounds).
   * A normative modal verb in every statement.
   * Pass `--reason` on every update so history attributes the why.
   * `// REQ-NNNN:` markers in source link spec to code.

@@ -266,9 +266,9 @@ fn req_0153_refresh_never_rehashes_drifted_source() {
     for st in ["proposed", "approved", "implemented"] {
         run_in(&["update", "REQ-0001", "--status", st, "--reason", "x"]);
     }
-    run_in(&["validation", "plan", "REQ-0001", "--plan", "review"]);
+    run_in(&["verification", "plan", "REQ-0001", "--plan", "review"]);
     run_in(&[
-        "validation",
+        "verification",
         "analysis",
         "REQ-0001",
         "--findings",
@@ -277,7 +277,7 @@ fn req_0153_refresh_never_rehashes_drifted_source() {
         "pass",
     ]);
     run_in(&[
-        "validation",
+        "verification",
         "test",
         "REQ-0001",
         "--findings",
@@ -286,7 +286,7 @@ fn req_0153_refresh_never_rehashes_drifted_source() {
         "pass",
     ]);
     let c = run_in(&[
-        "validation",
+        "verification",
         "conclude",
         "REQ-0001",
         "--statement",
@@ -300,7 +300,7 @@ fn req_0153_refresh_never_rehashes_drifted_source() {
     );
 
     // Freshly anchored (new-format hash) -> nothing to refresh, not drifted.
-    let fresh = run_in(&["validation", "refresh-anchors", "--path", ".", "--json"]);
+    let fresh = run_in(&["verification", "refresh-anchors", "--path", ".", "--json"]);
     let jf = String::from_utf8_lossy(&fresh.stdout);
     assert!(
         jf.contains("\"refreshed\": []"),
@@ -315,7 +315,7 @@ fn req_0153_refresh_never_rehashes_drifted_source() {
     .unwrap();
 
     // Drifted source must be reported, NOT rehashed.
-    let out = run_in(&["validation", "refresh-anchors", "--path", ".", "--json"]);
+    let out = run_in(&["verification", "refresh-anchors", "--path", ".", "--json"]);
     let j = String::from_utf8_lossy(&out.stdout);
     assert!(
         j.contains("\"refreshed\": []"),

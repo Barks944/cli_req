@@ -10,7 +10,7 @@ use crate::model::{
     Status,
 };
 
-/// A validation finding. `error = true` blocks the operation; otherwise it's a warning.
+/// A conformance finding. `error = true` blocks the operation; otherwise it's a warning.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Finding {
     pub error: bool,
@@ -82,7 +82,8 @@ pub const RULES: &[(&str, &str)] = &[
     ),
     (
         "REQ-V-0020",
-        "duplicate-intent: another non-obsolete requirement is semantically very similar",
+        // REQ-0076: surface the similarity threshold so `req help errors` documents it.
+        "duplicate-intent: another non-obsolete requirement is semantically very similar (Jaccard title+statement similarity >= 65%)",
     ),
     (
         "REQ-V-0021",
@@ -94,7 +95,7 @@ pub const RULES: &[(&str, &str)] = &[
     ),
     (
         "REQ-V-0023",
-        "external statement-quality hook flagged this requirement (opt-in via REQ_VALIDATE_LLM_CMD)",
+        "external statement-quality hook flagged this requirement (opt-in via REQ_CONFORM_LLM_CMD)",
     ),
     (
         "REQ-V-0024",
@@ -127,19 +128,31 @@ pub const RULES: &[(&str, &str)] = &[
     ),
     (
         "REQ-V-0032",
-        "requirement is Verified but has no passing validation dossier and is not validation-exempt",
+        "requirement is Verified but has no passing verification dossier and is not verification-exempt",
     ),
     (
         "REQ-V-0033",
-        "safety requirement is Verified but lacks a genuine validation dossier (exemptions are not allowed for safety requirements)",
+        "safety requirement is Verified but lacks a genuine verification dossier (exemptions are not allowed for safety requirements)",
     ),
     (
         "REQ-V-0034",
-        "safety requirement is Verified on an agent's dossier but lacks a human confirmation of the validation result (run `req validation confirm`)",
+        "safety requirement is Verified on an agent's dossier but lacks a human confirmation of the verification result (run `req verification confirm`)",
     ),
     (
         "REQ-V-0035",
-        "safety requirement is Verified but its validated source has drifted (stale) — re-validate and have a human re-confirm",
+        "safety requirement is Verified but its verified source has drifted (stale) — re-verify and have a human re-confirm",
+    ),
+    (
+        "REQ-V-0036",
+        "safety requirement's inherited SIL rose above the SIL its evidence was justified against — re-verify at the current level",
+    ),
+    (
+        "REQ-V-0037",
+        "safety requirement was verified by the same actor who authored it (independence of assessment, warn)",
+    ),
+    (
+        "REQ-V-0038",
+        "safety requirement has a genuine dossier and awaits a human co-sign to reach Verified (advisory)",
     ),
 ];
 
@@ -152,6 +165,20 @@ static HEDGE_WORDS: &[&str] = &[
     "roughly",
     "potentially",
 ];
+
+// REQ-0186: hedge words are matched on whole-word boundaries too, for the
+// same reason as the weasel words — e.g. "roughly" is a substring of
+// "thoroughly" and "might" of "mighty".
+static HEDGE_RES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
+    HEDGE_WORDS
+        .iter()
+        .map(|w| {
+            let re = Regex::new(&format!(r"(?i)\b{}\b", regex::escape(w)))
+                .expect("hedge-word regex compiles");
+            (*w, re)
+        })
+        .collect()
+});
 
 static WEASEL_WORDS: &[&str] = &[
     "etc",
@@ -177,6 +204,26 @@ static WEASEL_WORDS: &[&str] = &[
     "seamless",
 ];
 
+// REQ-0186: weasel-word checks match on whole-word boundaries, not raw
+// substrings. The naive `contains` test fired on the substring "etc"
+// inside legitimate words like "fetches" (and "fast" inside "fastest",
+// "some" inside "handsome", …). Each term is compiled once to a
+// `\b<term>\b` regex; the boundaries are anchored on word characters so a
+// term embedded in a larger word is no longer flagged, while the term as a
+// standalone word (including when trailed by punctuation like "etc.") still
+// is. Multi-word and punctuated terms ("and/or", "easy to use") match the
+// literal phrase between boundaries.
+static WEASEL_RES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
+    WEASEL_WORDS
+        .iter()
+        .map(|w| {
+            let re = Regex::new(&format!(r"(?i)\b{}\b", regex::escape(w)))
+                .expect("weasel-word regex compiles");
+            (*w, re)
+        })
+        .collect()
+});
+
 static MODAL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\b(shall|must|should|will)\b").unwrap());
 
@@ -188,7 +235,7 @@ static BACKTICK_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"`[^`]*`").unwrap());
 // terms in req's domain. When they appear as a noun-phrase reference to
 // the priority field (`Must-priority requirements`) they are not modal
 // verbs and must be stripped before the modal-verb count, or the
-// validator's own ruleset bites our own spec. Narrowest fix: strip the
+// conformance checker's own ruleset bites our own spec. Narrowest fix: strip the
 // token only when immediately followed by `-priority` or `-priorities`.
 static PRIORITY_LABEL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\b(must|should|could|wont)(-priorit(?:y|ies))\b").unwrap());
@@ -203,9 +250,9 @@ fn strip_non_prose(s: &str) -> String {
     no_priority_labels.into_owned()
 }
 
-// REQ-0102: validator findings name the cause and a suggested fix so
+// REQ-0102: conformance findings name the cause and a suggested fix so
 // each warning is a teaching moment rather than a terse rule name.
-pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
+pub fn conform_requirement(r: &Requirement) -> Vec<Finding> {
     let mut out = Vec::new();
 
     let title = r.title.trim();
@@ -284,9 +331,8 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         // Weasel + compound checks both run against the stripped-prose form
         // so that backtick-wrapped cited terms and embedded enumerations do
         // not trip rules they exist only to describe.
-        let prose_lower = prose.to_lowercase();
-        for w in WEASEL_WORDS {
-            if prose_lower.contains(w) {
+        for (w, re) in WEASEL_RES.iter() {
+            if re.is_match(&prose) {
                 out.push(Finding::warn(
                     "REQ-V-0009",
                     "statement",
@@ -335,10 +381,10 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
         // doesn't know what they want.
         // REQ-0102: hedge-stacking message names the offending pattern AND
         // quotes the matching words so the author sees exactly what to fix.
-        let hedge_words_found: Vec<&str> = HEDGE_WORDS
+        let hedge_words_found: Vec<&str> = HEDGE_RES
             .iter()
-            .copied()
-            .filter(|w| prose_lower.contains(*w))
+            .filter(|(_, re)| re.is_match(&prose))
+            .map(|(w, _)| *w)
             .collect();
         if hedge_words_found.len() >= 2 {
             let quoted = hedge_words_found
@@ -398,7 +444,7 @@ pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
                 "REQ-V-0015",
                 "acceptance",
                 format!(
-                    "acceptance #{} is only {} word(s) — name a concrete observable, e.g. `req validate exits 0 on a clean project`",
+                    "acceptance #{} is only {} word(s) — name a concrete observable, e.g. `req conform exits 0 on a clean project`",
                     i + 1,
                     ac.split_whitespace().count()
                 ),
@@ -444,7 +490,7 @@ fn jaccard(a: &std::collections::HashSet<String>, b: &std::collections::HashSet<
     inter / union
 }
 
-pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
+pub fn conform_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     let mut out = Vec::new();
     // Precompute token sets for non-obsolete requirements once.
     let active: Vec<(&String, std::collections::HashSet<String>)> = p
@@ -454,7 +500,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         .map(|(id, r)| (id, token_set(&format!("{} {}", r.title, r.statement))))
         .collect();
     for (id, r) in &p.requirements {
-        let mut findings = validate_requirement(r);
+        let mut findings = conform_requirement(r);
         // Advisory (warning-level) findings on retired requirements are
         // pure noise — they cannot be re-edited via the normal flow and
         // Obsolete is a terminal state. Drop warnings; keep errors.
@@ -510,7 +556,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             // REQ-0093: gated on status >= Implemented. A Draft/Proposed/
             // Approved requirement is not yet expected to carry evidence,
             // and firing the warning that early trains authors to ignore
-            // validator output.
+            // conformance-checker output.
             let evidence_expected = matches!(r.status, Status::Implemented | Status::Verified);
             if matches!(link.kind, crate::model::LinkKind::Verifies)
                 && r.tests.is_empty()
@@ -554,19 +600,19 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     ));
                 }
             }
-            // REQ-0139 / REQ-V-0032: Verified requires a passing validation
+            // REQ-0139 / REQ-V-0032: Verified requires a passing verification
             // dossier (plan → analysis → testing → statement → verdict)
             // unless the requirement carries a configured exempt tag.
-            let dossier_ok = r.validation.as_ref().map(|v| v.passed()).unwrap_or(false);
-            if !dossier_ok && !p.req_is_validation_exempt(r) {
+            let dossier_ok = r.verification.as_ref().map(|v| v.passed()).unwrap_or(false);
+            if !dossier_ok && !p.req_is_verification_exempt(r) {
                 findings.push(Finding::err(
                     "REQ-V-0032",
-                    "validation",
+                    "verification",
                     format!(
-                        "{} is Verified but has no passing validation dossier — run `req validation plan {} ...` → analysis → test → conclude, or tag it `{}`",
+                        "{} is Verified but has no passing verification dossier — run `req verification plan {} ...` → analysis → test → conclude, or tag it `{}`",
                         r.id,
                         r.id,
-                        crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                        crate::model::DEFAULT_VERIFICATION_EXEMPT_TAG
                     ),
                 ));
             }
@@ -576,15 +622,15 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         }
     }
     // REQ-0087 / REQ-V-0023: opt-in external statement-quality hook.
-    // REQ-0097: bounded parallelism via REQ_VALIDATE_LLM_CONCURRENCY. The CLI
-    // stays deterministic by default; only when REQ_VALIDATE_LLM_CMD
+    // REQ-0097: bounded parallelism via REQ_CONFORM_LLM_CONCURRENCY. The CLI
+    // stays deterministic by default; only when REQ_CONFORM_LLM_CMD
     // is set do we shell out (per non-obsolete requirement) to ask
     // an external judge whether the statement is testable. The hook
     // is fed a small JSON stub on stdin and returns
     // `{ "ok": bool, "message": "..." }` on stdout. Failure of the
     // hook itself surfaces as a single REQ-V-0023 warning but does
-    // not stop the rest of validation.
-    if let Ok(cmd) = std::env::var("REQ_VALIDATE_LLM_CMD") {
+    // not stop the rest of the conformance check.
+    if let Ok(cmd) = std::env::var("REQ_CONFORM_LLM_CMD") {
         let trimmed = cmd.trim().to_string();
         if !trimmed.is_empty() {
             // REQ-0097: configurable concurrency cap. Default 1 keeps
@@ -592,7 +638,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             // in. Higher values fan out across non-obsolete reqs in
             // a thread pool; findings are sorted by id afterwards so
             // output stays stable regardless of completion order.
-            let concurrency: usize = std::env::var("REQ_VALIDATE_LLM_CONCURRENCY")
+            let concurrency: usize = std::env::var("REQ_CONFORM_LLM_CONCURRENCY")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .filter(|n: &usize| *n >= 1)
@@ -701,9 +747,9 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             }
         }
     }
-    // REQ-0137: functional-safety artifacts validate on the same pass so
-    // the pre-commit hook and CI gate cover the whole spec.
-    for (id, findings) in validate_safety(p) {
+    // REQ-0137: functional-safety artifacts are conformance-checked on the same
+    // pass so the pre-commit hook and CI gate cover the whole spec.
+    for (id, findings) in conform_safety(p) {
         if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| *rid == id) {
             existing.extend(findings);
         } else {
@@ -711,19 +757,19 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         }
     }
     // REQ-0102: deterministic finding order. HashMap iteration is
-    // unordered; without an explicit sort consecutive `req validate`
+    // unordered; without an explicit sort consecutive `req conform`
     // runs can list reqs in different orders. Sort by id ascending so
     // tooling and diffs are stable.
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
 }
 
-/// REQ-0137: validate the functional-safety artifacts. The integrity of
+/// REQ-0137: conformance-check the functional-safety artifacts. The integrity of
 /// the SIL derivation chain is enforced here — a SIL 3/4 safety
 /// requirement cannot stay Verified on inspection-only evidence without
 /// an audited exception, an assessed hazard must carry its full risk
 /// profile, and a mitigated hazard must actually have a live mitigation.
-pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
+pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
     let mut out: Vec<(String, Vec<Finding>)> = Vec::new();
     let mut push = |id: &str, f: Finding| {
         if let Some((_, v)) = out.iter_mut().find(|(rid, _)| rid == id) {
@@ -833,6 +879,23 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
         if matches!(sr.status, Status::Obsolete) {
             continue;
         }
+        // REQ-0188: a safety requirement with a genuine concluded dossier that
+        // sits at Implemented awaiting a human co-sign is surfaced as a
+        // non-blocking advisory — loud at the gate, but it does not block the
+        // commit (the human co-sign is the act that promotes it to Verified).
+        if crate::commands::provenance::sr_awaiting_cosign(sr) {
+            push(
+                id,
+                Finding::warn(
+                    "REQ-V-0038",
+                    "verification",
+                    format!(
+                        "{} has a genuine verification dossier and is awaiting a human co-sign — a person must run `req verification confirm {}` to promote it to Verified",
+                        id, id
+                    ),
+                ),
+            );
+        }
         // Reuse the requirement statement-quality rules via a shim so a
         // safety requirement is held to the same bar (modal verb, weasel
         // words, acceptance criteria) as an ordinary one.
@@ -851,10 +914,10 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             updated: sr.updated,
             history: Vec::new(),
             tests: sr.tests.clone(),
-            validation: None,
+            verification: None,
             extra: Default::default(),
         };
-        for f in validate_requirement(&shim) {
+        for f in conform_requirement(&shim) {
             push(id, f);
         }
         for l in &sr.links {
@@ -874,33 +937,34 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             // must carry a GENUINE concluded passing dossier. Unlike an
             // ordinary requirement there is no exemption — neither a tag nor
             // an audited back-fill counts. An `exempt` dossier is flagged.
-            let genuine = crate::commands::validation::classify(sr.validation.as_ref(), None, id)
-                .is_genuine();
+            let genuine =
+                crate::commands::verification::classify(sr.verification.as_ref(), None, id)
+                    .is_genuine();
             if !genuine {
-                let exempt = sr.validation.as_ref().map(|v| v.exempt).unwrap_or(false);
+                let exempt = sr.verification.as_ref().map(|v| v.exempt).unwrap_or(false);
                 let why = if exempt {
                     "rests on an audited exemption, which safety requirements may not use"
                 } else {
-                    "has no passing validation dossier"
+                    "has no passing verification dossier"
                 };
                 push(
                     id,
                     Finding::err(
                         "REQ-V-0033",
-                        "validation",
+                        "verification",
                         format!(
-                            "{} is Verified but {} — safety requirements need a genuine dossier; run `req validation plan {} ...` → analysis → test → conclude --promote",
+                            "{} is Verified but {} — safety requirements need a genuine dossier; run `req verification plan {} ...` → analysis → test → conclude --promote",
                             id, why, id
                         ),
                     ),
                 );
             }
             // REQ-0145: a Verified safety requirement also needs a HUMAN
-            // confirmation of the validation result, recorded in addition to
+            // confirmation of the verification result, recorded in addition to
             // the agent's analysis + testing. The agent's dossier alone does
             // not make a safety requirement passed.
             let human_confirmed = sr
-                .validation
+                .verification
                 .as_ref()
                 .map(|v| v.human_confirmation.is_some())
                 .unwrap_or(false);
@@ -909,9 +973,9 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     id,
                     Finding::err(
                         "REQ-V-0034",
-                        "validation",
+                        "verification",
                         format!(
-                            "{} is Verified on an agent's dossier but lacks a human confirmation of the validation result — a person must run `req validation confirm {}` to co-sign it",
+                            "{} is Verified on an agent's dossier but lacks a human confirmation of the verification result — a person must run `req verification confirm {}` to co-sign it",
                             id, id
                         ),
                     ),
@@ -936,6 +1000,28 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                 ),
                 Some(t) => {
                     let sil = p.inherited_sil(sr);
+                    // REQ-0155: evidence justified below the current inherited
+                    // SIL is no longer adequate — the SIL rose after this
+                    // verification (a higher-SIL hazard was linked, or the
+                    // risk graph was recalibrated), so it must be redone.
+                    if let (Some(current), Some(evidence)) = (sil, t.sil_at_verification) {
+                        if current.rank() > evidence.rank() {
+                            push(
+                                id,
+                                Finding::err(
+                                    "REQ-V-0036",
+                                    "verification",
+                                    format!(
+                                        "{} is Verified at {} but its evidence was justified at {} — the inherited SIL rose after verification; re-verify at the current level (`req sreq verify {} --by automated --promote`)",
+                                        id,
+                                        current.as_str(),
+                                        evidence.as_str(),
+                                        id
+                                    ),
+                                ),
+                            );
+                        }
+                    }
                     let needs_strong = sil.map(|s| s.rank() >= Sil::Sil3.rank()).unwrap_or(false);
                     if needs_strong && matches!(t.kind, EvidenceKind::Inspection) {
                         // REQ-0135: authenticate the exception via the
@@ -973,6 +1059,39 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     }
                 }
             }
+            // REQ-0168: independence of assessment — warn when the actor who
+            // verified the safety requirement is the same one who authored it.
+            // Author = the actor of the earliest history entry; verifier =
+            // the human co-signer if present, else the latest passing evidence.
+            let author = sr.history.first().map(|h| h.actor.trim().to_string());
+            let verifier = sr
+                .verification
+                .as_ref()
+                .and_then(|v| v.human_confirmation.as_ref())
+                .map(|c| c.actor.clone())
+                .or_else(|| {
+                    sr.tests
+                        .iter()
+                        .rev()
+                        .find(|t| matches!(t.outcome, crate::model::TestOutcome::Pass))
+                        .map(|t| t.actor.clone())
+                })
+                .map(|a| a.trim().to_string());
+            if let (Some(a), Some(v)) = (author, verifier) {
+                if !a.is_empty() && a.eq_ignore_ascii_case(&v) {
+                    push(
+                        id,
+                        Finding::warn(
+                            "REQ-V-0037",
+                            "verification",
+                            format!(
+                                "{} was authored and verified by the same actor ({}) — IEC 61508 wants independence of assessment; have a different competent person verify it",
+                                id, v
+                            ),
+                        ),
+                    );
+                }
+            }
         }
     }
 
@@ -993,7 +1112,7 @@ fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
     // with Git Bash or WSL on PATH can run sh-script hooks without
     // cmd.exe's quirks. Default is the platform shell. Common values:
     //   sh   bash   pwsh   powershell   cmd
-    let (shell, flag): (String, String) = match std::env::var("REQ_VALIDATE_LLM_SHELL") {
+    let (shell, flag): (String, String) = match std::env::var("REQ_CONFORM_LLM_SHELL") {
         Ok(s) if !s.trim().is_empty() => {
             let s = s.trim().to_string();
             let f = if s.eq_ignore_ascii_case("cmd") {
@@ -1021,7 +1140,7 @@ fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
         .spawn()
         .map_err(|e| {
             format!(
-                "spawn `{}` (override with REQ_VALIDATE_LLM_SHELL): {}",
+                "spawn `{}` (override with REQ_CONFORM_LLM_SHELL): {}",
                 shell, e
             )
         })?;
@@ -1037,7 +1156,7 @@ fn run_llm_hook(cmd: &str, payload: &str) -> Result<(bool, String), String> {
         // Explicit drop here makes the close intent unmissable.
         drop(stdin);
     }
-    // Hard ten-second cap. A hung hook should never lock validate.
+    // Hard ten-second cap. A hung hook should never lock the conformance check.
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match child.try_wait() {

@@ -27,7 +27,7 @@ struct AppState {
 
 pub fn run(args: ServeArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
-    storage::load(&path).context("validate project before binding socket")?;
+    storage::load(&path).context("load project before binding socket")?;
 
     let state = AppState {
         file: path.clone(),
@@ -202,7 +202,7 @@ async fn safety_html(
         };
         let complete = adequate && total > 0 && verified == total && !sfs.is_empty();
         // REQ-0147: the hazard id links to its detail page so a reader can walk
-        // into the full mitigation + validation chain.
+        // into the full mitigation + verification chain.
         rows.push_str(&format!(
             "<tr><td>{idlink}</td><td>{title}</td><td>{harm}</td><td>{req}</td><td>{alloc}</td><td>{v}/{t}</td><td>{verdict}</td></tr>",
             idlink = alink(id),
@@ -360,14 +360,14 @@ fn sr_realizes(sr: &SafetyRequirement, sfid: &str) -> bool {
         .any(|l| l.kind == LinkKind::Realizes && l.target == sfid)
 }
 
-// REQ-0147: render a safety requirement's validation dossier (the artifact the
+// REQ-0147: render a safety requirement's verification dossier (the artifact the
 // review surfaced as un-navigable) so it's reachable from the chain.
 fn dossier_html(sr: &SafetyRequirement) -> String {
-    match &sr.validation {
-        None => "<p class=\"meta\">No validation dossier recorded.</p>".to_string(),
+    match &sr.verification {
+        None => "<p class=\"meta\">No verification dossier recorded.</p>".to_string(),
         Some(v) => {
             let verdict = v.verdict.map(|o| o.as_str()).unwrap_or("open");
-            let stage = |a: &Option<crate::model::ValidationActivity>| {
+            let stage = |a: &Option<crate::model::VerificationActivity>| {
                 a.as_ref()
                     .map(|x| format!("{} — {}", x.outcome.as_str(), h(&x.summary)))
                     .unwrap_or_else(|| "—".to_string())
@@ -381,7 +381,7 @@ fn dossier_html(sr: &SafetyRequirement) -> String {
                 None => "&#9888; awaiting human confirmation (REQ-V-0034)".to_string(),
             };
             format!(
-                "<h2>Validation dossier</h2>\
+                "<h2>Verification dossier</h2>\
                  <ul>\
                    <li><strong>verdict:</strong> {verdict}</li>\
                    <li><strong>analysis:</strong> {an}</li>\
@@ -402,7 +402,7 @@ fn dossier_html(sr: &SafetyRequirement) -> String {
 }
 
 // REQ-0147: a hazard's detail page renders its full mitigation chain (each SF
-// and SR a clickable link), so a reader can walk HAZ → SF → SR → validation.
+// and SR a clickable link), so a reader can walk HAZ → SF → SR → verification.
 fn render_hazard(project: &Project, raw: &str) -> Option<String> {
     let id = raw.to_uppercase();
     let hz = project.hazards.get(&id)?;
@@ -425,7 +425,7 @@ fn render_hazard(project: &Project, raw: &str) -> Option<String> {
             .filter(|sr| sr_realizes(sr, &sf.id))
         {
             let conf = match sr
-                .validation
+                .verification
                 .as_ref()
                 .and_then(|v| v.human_confirmation.as_ref())
             {
@@ -516,7 +516,7 @@ fn render_sf(project: &Project, raw: &str) -> Option<String> {
 }
 
 // REQ-0147: a safety-requirement page links to the function it realizes and
-// inlines its validation dossier (the artifact that was previously unreachable).
+// inlines its verification dossier (the artifact that was previously unreachable).
 fn render_sr(project: &Project, raw: &str) -> Option<String> {
     let id = raw.to_uppercase();
     let sr = project.safety_requirements.get(&id)?;
@@ -549,7 +549,7 @@ fn render_sr(project: &Project, raw: &str) -> Option<String> {
 }
 
 // REQ-0147: detail page for a safety entity (HAZ/SF/SR) with hyperlinks to the
-// entities it relates to, and — for a safety requirement — its validation
+// entities it relates to, and — for a safety requirement — its verification
 // dossier, so the whole chain is navigable in the browser.
 async fn safety_entity_html(
     State(state): State<Arc<AppState>>,

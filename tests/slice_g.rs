@@ -165,7 +165,7 @@ fn req_0076_near_clone_triggers_dup_intent_warning() {
         "--accept",
         "Session survives restart in fixture as well",
     ]);
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
         text.contains("REQ-V-0020"),
@@ -211,7 +211,7 @@ fn req_0077_verifies_link_without_test_record_warns() {
             "test setup",
         ]);
     }
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(
         text.contains("REQ-V-0019"),
@@ -241,7 +241,7 @@ fn req_0078_schema_add_is_valid_json_with_format() {
     );
     assert!(v["properties"]["title"].is_object());
     assert!(v["properties"]["statement"].is_object());
-    assert_eq!(v["_format"].as_str().unwrap(), "req-v3");
+    assert_eq!(v["_format"].as_str().unwrap(), "req-v4");
 }
 
 // REQ-0127: --by-req is the inverse of --by-file.
@@ -386,7 +386,7 @@ fn req_0120_installed_agents_uses_placeholder_req_ids() {
     );
 }
 
-// REQ-0119: import schema must agree with the validator on what's required.
+// REQ-0119: import schema must agree with the conformance checker on what's required.
 #[test]
 fn req_0119_import_schema_requires_rationale() {
     let out = common::req(&["schema", "import"]);
@@ -398,7 +398,7 @@ fn req_0119_import_schema_requires_rationale() {
     let required_strs: Vec<&str> = required.iter().filter_map(|x| x.as_str()).collect();
     assert!(
         required_strs.contains(&"rationale"),
-        "import schema must list rationale as required (the validator does); got: {:?}",
+        "import schema must list rationale as required (the conformance checker does); got: {:?}",
         required_strs
     );
 }

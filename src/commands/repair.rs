@@ -16,18 +16,18 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
     let _lock = storage::acquire_lock(&path)?;
     let project = storage::load_with_options(&path, true)?;
 
-    let findings = crate::validate::validate_project(&project);
+    let findings = crate::conform::conform_project(&project);
     let errs: usize = findings
         .iter()
         .flat_map(|(_, fs)| fs.iter())
         .filter(|f| f.error)
         .count();
-    // REQ-0091: --force breaks the deadlock when validation errors block repair.
+    // REQ-0091: --force breaks the deadlock when verification errors block repair.
     if errs > 0 && !args.force {
         eprintln!(
-            "Refusing to repair: file contains {} validation errors. \
+            "Refusing to repair: file contains {} verification errors. \
              Fix them first, or pass --force to re-sign anyway (the \
-             errors will then surface via `req validate` instead of \
+             errors will then surface via `req conform` instead of \
              the integrity check).",
             errs
         );
@@ -44,8 +44,8 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
     storage::save(&path, &project)?;
     if errs > 0 {
         eprintln!(
-            "Re-signed {} with {} validation error(s) still present — \
-             surface them via `req validate`.",
+            "Re-signed {} with {} verification error(s) still present — \
+             surface them via `req conform`.",
             path.display(),
             errs
         );

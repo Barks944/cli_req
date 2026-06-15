@@ -85,10 +85,14 @@ const HUMANS_ONLY_TUI: &[&str] = &[
     // REQ-0138: `req safety` (disclaimer acceptance + calibration) is a
     // deliberate governance action driven from the shell, not the menu.
     "safety",
-    // REQ-0139: `req validation` is a multi-step, free-text dossier flow
+    // REQ-0139: `req verification` is a multi-step, free-text dossier flow
     // (plan/analysis/test/conclude) driven from the CLI/MCP, like `verify`
     // and `test` above — not a single-shot human menu action.
-    "validation",
+    "verification",
+    // REQ-0156: `req impact` is a read-only safety-graph preview whose
+    // arguments mirror the human-only calibration/link decisions it informs;
+    // it lives with the `req safety` governance surface, not the menu.
+    "impact",
 ];
 
 #[test]
@@ -175,6 +179,10 @@ const HUMANS_ONLY_CLI: &[&str] = &[
     // are deliberate human governance actions — `req safety` is kept off
     // the agent/MCP surface on purpose.
     "safety",
+    // REQ-0156: `req impact` is a read-only safety-graph preview tied to the
+    // human-reviewed calibration/link decisions; kept with the human-only
+    // safety surface rather than exposed as an agent tool.
+    "impact",
 ];
 
 #[test]
@@ -344,7 +352,7 @@ fn req_0017_mcp_req_add_persists_through_storage() {
 }
 
 #[test]
-fn req_0017_mcp_req_add_validation_failure_returns_iserror() {
+fn req_0017_mcp_req_add_verification_failure_returns_iserror() {
     let s = Sandbox::new();
     s.init("p");
     let responses = mcp_dialogue(
@@ -366,7 +374,7 @@ fn req_0017_mcp_req_add_validation_failure_returns_iserror() {
     let r = &responses[1]["result"];
     assert_eq!(
         r["isError"], true,
-        "validator failure should set isError=true: {}",
+        "conformance failure should set isError=true: {}",
         r
     );
     let msg = r["content"][0]["text"].as_str().unwrap();
@@ -595,7 +603,7 @@ fn req_0017_mcp_req_validate_emits_finding_counts() {
         "--title",
         "Valid baseline requirement here",
         "--statement",
-        "The system shall validate cleanly under the MCP tool.",
+        "The system shall conform cleanly under the MCP tool.",
         "--rationale",
         "Fixture.",
         "--kind",
@@ -607,11 +615,11 @@ fn req_0017_mcp_req_validate_emits_finding_counts() {
         &s,
         &[
             initialize(),
-            call_tool(2, "req_validate", serde_json::json!({})),
+            call_tool(2, "req_conform", serde_json::json!({})),
         ],
     );
     let body = text_of(&responses[1]);
-    let v: serde_json::Value = serde_json::from_str(&body).expect("validate json");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("conform json");
     assert_eq!(v["errors"], 0);
     assert!(v["warnings"].is_number());
 }
@@ -782,11 +790,11 @@ fn req_import_missing_source_returns_clean_envelope() {
 
 #[test]
 fn mcp_validate_reports_link_cycles() {
-    // REQ-V-0021 is graph-level; MCP req_validate must surface it too.
+    // REQ-V-0021 is graph-level; MCP req_conform must surface it too.
     let s = Sandbox::new();
     s.init("p");
     // Build two reqs and inject a depends-on cycle directly (the
-    // direct CLI rejects it; we need a way to test the validator's
+    // direct CLI rejects it; we need a way to test the conformance checker's
     // detection independent of the prevention).
     for (i, title) in [
         "MCP cycle fixture requirement number one",
@@ -821,13 +829,13 @@ fn mcp_validate_reports_link_cycles() {
         &s,
         &[
             initialize(),
-            call_tool(2, "req_validate", serde_json::json!({})),
+            call_tool(2, "req_conform", serde_json::json!({})),
         ],
     );
     let text = text_of(&responses[1]);
     assert!(
         text.contains("REQ-V-0021"),
-        "MCP req_validate should surface REQ-V-0021: {}",
+        "MCP req_conform should surface REQ-V-0021: {}",
         text
     );
 }
@@ -836,4 +844,140 @@ fn mcp_validate_reports_link_cycles() {
 #[allow(dead_code)]
 fn _silence_unused() {
     let _ = initialize;
+}
+
+// ---------- REQ-0163/0164/0165: agent-surface improvements ----------
+
+#[test]
+fn req_0163_mcp_list_paginates_with_total() {
+    let s = Sandbox::new();
+    s.init("p");
+    for i in 0..4 {
+        let title = format!("Seed requirement number {}", i);
+        let stmt = format!("The system shall handle case number {}.", i);
+        let _ = s.run(&[
+            "add",
+            "-t",
+            &title,
+            "-s",
+            &stmt,
+            "-r",
+            "seed",
+            "-k",
+            "constraint",
+            "-p",
+            "could",
+        ]);
+    }
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            call_tool(2, "req_list", serde_json::json!({ "limit": 2 })),
+        ],
+    );
+    let text = text_of(&responses[1]);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("list json");
+    assert_eq!(v["total"], 4, "total should be the full match count");
+    assert_eq!(v["count"], 2, "page capped at limit");
+    assert_eq!(v["requirements"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn req_0164_mcp_rejection_carries_rule_code() {
+    let s = Sandbox::new();
+    s.init("p");
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            call_tool(
+                2,
+                "req_add",
+                serde_json::json!({
+                    "title": "Statement without a modal verb",
+                    "statement": "the system simply does several assorted things",
+                    "rationale": "provoke a verification error",
+                    "kind": "constraint", "priority": "could"
+                }),
+            ),
+        ],
+    );
+    let r = &responses[1]["result"];
+    assert_eq!(r["isError"], true, "rejection should set isError: {}", r);
+    let code = r["code"].as_str().unwrap_or("");
+    assert!(
+        code.starts_with("REQ-V-"),
+        "discrete code field expected, got: {}",
+        r
+    );
+    assert!(
+        r["codes"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "codes array expected: {}",
+        r
+    );
+}
+
+#[test]
+fn req_0165_mcp_blocked_promotion_lists_routes() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Requirement awaiting evidence",
+        "-s",
+        "The system shall do the thing.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    let responses = mcp_dialogue(
+        &s,
+        &[
+            initialize(),
+            call_tool(
+                2,
+                "req_verify",
+                serde_json::json!({
+                    "id": "REQ-0001", "by": "inspection", "notes": "looked at it",
+                    "promote": true, "force": true
+                }),
+            ),
+        ],
+    );
+    let r = &responses[1]["result"];
+    assert_eq!(
+        r["isError"], true,
+        "blocked promotion should set isError: {}",
+        r
+    );
+    let routes = r["routes"].as_array().expect("routes array");
+    assert_eq!(routes.len(), 3, "three legal routes expected: {}", r);
+    let joined = routes
+        .iter()
+        .filter_map(|x| x.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        joined.contains("dossier"),
+        "routes name the dossier flow: {}",
+        joined
+    );
+    assert!(
+        joined.contains("no-dossier"),
+        "routes name the waiver: {}",
+        joined
+    );
+    assert!(
+        joined.contains("exempt"),
+        "routes name the exempt tag: {}",
+        joined
+    );
 }

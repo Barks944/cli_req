@@ -1,5 +1,5 @@
 // End-to-end smoke tests covering the main user journey: init, add, list,
-// show, update, delete, link, export, validate. Each is named after the
+// show, update, delete, link, export, conform. Each is named after the
 // requirement it most directly exercises.
 mod common;
 use common::{stderr, stdout, Sandbox};
@@ -33,7 +33,7 @@ fn req_0001_help_lists_every_subcommand() {
     let out = common::req(&["--help"]);
     let body = stdout(&out);
     for sub in &[
-        "init", "add", "list", "show", "update", "delete", "link", "validate", "export", "tui",
+        "init", "add", "list", "show", "update", "delete", "link", "conform", "export", "tui",
         "serve", "mcp", "help", "repair", "status", "next", "check",
     ] {
         assert!(body.contains(sub), "--help missing subcommand `{}`", sub);
@@ -47,7 +47,7 @@ fn req_0001_help_lists_every_subcommand() {
 fn req_0151_help_does_not_leak_requirement_id_markers() {
     let marker = regex::Regex::new(r"(REQ|HAZ|SF|SR)-\d{4}:").unwrap();
     // Top-level help plus every subcommand's help, including the safety/
-    // validation command groups whose descriptions carried markers.
+    // verification command groups whose descriptions carried markers.
     let targets: &[&[&str]] = &[
         &["--help"],
         &["lint", "--help"],
@@ -61,7 +61,12 @@ fn req_0151_help_does_not_leak_requirement_id_markers() {
         &["sreq", "--help"],
         &["trace", "--help"],
         &["safety", "--help"],
-        &["validation", "--help"],
+        // REQ-0151: leaf subcommands carry per-flag help that clap renders, so
+        // they must be checked too — the walkthrough flags once leaked markers.
+        &["safety", "walkthrough", "--help"],
+        &["safety", "acknowledge", "--help"],
+        &["verification", "--help"],
+        &["verification", "conclude", "--help"],
         &["hooks", "--help"],
         &["review", "--help"],
         &["test", "--help"],
@@ -117,7 +122,7 @@ fn req_0114_precheck_skip_all_steps_runs_clean() {
     let s = Sandbox::new();
     s.init("p");
     let out = s.run(&[
-        "precheck", "--skip", "fmt", "--skip", "clippy", "--skip", "test", "--skip", "validate",
+        "precheck", "--skip", "fmt", "--skip", "clippy", "--skip", "test", "--skip", "conform",
         "--skip", "coverage", "--skip", "review",
     ]);
     assert!(

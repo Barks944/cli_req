@@ -160,7 +160,7 @@ fn req_0017_mcp_tools_list_lists_ten_tools() {
         "req_show",
         "req_add",
         "req_update",
-        "req_validate",
+        "req_conform",
         "req_help",
     ] {
         assert!(names.contains(required), "missing tool {}", required);

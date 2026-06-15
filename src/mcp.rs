@@ -13,12 +13,61 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::McpArgs;
 use crate::commands;
+use crate::conform;
 use crate::help_text;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, resolve_path};
-use crate::validate;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// REQ-0164: a verification rejection that carries its rule codes as discrete
+/// data, so the MCP layer can surface them in a machine-readable field
+/// instead of forcing an agent to substring-parse the prose message. The
+/// `Display` text is unchanged from the human message callers already see.
+#[derive(Debug)]
+struct RuleViolation {
+    message: String,
+    codes: Vec<String>,
+}
+
+impl std::fmt::Display for RuleViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for RuleViolation {}
+
+impl RuleViolation {
+    /// Build a rejection from conformance findings (errors only), preserving
+    /// each finding's rule code and the existing `[field] message` prose.
+    fn from_findings(prefix: &str, errs: &[&conform::Finding]) -> Self {
+        let message = format!(
+            "{}: {}",
+            prefix,
+            errs.iter()
+                .map(|f| format!("[{}] {}", f.field, f.message))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        let codes = errs.iter().map(|f| f.rule_code.to_string()).collect();
+        RuleViolation { message, codes }
+    }
+}
+
+/// REQ-0165: a promotion blocked by the dossier gate, carrying the legal
+/// routes forward as discrete data so an agent need not parse them out of
+/// the prose. `Display` is the same message a CLI user sees.
+#[derive(Debug)]
+struct PromotionBlocked {
+    message: String,
+    routes: Vec<String>,
+}
+impl std::fmt::Display for PromotionBlocked {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for PromotionBlocked {}
 
 #[derive(Deserialize)]
 struct JsonRpcRequest {
@@ -143,10 +192,27 @@ fn handle(method: &str, params: &Value, file: &Path) -> Result<Value> {
                     "content": [{ "type": "text", "text": text }],
                     "isError": false,
                 })),
-                Err(e) => Ok(json!({
-                    "content": [{ "type": "text", "text": e.to_string() }],
-                    "isError": true,
-                })),
+                Err(e) => {
+                    // REQ-0164: when the failure is a verification rejection,
+                    // expose the rule code(s) as discrete fields so an agent
+                    // can branch on them and look up the matching help
+                    // section, without changing the human-readable message.
+                    let mut result = json!({
+                        "content": [{ "type": "text", "text": e.to_string() }],
+                        "isError": true,
+                    });
+                    if let Some(rv) = e.downcast_ref::<RuleViolation>() {
+                        if let Some(first) = rv.codes.first() {
+                            result["code"] = json!(first);
+                        }
+                        result["codes"] = json!(rv.codes);
+                    }
+                    // REQ-0165: a blocked promotion carries its legal routes.
+                    if let Some(pb) = e.downcast_ref::<PromotionBlocked>() {
+                        result["routes"] = json!(pb.routes);
+                    }
+                    Ok(result)
+                }
             }
         }
         _ => Err(anyhow!("unknown method: {}", method)),
@@ -158,10 +224,10 @@ const SERVER_GUIDANCE: &str = "\
 This is the `req` MCP server for managed requirements. When the user describes \
 new behaviour the system should have, call `req_add`. Before starting work on \
 a feature call `req_list` and `req_show`. Before declaring work complete call \
-`req_validate`. To VALIDATE a requirement (REQ-NNNN or SR-NNNN) and move it to \
-Verified, do NOT one-shot it: walk the validation dossier — `req_validation_plan` \
-(how you'll validate), then `req_validation_analysis` (code review + result), then \
-`req_validation_test` (testing + result), then `req_validation_conclude` (statement \
+`req_conform`. To VERIFY a requirement (REQ-NNNN or SR-NNNN) and move it to \
+Verified, do NOT one-shot it: walk the verification dossier — `req_verification_plan` \
+(how you'll verify), then `req_verification_analysis` (code review + result), then \
+`req_verification_test` (testing + result), then `req_verification_conclude` (statement \
 + derived verdict, promote=true to flip to Verified). Promotion is BLOCKED without a \
 passing dossier. Never read project.req directly — its integrity hash will \
 block the next CLI operation if you do. For full triggers and rules call \
@@ -201,7 +267,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_add",
-        description: "Create a new requirement. Call this when the user describes new behaviour the system should have. The validator enforces best practice (modal verb shall/must/should/will, acceptance criteria for functional, no weasel words, no broken links). Bad input is REJECTED — rewrite the statement, don't try to bypass the rules. Returns the allocated REQ-NNNN ID.",
+        description: "Create a new requirement. Call this when the user describes new behaviour the system should have. The conformance checker enforces best practice (modal verb shall/must/should/will, acceptance criteria for functional, no weasel words, no broken links). Bad input is REJECTED — rewrite the statement, don't try to bypass the rules. Returns the allocated REQ-NNNN ID.",
         schema: add_schema,
     },
     ToolDef {
@@ -220,8 +286,12 @@ const TOOLS: &[ToolDef] = &[
         schema: link_schema,
     },
     ToolDef {
-        name: "req_validate",
-        description: "Run the validator across every requirement. Returns errors and warnings. CALL THIS before declaring work complete. 0 errors is mandatory; warnings are advisory but should be addressed when easy.",
+        // REQ-0190: renamed from req_conform — this checks the spec conforms to
+        // the rule set; it is NOT verification/verification (that is the dossier
+        // workflow + human co-sign). req_conform stays callable as a deprecated
+        // alias but is no longer advertised.
+        name: "req_conform",
+        description: "Check every requirement conforms to the rule set. Returns errors and warnings. CALL THIS before declaring work complete. 0 errors is mandatory; warnings are advisory but should be addressed when easy. (This is a well-formedness check, not verification/verification.)",
         schema: no_args_schema,
     },
     ToolDef {
@@ -236,7 +306,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_help",
-        description: "Fetch a structured documentation section. Call with section=\"_index\" (the default) for the full, authoritative list of section names with one-line summaries — the section set evolves, so do not hardcode it. Useful starting points once you have the index: section=\"agents\" for the trigger table, section=\"best-practice\" when uncertain about validator rules, section=\"integration\" for hooks and CI wiring.",
+        description: "Fetch a structured documentation section. Call with section=\"_index\" (the default) for the full, authoritative list of section names with one-line summaries — the section set evolves, so do not hardcode it. Useful starting points once you have the index: section=\"agents\" for the trigger table, section=\"best-practice\" when uncertain about conformance rules, section=\"integration\" for hooks and CI wiring.",
         schema: help_schema,
     },
     // ---------- agent-facing tools added in v0.1 ----------
@@ -252,7 +322,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_check",
-        description: "Incremental validate + coverage scoped to changes since a git ref. Use when reviewing a branch: returns errors/warnings only for requirements that changed since `base`, plus coverage findings only for source files changed since `base`. Cheaper than a full validate on every iteration.",
+        description: "Incremental conform + coverage scoped to changes since a git ref. Use when reviewing a branch: returns errors/warnings only for requirements that changed since `base`, plus coverage findings only for source files changed since `base`. Cheaper than a full conform on every iteration.",
         schema: check_schema,
     },
     ToolDef {
@@ -287,17 +357,17 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_verify",
-        description: "Record a composition or inspection evidence record on a requirement, optionally promoting to Verified. Composition cites another requirement's tests; inspection records a human review. NOTE: promote=true now REQUIRES a passing validation dossier (see req_validation_*) — for the full staged validation prefer req_validation_conclude. An ordinary requirement may instead carry a `validation-exempt` tag, or you may pass no_dossier=true with a reason to record an audited exemption.",
+        description: "Record a composition or inspection evidence record on a requirement, optionally promoting to Verified. Composition cites another requirement's tests; inspection records a human review. NOTE: promote=true now REQUIRES a passing verification dossier (see req_verification_*) — for the full staged verification prefer req_verification_conclude. An ordinary requirement may instead carry a `verification-exempt` tag, or you may pass no_dossier=true with a reason to record an audited exemption.",
         schema: verify_schema,
     },
     ToolDef {
         name: "req_batch",
-        description: "Apply many mutations atomically from a JSON document. Supported kinds: add, update, delete, link. Any single validation failure rolls back the WHOLE batch — project.req stays byte-identical to its pre-batch state. One file write per successful batch.",
+        description: "Apply many mutations atomically from a JSON document. Supported kinds: add, update, delete, link. Any single verification failure rolls back the WHOLE batch — project.req stays byte-identical to its pre-batch state. One file write per successful batch.",
         schema: batch_schema,
     },
     ToolDef {
         name: "req_import",
-        description: "Ingest requirements from markdown (level-2/3 headings as titles) or JSON (an array of candidates, or another project.req's requirements map). Every imported item goes through the validator. Set dry_run=true to preview without writing.",
+        description: "Ingest requirements from markdown (level-2/3 headings as titles) or JSON (an array of candidates, or another project.req's requirements map). Every imported item goes through the conformance checker. Set dry_run=true to preview without writing.",
         schema: import_schema,
     },
     ToolDef {
@@ -322,7 +392,7 @@ const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         name: "req_review",
-        description: "Single-shot PR-review report: validate + coverage + stale + audit + changed-requirement diff, scoped to a git rev range, returned as markdown. Use this to attach a spec impact summary to a pull request or CI run.",
+        description: "Single-shot PR-review report: conform + coverage + stale + audit + changed-requirement diff, scoped to a git rev range, returned as markdown. Use this to attach a spec impact summary to a pull request or CI run.",
         schema: review_schema,
     },
     ToolDef {
@@ -339,7 +409,7 @@ const TOOLS: &[ToolDef] = &[
     // REQ-0101: req_lint MCP tool.
     ToolDef {
         name: "req_lint",
-        description: "Project-wide quality audit beyond the validator. Returns markdown (default) or JSON with sections for validator findings, requirements lacking source markers, short rationales, single-acceptance functionals, and active requirements with no test record. Read-only; lint observations never gate.",
+        description: "Project-wide quality audit beyond the conformance checker. Returns markdown (default) or JSON with sections for conformance findings, requirements lacking source markers, short rationales, single-acceptance functionals, and active requirements with no test record. Read-only; lint observations never gate.",
         schema: lint_schema,
     },
     // REQ-0134: functional-safety tools (IEC 61508). Hazards -> safety
@@ -429,38 +499,38 @@ const TOOLS: &[ToolDef] = &[
         description: "Print the end-to-end safety case for a HAZ/SF/SR id: hazard -> required SIL -> safety function -> allocated SIL (adequate?) -> safety requirements -> verification evidence, with a roll-up verdict (complete / incomplete and what's blocking). The single best call to review whether a hazard is fully mitigated and verified.",
         schema: id_schema,
     },
-    // REQ-0139: the staged validation dossier. This is the path to Verified
+    // REQ-0139: the staged verification dossier. This is the path to Verified
     // for both REQ-NNNN and SR-NNNN — promotion is BLOCKED without a passing
     // dossier. Walk the stages in order: plan -> analysis -> test -> conclude.
     ToolDef {
-        name: "req_validation_plan",
-        description: "STAGE 1 of validating a requirement. Open the validation dossier for a REQ-NNNN or SR-NNNN by recording the PLAN: how you will validate it — what you will review (analysis) and how you will test it. A passing dossier is REQUIRED before that requirement can be promoted to Verified. Pass id and plan. Use reopen=true with a reason to re-validate a concluded dossier (e.g. after code changed).",
-        schema: validation_plan_schema,
+        name: "req_verification_plan",
+        description: "STAGE 1 of verifying a requirement. Open the verification dossier for a REQ-NNNN or SR-NNNN by recording the PLAN: how you will verify it — what you will review (analysis) and how you will test it. A passing dossier is REQUIRED before that requirement can be promoted to Verified. Pass id and plan. Use reopen=true with a reason to re-open a concluded dossier (e.g. after code changed).",
+        schema: verification_plan_schema,
     },
     ToolDef {
-        name: "req_validation_analysis",
-        description: "STAGE 2. Record validation BY ANALYSIS (code review): your findings from reading the implementation against the requirement, plus a pass/fail result. Pass id, findings, result (pass|fail), and optional references (files/commits reviewed). Requires the plan to exist first.",
-        schema: validation_activity_schema,
+        name: "req_verification_analysis",
+        description: "STAGE 2. Record verification BY ANALYSIS (code review): your findings from reading the implementation against the requirement, plus a pass/fail result. Pass id, findings, result (pass|fail), and optional references (files/commits reviewed). Requires the plan to exist first.",
+        schema: verification_activity_schema,
     },
     ToolDef {
-        name: "req_validation_test",
-        description: "STAGE 3. Record validation BY TESTING: what you ran/observed and a pass/fail result. Recorded TestRecords on the requirement are auto-referenced; cite extra evidence via references. Pass id, findings, result (pass|fail). Requires the analysis stage first. Prefer real tests (req_test_record / req_test_run) over prose where they exist.",
-        schema: validation_activity_schema,
+        name: "req_verification_test",
+        description: "STAGE 3. Record verification BY TESTING: what you ran/observed and a pass/fail result. Recorded TestRecords on the requirement are auto-referenced; cite extra evidence via references. Pass id, findings, result (pass|fail). Requires the analysis stage first. Prefer real tests (req_test_record / req_test_run) over prose where they exist.",
+        schema: verification_activity_schema,
     },
     ToolDef {
-        name: "req_validation_conclude",
-        description: "STAGE 4. Record the validation STATEMENT and derive the verdict (Pass only when BOTH analysis and testing passed). Set promote=true to flip the requirement to Verified — gated exactly like req_verify (and the SIL-rigour gate for safety requirements). A FAIL verdict cannot be promoted. Pass id, statement.",
-        schema: validation_conclude_schema,
+        name: "req_verification_conclude",
+        description: "STAGE 4. Record the verification STATEMENT and derive the verdict (Pass only when BOTH analysis and testing passed). Set promote=true to flip the requirement to Verified — gated exactly like req_verify (and the SIL-rigour gate for safety requirements). A FAIL verdict cannot be promoted. Pass id, statement.",
+        schema: verification_conclude_schema,
     },
     ToolDef {
-        name: "req_validation_show",
-        description: "Return the validation dossier (plan, analysis, testing, statement, verdict, staleness anchor) for a REQ-NNNN or SR-NNNN. Read-only.",
+        name: "req_verification_show",
+        description: "Return the verification dossier (plan, analysis, testing, statement, verdict, staleness anchor) for a REQ-NNNN or SR-NNNN. Read-only.",
         schema: id_schema,
     },
     ToolDef {
-        name: "req_validation_backfill",
-        description: "Grandfather already-Verified items that pre-date the dossier requirement by recording an AUDITED exemption, so a strict req_validate passes. Pass id (one item) or all=true (every Verified item lacking a passing dossier), with a reason. Use sparingly — prefer a real dossier.",
-        schema: validation_backfill_schema,
+        name: "req_verification_backfill",
+        description: "Grandfather already-Verified items that pre-date the dossier requirement by recording an AUDITED exemption, so a strict req_conform passes. Pass id (one item) or all=true (every Verified item lacking a passing dossier), with a reason. Use sparingly — prefer a real dossier.",
+        schema: verification_backfill_schema,
     },
 ];
 
@@ -478,8 +548,8 @@ fn review_schema() -> Value {
             "path": { "type": "string", "description": "Directory to scan for `// REQ-NNNN` markers (default: repo root)." },
             "gate": { "type": "boolean", "description": "Surface the markerless-source / ghost findings as a non-zero exit so callers can treat the report as a CI gate." },
             "staged": { "type": "boolean", "description": "Scope the report to staged changes (`git diff --cached`) instead of `<base>..HEAD`. Mirrors the pre-commit hook." },
-            "new": { "type": "boolean", "description": "Scope validator findings to requirements added or changed in this range (implied by `staged`). Suppresses backlog warnings on untouched requirements." },
-            "all": { "type": "boolean", "description": "Force the full-project validator sweep even under `staged` — the deliberate hygiene view." },
+            "new": { "type": "boolean", "description": "Scope conformance findings to requirements added or changed in this range (implied by `staged`). Suppresses backlog warnings on untouched requirements." },
+            "all": { "type": "boolean", "description": "Force the full-project conformance sweep even under `staged` — the deliberate hygiene view." },
             "json": { "type": "boolean", "description": "Return JSON instead of markdown. Defaults to true on MCP." }
         }
     })
@@ -528,7 +598,9 @@ fn list_schema() -> Value {
             "kind":     { "type": "string", "enum": ["functional","non-functional","constraint","interface","business"] },
             "priority": { "type": "string", "enum": ["must","should","could","wont"] },
             "tag":      { "type": "array", "items": { "type": "string" } },
-            "query":    { "type": "string", "description": "Case-insensitive substring match against title + statement" }
+            "query":    { "type": "string", "description": "Case-insensitive substring match against title + statement" },
+            "offset":   { "type": "integer", "minimum": 0, "description": "REQ-0163: skip this many matches before returning results" },
+            "limit":    { "type": "integer", "minimum": 1, "description": "REQ-0163: return at most this many matches (one page). Response carries `total` for paging." }
         }
     })
 }
@@ -736,7 +808,7 @@ fn verify_schema() -> Value {
             "cites":   { "type": "array", "items": { "type": "string" }, "description": "Test names or REQ-IDs supporting the claim; prepended to notes." },
             "promote": { "type": "boolean", "default": false },
             "force":   { "type": "boolean", "default": false, "description": "Skip the Implemented-status precondition on promote." },
-            "no_dossier": { "type": "boolean", "default": false, "description": "REQ-0139: promote without a validation dossier, recording an audited exemption. Requires reason. Ordinary requirements only." },
+            "no_dossier": { "type": "boolean", "default": false, "description": "REQ-0139: promote without a verification dossier, recording an audited exemption. Requires reason. Ordinary requirements only." },
             "reason":  { "type": "string", "description": "Justification, required with no_dossier." }
         }
     })
@@ -789,21 +861,21 @@ fn id_schema() -> Value {
     })
 }
 
-// REQ-0139: input schemas for the validation-dossier MCP tools.
-fn validation_plan_schema() -> Value {
+// REQ-0139: input schemas for the verification-dossier MCP tools.
+fn verification_plan_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "REQ-NNNN or SR-NNNN" },
-            "plan": { "type": "string", "description": "How you will validate this — the analysis (review) and testing approach." },
-            "reopen": { "type": "boolean", "description": "Re-open a concluded dossier to re-validate (clears the prior verdict). Requires reason." },
+            "plan": { "type": "string", "description": "How you will verify this — the analysis (review) and testing approach." },
+            "reopen": { "type": "boolean", "description": "Re-open a concluded dossier to re-verify (clears the prior verdict). Requires reason." },
             "reason": { "type": "string" }
         },
         "required": ["id", "plan"]
     })
 }
 
-fn validation_activity_schema() -> Value {
+fn verification_activity_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -816,12 +888,12 @@ fn validation_activity_schema() -> Value {
     })
 }
 
-fn validation_conclude_schema() -> Value {
+fn verification_conclude_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "REQ-NNNN or SR-NNNN" },
-            "statement": { "type": "string", "description": "The validation statement supporting the verdict." },
+            "statement": { "type": "string", "description": "The verification statement supporting the verdict." },
             "promote": { "type": "boolean", "description": "Promote to Verified (only when the verdict is Pass; gated like req_verify)." },
             "force": { "type": "boolean", "description": "Override the promotion preconditions (status ladder / SIL-rigour gate). Requires reason." },
             "reason": { "type": "string" }
@@ -830,8 +902,8 @@ fn validation_conclude_schema() -> Value {
     })
 }
 
-// REQ-0139: schema for the validation-dossier back-fill tool.
-fn validation_backfill_schema() -> Value {
+// REQ-0139: schema for the verification-dossier back-fill tool.
+fn verification_backfill_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -1067,7 +1139,8 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_update" => tool_update(args, file),
         "req_delete" => tool_delete(args, file),
         "req_link" => tool_link(args, file),
-        "req_validate" => tool_validate(file),
+        // REQ-0190: renamed from req_conform (removed, pre-release).
+        "req_conform" => tool_conform(file),
         "req_coverage" => tool_coverage(args, file),
         "req_export" => tool_export(args, file),
         "req_help" => tool_help(args),
@@ -1109,13 +1182,13 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_sreq_realize" => safety_mcp::sreq_realize(args, file),
         "req_sreq_verify" => safety_mcp::sreq_verify(args, file),
         "req_trace" => safety_mcp::trace(args, file),
-        // REQ-0139: the staged validation dossier.
-        "req_validation_plan" => validation_mcp::plan(args, file),
-        "req_validation_analysis" => validation_mcp::analysis(args, file),
-        "req_validation_test" => validation_mcp::test(args, file),
-        "req_validation_conclude" => validation_mcp::conclude(args, file),
-        "req_validation_show" => validation_mcp::show(args, file),
-        "req_validation_backfill" => validation_mcp::backfill(args, file),
+        // REQ-0139: the staged verification dossier.
+        "req_verification_plan" => verification_mcp::plan(args, file),
+        "req_verification_analysis" => verification_mcp::analysis(args, file),
+        "req_verification_test" => verification_mcp::test(args, file),
+        "req_verification_conclude" => verification_mcp::conclude(args, file),
+        "req_verification_show" => verification_mcp::show(args, file),
+        "req_verification_backfill" => verification_mcp::backfill(args, file),
         _ => Err(anyhow!("unknown tool: {}", name)),
     }
 }
@@ -1222,10 +1295,30 @@ fn tool_list(args: &Value, file: &Path) -> Result<String> {
             "tags": r.tags,
         }));
     }
+    // REQ-0163: paginate so a large project does not return its whole
+    // requirement set in one response. `total` is the full match count;
+    // `requirements` is the requested page.
+    let total = rows.len();
+    let offset = args
+        .get("offset")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(total as u64) as usize;
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize);
+    let page: Vec<Value> = match limit {
+        Some(l) => rows.into_iter().skip(offset).take(l).collect(),
+        None => rows.into_iter().skip(offset).collect(),
+    };
     Ok(serde_json::to_string_pretty(&json!({
         "project": project.name,
-        "count": rows.len(),
-        "requirements": rows
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "count": page.len(),
+        "requirements": page
     }))?)
 }
 
@@ -1284,7 +1377,7 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
             target: parent,
         });
     }
-    // Validate BEFORE allocating an ID, so a rejected add does not burn one.
+    // Conformance-check BEFORE allocating an ID, so a rejected add does not burn one.
     let mut req = Requirement {
         id: String::new(),
         title,
@@ -1300,18 +1393,15 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         updated: now,
         history: vec![commands::history("created via MCP", None)],
         tests: Vec::new(),
-        // REQ-0139: a new requirement starts without a validation dossier.
-        validation: None,
+        // REQ-0139: a new requirement starts without a verification dossier.
+        verification: None,
         extra: Default::default(),
     };
-    let findings = validate::validate_requirement(&req);
-    let errs = validate::errors_only(&findings);
+    let findings = conform::conform_requirement(&req);
+    let errs = conform::errors_only(&findings);
     if !errs.is_empty() {
-        let msgs: Vec<String> = errs
-            .iter()
-            .map(|f| format!("[{}] {}", f.field, f.message))
-            .collect();
-        return Err(anyhow!("rejected: {}", msgs.join("; ")));
+        // REQ-0164: carry the rule codes as structured data, not just prose.
+        return Err(RuleViolation::from_findings("rejected", &errs).into());
     }
     let id = project.allocate_id();
     req.id = id.clone();
@@ -1425,8 +1515,8 @@ fn tool_update(args: &Value, file: &Path) -> Result<String> {
         return Ok(json!({ "id": id, "changes": [] }).to_string());
     }
 
-    let findings = validate::validate_requirement(r);
-    let errs = validate::errors_only(&findings);
+    let findings = conform::conform_requirement(r);
+    let errs = conform::errors_only(&findings);
     if !errs.is_empty() {
         let msgs: Vec<String> = errs
             .iter()
@@ -1553,9 +1643,9 @@ fn would_cycle(project: &crate::model::Project, from: &str, new_parent: &str) ->
     }
 }
 
-fn tool_validate(file: &Path) -> Result<String> {
+fn tool_conform(file: &Path) -> Result<String> {
     let project = storage::load(file)?;
-    let report = validate::validate_project(&project);
+    let report = conform::conform_project(&project);
     let mut errors = 0usize;
     let mut warnings = 0usize;
     let mut findings = Vec::new();
@@ -1747,7 +1837,7 @@ fn tool_help(args: &Value) -> Result<String> {
     }
     match help_text::section(&section) {
         // REQ-0045: render the rule-code catalogue into the body so agents
-        // reading help over MCP see every validator code, not a placeholder.
+        // reading help over MCP see every conformance code, not a placeholder.
         Some(s) => Ok(
             json!({ "name": s.name, "summary": s.summary, "body": help_text::render_body(s.body) })
                 .to_string(),
@@ -1905,7 +1995,7 @@ fn tool_check(args: &Value, file: &Path) -> Result<String> {
     let mut findings: Vec<Value> = Vec::new();
     for id in &changed_ids {
         if let Some(r) = current.requirements.get(id) {
-            for f in validate::validate_requirement(r) {
+            for f in conform::conform_requirement(r) {
                 if f.error {
                     errors += 1
                 } else {
@@ -2346,6 +2436,8 @@ fn tool_test_record(args: &Value, file: &Path) -> Result<String> {
             )
         },
         sil_gate_exception: false,
+        sil_at_verification: None,
+        external: None,
     };
     r.tests.push(record);
     r.history.push(crate::commands::history(
@@ -2419,7 +2511,7 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
     let commit = head.clone().unwrap_or_else(|| "(no git)".into());
     // REQ-0139: a bulk test run only auto-promotes items already cleared by a
     // passing dossier (or an ordinary-requirement tag exemption).
-    let exempt_tags = project.validation_exempt_tags();
+    let exempt_tags = project.verification_exempt_tags();
     for (id, (passed, failed, ignored)) in &by_req {
         let exists = project.requirements.contains_key(id);
         let outcome = if !failed.is_empty() {
@@ -2465,6 +2557,8 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
                     )
                 },
                 sil_gate_exception: false,
+                sil_at_verification: None,
+                external: None,
             });
             r.history.push(crate::commands::history(
                 format!("test {} recorded via MCP req_test_run", outcome.as_str()),
@@ -2472,7 +2566,7 @@ fn tool_test_run(args: &Value, file: &Path) -> Result<String> {
             ));
             r.updated = Utc::now();
             // REQ-0139: only auto-promote items cleared by a passing dossier.
-            let dossier_ok = r.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+            let dossier_ok = r.verification.as_ref().map(|v| v.passed()).unwrap_or(false)
                 || r.tags.iter().any(|t| exempt_tags.contains(t));
             if promote
                 && dossier_ok
@@ -2555,13 +2649,13 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
     if !project.requirements.contains_key(&id) {
         return Err(anyhow!("no such requirement: {}", id));
     }
-    // REQ-0139: evaluate the validation-dossier gate before the mutable borrow.
+    // REQ-0139: evaluate the verification-dossier gate before the mutable borrow.
     let dossier_ok = project.requirements[&id]
-        .validation
+        .verification
         .as_ref()
         .map(|v| v.passed())
         .unwrap_or(false);
-    let exempt_by_tag = project.req_is_validation_exempt(&project.requirements[&id]);
+    let exempt_by_tag = project.req_is_verification_exempt(&project.requirements[&id]);
     let no_dossier = args
         .get("no_dossier")
         .and_then(Value::as_bool)
@@ -2578,6 +2672,8 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
         content_hash: None,
         linked_files: None,
         sil_gate_exception: false,
+        sil_at_verification: None,
+        external: None,
     });
     r.history.push(crate::commands::history(
         format!(
@@ -2598,19 +2694,18 @@ fn tool_verify(args: &Value, file: &Path) -> Result<String> {
                 // is the precondition for Verified.
                 if !dossier_ok && !exempt_by_tag {
                     if no_dossier {
-                        r.validation = Some(crate::commands::validation::exemption_dossier(
+                        r.verification = Some(crate::commands::verification::exemption_dossier(
                             reason.as_deref().unwrap_or(""),
                             crate::commands::current_actor(),
                             commit.clone(),
                         ));
                     } else {
-                        return Err(anyhow!(
-                            "{} cannot be promoted to Verified without a passing validation \
-                             dossier. Use the req_validation_* tools, tag it `{}`, or pass \
-                             no_dossier=true with a reason.",
-                            id,
-                            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
-                        ));
+                        // REQ-0165: enumerate the legal routes as discrete data.
+                        return Err(PromotionBlocked {
+                            message: commands::verification::promotion_blocked_message(&id),
+                            routes: commands::verification::promotion_routes(&id),
+                        }
+                        .into());
                     }
                 }
                 r.status = Status::Verified;
@@ -2849,7 +2944,7 @@ fn tool_lint(args: &Value, file: &Path) -> Result<String> {
         .args(&argv)
         .output()
         .context("invoke self for lint")?;
-    // lint exits non-zero only on validator errors; treat any output as
+    // lint exits non-zero only on conformance errors; treat any output as
     // the report and let the caller inspect it.
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -2914,7 +3009,7 @@ fn write_config(path: &Path, force: bool) -> Result<()> {
             "req": {
                 "command": "req",
                 "args": ["mcp"],
-                "description": "Managed requirements for this project. Tools: req_list, req_show, req_add, req_update, req_delete, req_link, req_validate, req_coverage, req_export, req_help. Call req_help with {section: 'agents'} on first contact for the trigger table."
+                "description": "Managed requirements for this project. Tools: req_list, req_show, req_add, req_update, req_delete, req_link, req_conform, req_coverage, req_export, req_help. Call req_help with {section: 'agents'} on first contact for the trigger table."
             }
         }
     });
@@ -2933,12 +3028,12 @@ fn write_config(path: &Path, force: bool) -> Result<()> {
 // driving the tool over MCP. Each loads, mutates, saves, and returns a
 // JSON view. SILs are derived (never accepted as input), and the
 // SIL-rigour gate is enforced identically to the CLI.
-// REQ-0139: MCP surface for the validation dossier. Thin wrappers over the
-// IO-free `commands::validation::op_*` core, so the CLI and the MCP server
+// REQ-0139: MCP surface for the verification dossier. Thin wrappers over the
+// IO-free `commands::verification::op_*` core, so the CLI and the MCP server
 // share the exact gate + verdict logic.
-mod validation_mcp {
+mod verification_mcp {
     use super::{storage, Value};
-    use crate::commands::validation::{self, Stage};
+    use crate::commands::verification::{self, Stage};
     use crate::model::TestOutcome;
     use anyhow::{anyhow, Result};
     use std::path::Path;
@@ -2971,17 +3066,17 @@ mod validation_mcp {
         }
     }
     fn dossier_json(p: &crate::model::Project, id: &str) -> Result<String> {
-        let (cid, fam) = validation::resolve(p, id)?;
+        let (cid, fam) = verification::resolve(p, id)?;
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "id": cid,
-            "validation": validation::dossier(p, &cid, fam),
+            "verification": verification::dossier(p, &cid, fam),
         }))?)
     }
 
     pub fn plan(a: &Value, file: &Path) -> Result<String> {
         let _g = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
-        let id = validation::op_plan(
+        let id = verification::op_plan(
             &mut p,
             &req_s(a, "id")?,
             &req_s(a, "plan")?,
@@ -2998,11 +3093,11 @@ mod validation_mcp {
     pub fn test(a: &Value, file: &Path) -> Result<String> {
         activity(a, file, Stage::Testing)
     }
-    // REQ-0139: record a validation-by-analysis / by-testing stage.
+    // REQ-0139: record a verification-by-analysis / by-testing stage.
     fn activity(a: &Value, file: &Path, stage: Stage) -> Result<String> {
         let _g = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
-        let id = validation::op_activity(
+        let id = verification::op_activity(
             &mut p,
             &req_s(a, "id")?,
             stage,
@@ -3027,7 +3122,7 @@ mod validation_mcp {
         {
             return Err(anyhow!("force=true requires a non-empty reason"));
         }
-        let out = validation::op_conclude(
+        let out = verification::op_conclude(
             &mut p,
             &req_s(a, "id")?,
             &req_s(a, "statement")?,
@@ -3037,12 +3132,15 @@ mod validation_mcp {
             Path::new("."),
         )?;
         storage::save(file, &p)?;
-        let (_cid, fam) = validation::resolve(&p, &out.id)?;
+        let (_cid, fam) = verification::resolve(&p, &out.id)?;
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "id": out.id,
             "verdict": out.verdict.as_str(),
             "promoted": out.promoted,
-            "validation": validation::dossier(&p, &out.id, fam),
+            // REQ-0187: a safety requirement waits at Implemented for a human
+            // co-sign (`req verification confirm`) before reaching Verified.
+            "awaiting_confirmation": out.awaiting_confirmation,
+            "verification": verification::dossier(&p, &out.id, fam),
         }))?)
     }
 
@@ -3055,7 +3153,7 @@ mod validation_mcp {
     pub fn backfill(a: &Value, file: &Path) -> Result<String> {
         let _g = storage::acquire_lock(file)?;
         let mut p = storage::load(file)?;
-        let done = validation::op_backfill(
+        let done = verification::op_backfill(
             &mut p,
             s(a, "id").as_deref(),
             b(a, "all"),
@@ -3612,7 +3710,8 @@ mod safety_mcp {
             updated: now,
             history: vec![commands::history("created", None)],
             tests: Vec::new(),
-            validation: None,
+            verification: None,
+            walkthrough: None,
             extra: Default::default(),
         };
         let sil = p.inherited_sil(&sr);
@@ -3796,9 +3895,9 @@ mod safety_mcp {
         // overrides them and records a structured audited exception.
         let mut gate_exception = false;
         if promote {
-            // REQ-0139: a passing validation dossier is the precondition for
+            // REQ-0139: a passing verification dossier is the precondition for
             // a safety requirement to reach Verified (no tag exemption).
-            crate::commands::validation::gate_safety_requirement(&p.safety_requirements[&id])?;
+            crate::commands::verification::gate_safety_requirement(&p.safety_requirements[&id])?;
             let ladder_ok = matches!(status, Status::Implemented | Status::Verified);
             if !ladder_ok && !force {
                 return Err(anyhow!(
@@ -3845,6 +3944,9 @@ mod safety_mcp {
                 content_hash: None,
                 linked_files: None,
                 sil_gate_exception: gate_exception,
+                // REQ-0154: snapshot the SIL this evidence was justified against.
+                sil_at_verification: inherited,
+                external: None,
             });
             if promote {
                 sr.status = Status::Verified;
@@ -3960,6 +4062,8 @@ mod safety_mcp {
                             "id": sr.id, "title": sr.title, "status": sr.status.as_str(),
                             "inherited_sil": sil_s(p.inherited_sil(sr)),
                             "evidence": sr.tests.last().map(|t| t.kind.as_str()),
+                            // REQ-0171: walkthrough acknowledgement state in the trace case.
+                            "walkthrough": sr.walkthrough,
                         })
                     })
                     .collect();

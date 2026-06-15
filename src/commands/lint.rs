@@ -1,17 +1,17 @@
-// REQ-0101: req lint — project quality audit beyond the validator.
+// REQ-0101: req lint — project quality audit beyond the conformance checker.
 // Surfaces soft signals (rationale length, acceptance count, test-record
 // presence, marker coverage) without making them enforced rules.
 // Output is markdown by default; --json for tooling. Exit code reflects
-// validator errors only — lint observations never gate.
+// conformance errors only — lint observations never gate.
 use anyhow::Result;
 use serde_json::json;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::cli::LintArgs;
+use crate::conform;
 use crate::model::{Project, Status};
 use crate::storage::load_resolved;
-use crate::validate;
 
 const SHORT_RATIONALE_WORDS: usize = 10;
 const SINGLE_ACCEPTANCE: usize = 1;
@@ -24,7 +24,7 @@ pub fn run(args: LintArgs, file: &Option<PathBuf>) -> Result<()> {
     } else {
         print!("{}", report.to_markdown(&project));
     }
-    if report.validator_errors > 0 {
+    if report.conformance_errors > 0 {
         std::process::exit(1);
     }
     Ok(())
@@ -34,9 +34,9 @@ struct LintReport {
     project_name: String,
     total: usize,
     by_status: [usize; 6],
-    validator_errors: usize,
-    validator_warnings: usize,
-    validator_findings: Vec<(String, Vec<validate::Finding>)>,
+    conformance_errors: usize,
+    conformance_warnings: usize,
+    conform_findings: Vec<(String, Vec<conform::Finding>)>,
     markerless_active: Vec<String>,
     short_rationale: Vec<(String, usize)>,
     /// REQ-0110: resolved short-rationale threshold (_config over default) so
@@ -80,13 +80,13 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         by_status[i] += 1;
     }
 
-    let validator_findings = validate::validate_project(project);
-    let validator_errors: usize = validator_findings
+    let conform_findings = conform::conform_project(project);
+    let conformance_errors: usize = conform_findings
         .iter()
         .flat_map(|(_, fs)| fs.iter())
         .filter(|f| f.error)
         .count();
-    let validator_warnings: usize = validator_findings
+    let conformance_warnings: usize = conform_findings
         .iter()
         .flat_map(|(_, fs)| fs.iter())
         .filter(|f| !f.error)
@@ -110,12 +110,12 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
     markerless_active.sort();
 
     // Soft observations.
-    // REQ-0101: de-dupe with the validator. REQ-V-0013 already fires
-    // on very-short rationales (<3 words). Suppress the lint entry
-    // when the validator has already named the same requirement, so
-    // a user doesn't see the same REQ flagged twice with different
+    // REQ-0101: de-dupe with the conformance checker. REQ-V-0013 already
+    // fires on very-short rationales (<3 words). Suppress the lint entry
+    // when the conformance checker has already named the same requirement,
+    // so a user doesn't see the same REQ flagged twice with different
     // thresholds.
-    let validator_rationale_ids: std::collections::BTreeSet<String> = validator_findings
+    let conformance_rationale_ids: std::collections::BTreeSet<String> = conform_findings
         .iter()
         .filter(|(_, fs)| fs.iter().any(|f| f.rule_code == "REQ-V-0013"))
         .map(|(id, _)| id.clone())
@@ -125,7 +125,7 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         .iter()
         .filter(|(_, r)| !matches!(r.status, Status::Obsolete))
         .filter_map(|(id, r)| {
-            if validator_rationale_ids.contains(id) {
+            if conformance_rationale_ids.contains(id) {
                 return None;
             }
             let words = r.rationale.split_whitespace().count();
@@ -185,9 +185,9 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         project_name: project.name.clone(),
         total,
         by_status,
-        validator_errors,
-        validator_warnings,
-        validator_findings,
+        conformance_errors,
+        conformance_warnings,
+        conform_findings,
         markerless_active,
         short_rationale,
         short_rationale_words,
@@ -236,10 +236,10 @@ impl LintReport {
                 "verified":    self.by_status[4],
                 "obsolete":    self.by_status[5],
             },
-            "validator": {
-                "errors": self.validator_errors,
-                "warnings": self.validator_warnings,
-                "findings": self.validator_findings.iter().map(|(id, fs)| {
+            "conformance": {
+                "errors": self.conformance_errors,
+                "warnings": self.conformance_warnings,
+                "findings": self.conform_findings.iter().map(|(id, fs)| {
                     json!({
                         "id": id,
                         "findings": fs.iter().map(|f| json!({
@@ -275,9 +275,9 @@ impl LintReport {
     fn to_markdown(&self, project: &Project) -> String {
         let mut out = String::new();
         out.push_str(&format!("# req lint — {}\n\n", self.project_name));
-        let headline_emoji = if self.validator_errors > 0 {
+        let headline_emoji = if self.conformance_errors > 0 {
             "FAIL"
-        } else if self.validator_warnings > 0 {
+        } else if self.conformance_warnings > 0 {
             "WARN"
         } else {
             "OK"
@@ -288,8 +288,8 @@ impl LintReport {
             + self.no_test_record.len()
             + self.verified_but_defective.len();
         out.push_str(&format!(
-            "**Status:** {} — {} requirement(s); validate {} error(s), {} warning(s); {} quality observation(s).\n\n",
-            headline_emoji, self.total, self.validator_errors, self.validator_warnings, quality_count
+            "**Status:** {} — {} requirement(s); conform {} error(s), {} warning(s); {} quality observation(s).\n\n",
+            headline_emoji, self.total, self.conformance_errors, self.conformance_warnings, quality_count
         ));
 
         out.push_str("## Status distribution\n\n");
@@ -308,9 +308,9 @@ impl LintReport {
         }
         out.push('\n');
 
-        if !self.validator_findings.is_empty() {
-            out.push_str("## Validator findings\n\n");
-            for (id, fs) in &self.validator_findings {
+        if !self.conform_findings.is_empty() {
+            out.push_str("## Conformance findings\n\n");
+            for (id, fs) in &self.conform_findings {
                 for f in fs {
                     let sev = if f.error { "ERR " } else { "WARN" };
                     out.push_str(&format!(

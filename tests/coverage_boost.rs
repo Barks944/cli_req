@@ -47,16 +47,72 @@ fn req_0007_weasel_word_fast_produces_warning() {
     // Save succeeds (warning, not error)
     assert!(out.status.success(), "weasel words are advisory");
     let combined = format!("{}{}", stdout(&out), stderr(&out));
-    // `req add` prints warnings without rule codes; `req validate` adds them.
+    // `req add` prints warnings without rule codes; `req conform` adds them.
     assert!(
         combined.contains("fast"),
         "warning should cite the term `fast`"
     );
-    let val = s.run(&["validate"]);
+    let val = s.run(&["conform"]);
     let vbody = stdout(&val);
     assert!(
         vbody.contains("REQ-V-0009"),
-        "validate should emit the rule code, got:\n{}",
+        "conform should emit the rule code, got:\n{}",
+        vbody
+    );
+}
+
+// ---------- REQ-0186: weasel-word check is whole-word, not substring ----------
+
+#[test]
+fn req_0186_weasel_word_does_not_match_substring() {
+    let s = Sandbox::new();
+    s.init("p");
+    // "fetches" contains the substring "etc" but is not the weasel word.
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Retrieve a page when the worker requests it",
+        "--statement",
+        "The system shall return the page after the worker fetches the input batch.",
+        "--rationale",
+        "Substring of a weasel word inside a real word must not trip the rule.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let val = s.run(&["conform"]);
+    let vbody = stdout(&val);
+    assert!(
+        !vbody.contains("REQ-V-0009"),
+        "`fetches` must not trigger the `etc` weasel rule, got:\n{}",
+        vbody
+    );
+}
+
+#[test]
+fn req_0186_weasel_word_still_matches_standalone_term() {
+    let s = Sandbox::new();
+    s.init("p");
+    // The standalone term (here trailed by a period) must still be flagged.
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Log diagnostic output on a failure path",
+        "--statement",
+        "The system shall log errors, warnings, etc. when a request fails.",
+        "--rationale",
+        "Standalone weasel word must still warn.",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    let val = s.run(&["conform"]);
+    let vbody = stdout(&val);
+    assert!(
+        vbody.contains("REQ-V-0009"),
+        "standalone `etc.` must still trigger the weasel rule, got:\n{}",
         vbody
     );
 }
@@ -690,9 +746,9 @@ fn verify_promote_requires_implemented_status() {
         "--priority",
         "must",
         // REQ-0139: this test is about the status ladder, not the
-        // validation dossier — exempt it from the dossier gate.
+        // verification dossier — exempt it from the dossier gate.
         "--tag",
-        "validation-exempt",
+        "verification-exempt",
     ]);
     let out = s.run(&[
         "verify",
@@ -886,9 +942,9 @@ fn batch_link_cycle_blocked() {
 #[test]
 fn validate_detects_link_cycles() {
     // P1: even if a cycle slips in (batch on an old binary, merge,
-    // manual repair), `req validate` must surface it as REQ-V-0021.
+    // manual repair), `req conform` must surface it as REQ-V-0021.
     // We can't easily install a cycle through the CLI now, but we can
-    // verify the rule by hand-corrupting + repairing + validating.
+    // verify the rule by hand-corrupting + repairing + conforming.
     let s = Sandbox::new();
     s.init("p");
     for (i, title) in [
@@ -904,11 +960,11 @@ fn validate_detects_link_cycles() {
             title,
             "--statement",
             &format!(
-                "The system shall expose validate-time cycle detection {}.",
+                "The system shall expose conform-time cycle detection {}.",
                 i + 1
             ),
             "--rationale",
-            "Validate cycle fixture.",
+            "Conform cycle fixture.",
             "--kind",
             "constraint",
             "--priority",
@@ -931,20 +987,20 @@ fn validate_detects_link_cycles() {
         "force-repair should succeed: {}",
         stderr(&r)
     );
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     let body = format!("{}{}", stdout(&out), stderr(&out));
     assert!(
         body.contains("REQ-V-0021"),
-        "validate should report cycle via REQ-V-0021: {}",
+        "conform should report cycle via REQ-V-0021: {}",
         body
     );
 }
 
 #[test]
-fn repair_force_bypasses_validation_errors() {
+fn repair_force_bypasses_verification_errors() {
     // The previous flow: hand-edit + invalid + hash-broken => stuck.
     // Repair refused, every other command refused, only escape was
-    // more hand-editing. --force re-signs so validate can surface the
+    // more hand-editing. --force re-signs so conform can surface the
     // problems via the normal channel.
     let s = Sandbox::new();
     s.init("p");
@@ -961,7 +1017,7 @@ fn repair_force_bypasses_validation_errors() {
         "--priority",
         "could",
     ]);
-    // Wipe the statement so validation fails AND the hash breaks.
+    // Wipe the statement so verification fails AND the hash breaks.
     let text = std::fs::read_to_string(s.path()).unwrap();
     let mut v: serde_json::Value = serde_json::from_str(&text).unwrap();
     v["requirements"]["REQ-0001"]["statement"] = serde_json::json!("");
@@ -977,10 +1033,10 @@ fn repair_force_bypasses_validation_errors() {
         "--force should re-sign anyway: {}",
         stderr(&forced)
     );
-    let validate_out = s.run(&["validate"]);
+    let conform_out = s.run(&["conform"]);
     assert!(
-        !validate_out.status.success(),
-        "validate must now surface the errors (it could not while the hash was bad)"
+        !conform_out.status.success(),
+        "conform must now surface the errors (it could not while the hash was bad)"
     );
 }
 
@@ -1711,7 +1767,7 @@ fn split_keep_original_does_not_retire() {
 fn review_emits_markdown_for_clean_repo() {
     // Review must work even outside a real PR scenario — when there's
     // no base ref to diff against, it should fall back gracefully and
-    // still emit the validate / coverage / stale sections.
+    // still emit the conform / coverage / stale sections.
     let s = Sandbox::new();
     s.init("p");
     let _ = s.run(&[
@@ -1740,7 +1796,7 @@ fn review_emits_markdown_for_clean_repo() {
 #[test]
 fn validate_llm_hook_runs_when_env_set() {
     // Wire a trivial hook script that always reports ok:false; ensure
-    // REQ-V-0023 appears in the validate output.
+    // REQ-V-0023 appears in the conform output.
     let s = Sandbox::new();
     s.init("p");
     let _ = s.run(&[
@@ -1763,8 +1819,8 @@ fn validate_llm_hook_runs_when_env_set() {
         r#"echo '{"ok":false,"message":"toy hook flag"}'"#.to_string()
     };
     let out = Command::new(env!("CARGO_BIN_EXE_req"))
-        .args(["--file", s.path().to_str().unwrap(), "validate"])
-        .env("REQ_VALIDATE_LLM_CMD", &hook_cmd)
+        .args(["--file", s.path().to_str().unwrap(), "conform"])
+        .env("REQ_CONFORM_LLM_CMD", &hook_cmd)
         .output()
         .expect("invoke req");
     let body = format!(
@@ -1774,7 +1830,7 @@ fn validate_llm_hook_runs_when_env_set() {
     );
     assert!(
         body.contains("REQ-V-0023") || body.contains("LLM hook"),
-        "validate should surface the hook verdict: {}",
+        "conform should surface the hook verdict: {}",
         body
     );
 }
@@ -2475,7 +2531,7 @@ fn req_0056_verify_inspection_promotes_to_verified() {
         "could",
         // REQ-0139: focus on inspection evidence; exempt from the dossier gate.
         "--tag",
-        "validation-exempt",
+        "verification-exempt",
     ]);
     // Walk the lifecycle naturally — Draft -> Implemented is an
     // irregular skip and would need --force.
@@ -2649,18 +2705,18 @@ fn req_0032_unlinked_files_mode_lists_files_without_markers() {
     );
 }
 
-// ---------- REQ-0082: project self-validates with zero findings ----------
+// ---------- REQ-0082: project self-conforms with zero findings ----------
 
 #[test]
 fn req_0082_project_self_validates_cleanly() {
     // Run against the project.req at the repo root via CWD (cargo test sets it).
-    let out = common::req(&["validate"]);
-    assert!(out.status.success(), "validate failed: {}", stderr(&out));
+    let out = common::req(&["conform"]);
+    assert!(out.status.success(), "conform failed: {}", stderr(&out));
     let body = stdout(&out);
     let re = regex_lite("^OK — [0-9]+ requirement");
     assert!(
         re || body.starts_with("OK — "),
-        "unexpected validate body:\n{}",
+        "unexpected conform body:\n{}",
         body
     );
 }
@@ -2759,9 +2815,9 @@ fn req_0131_new_scopes_findings_to_changed_reqs() {
     let nv: serde_json::Value = serde_json::from_str(&nbody)
         .unwrap_or_else(|e| panic!("--new json parse: {} on {}", e, nbody));
     assert!(
-        !nv["validate"].to_string().contains("REQ-V-0009"),
+        !nv["conform"].to_string().contains("REQ-V-0009"),
         "per-commit (--new) view must suppress findings on untouched reqs: {}",
-        nv["validate"]
+        nv["conform"]
     );
 
     let all_out = review_in(&s, &["--staged", "--all", "--json"]);
@@ -2769,9 +2825,9 @@ fn req_0131_new_scopes_findings_to_changed_reqs() {
     let av: serde_json::Value = serde_json::from_str(&abody)
         .unwrap_or_else(|e| panic!("--all json parse: {} on {}", e, abody));
     assert!(
-        av["validate"].to_string().contains("REQ-V-0009"),
+        av["conform"].to_string().contains("REQ-V-0009"),
         "--all view must still surface the backlog warning: {}",
-        av["validate"]
+        av["conform"]
     );
 }
 
@@ -2875,4 +2931,208 @@ fn req_0133_multiple_ids_on_comment_line_all_referenced() {
         "a multi-id header should mark the file as covered: {}",
         markerless
     );
+}
+
+// ---------- REQ-0161: forced change needs a substantive reason ----------
+
+#[test]
+fn req_0161_forced_change_needs_substantive_reason() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "--title",
+        "Seed requirement",
+        "--statement",
+        "The system shall do a thing under load.",
+        "--rationale",
+        "seed",
+        "--kind",
+        "constraint",
+        "--priority",
+        "could",
+    ]);
+    // A forced irregular transition (Draft -> Verified) with a trivial reason is rejected.
+    let bad = s.run(&[
+        "update", "REQ-0001", "--status", "verified", "--force", "--reason", "x",
+    ]);
+    assert!(
+        !bad.status.success(),
+        "trivial forced reason should be rejected"
+    );
+    assert!(
+        stderr(&bad).contains("substantive --reason"),
+        "expected substance error, got: {}",
+        stderr(&bad)
+    );
+    // The same transition with a substantive reason is accepted.
+    let ok = s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "verified",
+        "--force",
+        "--reason",
+        "correcting the lifecycle state after a bad record",
+    ]);
+    assert!(
+        ok.status.success(),
+        "substantive forced reason: {}",
+        stderr(&ok)
+    );
+}
+
+// ---------- REQ-0166: link-time dependency-cycle rejection ----------
+
+#[test]
+fn req_0166_link_rejects_dependson_cycle_and_names_path() {
+    let s = Sandbox::new();
+    s.init("p");
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Req A",
+        "-s",
+        "The system shall handle A.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Req B",
+        "-s",
+        "The system shall handle B.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    let _ = s.run(&[
+        "add",
+        "-t",
+        "Req C",
+        "-s",
+        "The system shall handle C.",
+        "-r",
+        "seed",
+        "-k",
+        "constraint",
+        "-p",
+        "could",
+    ]);
+    assert!(s
+        .run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"])
+        .status
+        .success());
+    assert!(s
+        .run(&["link", "REQ-0002", "REQ-0003", "-k", "depends-on"])
+        .status
+        .success());
+    // Closing edge C depends-on A would create a cycle; it is rejected at link time.
+    let out = s.run(&["link", "REQ-0003", "REQ-0001", "-k", "depends-on"]);
+    assert!(
+        !out.status.success(),
+        "cycle-closing link should be rejected"
+    );
+    let body = stderr(&out);
+    assert!(body.contains("would create a cycle"), "got: {}", body);
+    assert!(
+        body.contains("REQ-0003 -> REQ-0001 -> REQ-0002 -> REQ-0003"),
+        "cycle path should be named, got: {}",
+        body
+    );
+}
+
+#[test]
+fn req_0166_link_detects_cycle_through_branching_edge() {
+    // Regression: the old single-edge walker missed cycles that closed
+    // through any edge other than the first. A has two depends-on edges.
+    let s = Sandbox::new();
+    s.init("p");
+    for t in ["A", "B", "C", "D"] {
+        let title = format!("Req {}", t);
+        let stmt = format!("The system shall handle {}.", t);
+        let _ = s.run(&[
+            "add",
+            "-t",
+            &title,
+            "-s",
+            &stmt,
+            "-r",
+            "seed",
+            "-k",
+            "constraint",
+            "-p",
+            "could",
+        ]);
+    }
+    // REQ-0001=A 0002=B 0003=C 0004=D
+    assert!(s
+        .run(&["link", "REQ-0001", "REQ-0002", "-k", "depends-on"])
+        .status
+        .success());
+    assert!(s
+        .run(&["link", "REQ-0001", "REQ-0003", "-k", "depends-on"])
+        .status
+        .success());
+    assert!(s
+        .run(&["link", "REQ-0003", "REQ-0004", "-k", "depends-on"])
+        .status
+        .success());
+    // D depends-on A closes a cycle via A's *second* edge (A->C->D).
+    let out = s.run(&["link", "REQ-0004", "REQ-0001", "-k", "depends-on"]);
+    assert!(!out.status.success(), "branching cycle should be detected");
+    let body = stderr(&out);
+    assert!(body.contains("would create a cycle"), "got: {}", body);
+    for id in ["REQ-0001", "REQ-0003", "REQ-0004"] {
+        assert!(
+            body.contains(id),
+            "cycle path should mention {}, got: {}",
+            id,
+            body
+        );
+    }
+}
+
+// ---------- REQ-0163: list pagination ----------
+
+#[test]
+fn req_0163_list_pagination_limits_and_reports_total() {
+    let s = Sandbox::new();
+    s.init("p");
+    for i in 0..5 {
+        let title = format!("Seed requirement number {}", i);
+        let stmt = format!("The system shall handle case number {}.", i);
+        let _ = s.run(&[
+            "add",
+            "-t",
+            &title,
+            "-s",
+            &stmt,
+            "-r",
+            "seed",
+            "-k",
+            "constraint",
+            "-p",
+            "could",
+        ]);
+    }
+    let out = s.run(&["list", "--limit", "2", "--offset", "1", "--json"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("json object");
+    assert_eq!(v["total"], 5, "total should reflect all matches");
+    assert_eq!(v["count"], 2, "page should be capped at limit");
+    assert_eq!(v["items"].as_array().unwrap().len(), 2);
+    // Unpaged list keeps the bare-array shape for backward compatibility.
+    let plain = s.run(&["list", "--json"]);
+    let pv: serde_json::Value = serde_json::from_str(&stdout(&plain)).expect("json array");
+    assert!(pv.is_array(), "unpaged --json should stay a bare array");
+    assert_eq!(pv.as_array().unwrap().len(), 5);
 }

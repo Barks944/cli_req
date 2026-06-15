@@ -1,6 +1,6 @@
 // REQ-0085: req split — assisted remediation for REQ-V-0010 compound findings.
 // Interactive (or flag-driven) split of a compound requirement into
-// atomic ones. The validator can flag REQ-V-0010; this command is
+// atomic ones. The conformance checker can flag REQ-V-0010; this command is
 // the assisted fix. The original is soft-retired to Obsolete (with a
 // reason that names the replacements) and the new parts inherit the
 // original's kind, priority, tags. Inbound links are NOT auto-
@@ -13,9 +13,9 @@ use dialoguer::{theme::ColorfulTheme, Input};
 use std::path::PathBuf;
 
 use crate::cli::SplitArgs;
+use crate::conform;
 use crate::model::{Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
 
 pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
@@ -48,7 +48,7 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
         ));
     }
 
-    // Validate each part *before* we mutate, so a failure leaves the
+    // Conformance-check each part *before* we mutate, so a failure leaves the
     // project untouched.
     let now = Utc::now();
     let mut staged: Vec<Requirement> = Vec::new();
@@ -85,19 +85,19 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
                 args.reason.clone(),
             )],
             tests: Vec::new(),
-            // REQ-0139: split children start without a validation dossier.
-            validation: None,
+            // REQ-0139: split children start without a verification dossier.
+            verification: None,
             extra: Default::default(),
         };
-        let findings = validate::validate_requirement(&part);
-        let errs = validate::errors_only(&findings);
+        let findings = conform::conform_requirement(&part);
+        let errs = conform::errors_only(&findings);
         if !errs.is_empty() {
             let msg: Vec<String> = errs
                 .iter()
                 .map(|f| format!("[{}] {}", f.field, f.message))
                 .collect();
             return Err(anyhow!(
-                "part #{} failed validation; nothing mutated. {}",
+                "part #{} failed verification; nothing mutated. {}",
                 i + 1,
                 msg.join("; ")
             ));

@@ -6,9 +6,9 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
 use std::path::PathBuf;
 
 use crate::cli::AddArgs;
+use crate::conform;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
 
 pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     // REQ-0072: --from-json bypasses shell quoting for multi-line content.
@@ -154,7 +154,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     let now = Utc::now();
-    // Build with placeholder id; validate BEFORE allocating so failed adds
+    // Build with placeholder id; conformance-check BEFORE allocating so failed adds
     // do not consume IDs (REQ-0010: stable sequential allocation).
     let mut req = Requirement {
         id: String::new(),
@@ -171,12 +171,12 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         updated: now,
         history: vec![super::history("created", None)],
         tests: Vec::new(),
-        validation: None,
+        verification: None,
         extra: Default::default(),
     };
 
-    let findings = validate::validate_requirement(&req);
-    let errors = validate::errors_only(&findings);
+    let findings = conform::conform_requirement(&req);
+    let errors = conform::errors_only(&findings);
 
     // REQ-0095: warn when the new title is very similar to a
     // requirement retired to Obsolete in the last 60 days. The common
@@ -197,7 +197,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     }
 
     if !findings.is_empty() {
-        eprintln!("Validation:");
+        eprintln!("Verification:");
         for f in &findings {
             eprintln!(
                 "  {} [{}] {}",
@@ -206,7 +206,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
                 f.message
             );
         }
-        // Force the validation block out *before* the stdout "Added"
+        // Force the verification block out *before* the stdout "Added"
         // line so users don't see the success first and miss the
         // warnings underneath when the two streams interleave on a
         // terminal.
@@ -224,7 +224,7 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         } else {
             return Err(anyhow!(
-                "{} validation errors — fix and retry",
+                "{} verification errors — fix and retry",
                 errors.len()
             ));
         }
@@ -332,7 +332,7 @@ fn merge_from_json(mut args: AddArgs, src: &str) -> Result<AddArgs> {
     Ok(args)
 }
 
-// REQ-0095: dedup-warn on recently-obsolete reqs. Reuses validate's
+// REQ-0095: dedup-warn on recently-obsolete reqs. Reuses the conformance checker's
 // Jaccard token-set heuristic with the same 0.65 threshold so the
 // warning fires on the same conceptual overlap REQ-V-0020 catches.
 // Window is 60 days from now: longer than that and "re-adding the

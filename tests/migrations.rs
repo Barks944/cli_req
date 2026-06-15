@@ -21,7 +21,7 @@ fn req_0116_v1_fixture_errors_with_migrate_hint_when_opted_out() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_req"))
         .env("REQ_NO_AUTO_MIGRATE", "1")
         .env_remove("REQ_FILE")
-        .args(["--file", target.to_str().unwrap(), "validate"])
+        .args(["--file", target.to_str().unwrap(), "conform"])
         .output()
         .expect("invoke req");
     assert!(
@@ -44,7 +44,7 @@ fn req_0122_auto_migrate_on_first_load() {
     fs::copy(V1_FIXTURE, &target).expect("copy v1 fixture");
 
     // First command on the v1 file should auto-migrate and succeed.
-    let out = common::req(&["--file", target.to_str().unwrap(), "validate"]);
+    let out = common::req(&["--file", target.to_str().unwrap(), "conform"]);
     assert!(
         out.status.success(),
         "auto-migrate should succeed on the v1 fixture; stderr={}",
@@ -60,8 +60,8 @@ fn req_0122_auto_migrate_on_first_load() {
     // The on-disk file should now be v2.
     let migrated = fs::read_to_string(&target).unwrap();
     assert!(
-        migrated.contains("\"_format\": \"req-v3\""),
-        "_format should be req-v3 after auto-migrate"
+        migrated.contains("\"_format\": \"req-v4\""),
+        "_format should be req-v4 after auto-migrate"
     );
 
     // A sibling backup of the v1 file should exist.
@@ -82,7 +82,7 @@ fn req_0122_auto_migrate_opt_out_still_errors() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_req"))
         .env("REQ_NO_AUTO_MIGRATE", "1")
         .env_remove("REQ_FILE")
-        .args(["--file", target.to_str().unwrap(), "validate"])
+        .args(["--file", target.to_str().unwrap(), "conform"])
         .output()
         .expect("invoke req");
     assert!(
@@ -114,16 +114,16 @@ fn req_0116_v1_fixture_migrates_to_v2_with_ids_preserved() {
         stderr(&out)
     );
     assert!(
-        stdout(&out).contains("req-v1 → req-v3"),
+        stdout(&out).contains("req-v1 → req-v4"),
         "expected the v1 → v2 banner, got: {}",
         stdout(&out)
     );
 
-    // Validate post-migration.
-    let val = common::req(&["--file", &target_s, "validate"]);
+    // Conformance-check post-migration.
+    let val = common::req(&["--file", &target_s, "conform"]);
     assert!(
         val.status.success(),
-        "post-migrate validate failed: {}",
+        "post-migrate conform failed: {}",
         stderr(&val)
     );
 
@@ -141,8 +141,8 @@ fn req_0116_v1_fixture_migrates_to_v2_with_ids_preserved() {
     // The on-disk file should now be tagged v2.
     let migrated = fs::read_to_string(&target).unwrap();
     assert!(
-        migrated.contains("\"_format\": \"req-v3\""),
-        "_format should be req-v3 after migrate"
+        migrated.contains("\"_format\": \"req-v4\""),
+        "_format should be req-v4 after migrate"
     );
 
     // A sibling backup of the v1 file should exist.
@@ -178,7 +178,7 @@ fn req_0116_migrate_rejects_unknown_newer_format() {
     // refuse on the format check before looking at the hash so users
     // get the right hint ("upgrade your binary", not "run repair").
     let text = fs::read_to_string(s.path()).unwrap();
-    let bumped = text.replace("\"_format\": \"req-v3\"", "\"_format\": \"req-v99\"");
+    let bumped = text.replace("\"_format\": \"req-v4\"", "\"_format\": \"req-v99\"");
     fs::write(s.path(), bumped).unwrap();
     let out = s.run(&["migrate"]);
     assert!(!out.status.success(), "newer format must error");

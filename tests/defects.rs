@@ -49,10 +49,10 @@ fn init_with_one_failing_verified(s: &Sandbox) {
         "--priority",
         "could",
         // REQ-0139: this fixture is about a failing-test-record (REQ-V-0024),
-        // not the validation dossier — exempt it from the dossier gate so
+        // not the verification dossier — exempt it from the dossier gate so
         // only the intended warning fires.
         "--tag",
-        "validation-exempt",
+        "verification-exempt",
     ]);
     for status in ["proposed", "approved", "implemented", "verified"] {
         let _ = s.run(&[
@@ -205,15 +205,15 @@ fn req_0129_test_list_empty_records_clear_message() {
     );
 }
 
-// REQ-0130: `req validate` emits a REQ-V-0024 warning on Verified
+// REQ-0130: `req conform` emits a REQ-V-0024 warning on Verified
 // requirements whose latest test record is a Fail.
 #[test]
 fn req_0130_validate_warns_on_verified_with_failing_latest() {
     let s = Sandbox::new();
     init_with_one_failing_verified(&s);
-    let out = s.run(&["validate", "--json"]);
+    let out = s.run(&["conform", "--json"]);
     let body = stdout(&out);
-    let v: serde_json::Value = serde_json::from_str(&body).expect("validate JSON");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("conform JSON");
     // findings is the per-req findings array
     let findings = v["findings"].as_array().expect("findings array");
     let any_0024 = findings
@@ -230,7 +230,7 @@ fn req_0130_validate_warns_on_verified_with_failing_latest() {
 fn req_0130_validate_does_not_fail_on_warning_only() {
     let s = Sandbox::new();
     init_with_one_failing_verified(&s);
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     assert!(
         out.status.success(),
         "REQ-V-0024 is a warning; exit code must remain zero. stderr={}",
@@ -303,7 +303,7 @@ fn req_0130_verified_with_pass_latest_clean() {
         .output()
         .expect("record");
 
-    let out = s.run(&["validate", "--json"]);
+    let out = s.run(&["conform", "--json"]);
     let body = stdout(&out);
     assert!(
         !body.contains("REQ-V-0024"),

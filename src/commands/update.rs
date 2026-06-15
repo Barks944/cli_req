@@ -5,9 +5,9 @@ use chrono::Utc;
 use std::path::PathBuf;
 
 use crate::cli::UpdateArgs;
+use crate::conform;
 use crate::model::Status;
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
 
 pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     // Snapshot which field categories were touched so we can suppress
@@ -23,6 +23,8 @@ pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let canonical_id = super::resolve_id(&project, &args.id)?;
     args.id = canonical_id;
+    // REQ-0161: capture the force-reason floor before borrowing the requirement.
+    let min_force_reason_len = project.min_force_reason_len();
     let r = project
         .requirements
         .get_mut(&args.id)
@@ -116,6 +118,10 @@ pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
                     extra
                 ));
             }
+            // REQ-0161: a forced irregular transition needs a substantive reason.
+            if !crate::model::is_natural_transition(r.status, s) {
+                super::ensure_force_reason(&args.reason, min_force_reason_len)?;
+            }
             changes.push(format!("status {} -> {}", r.status.as_str(), s.as_str()));
             r.status = s;
         }
@@ -145,10 +151,10 @@ pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
 
-    let findings = validate::validate_requirement(r);
-    let errors = validate::errors_only(&findings);
+    let findings = conform::conform_requirement(r);
+    let errors = conform::errors_only(&findings);
     if !errors.is_empty() {
-        eprintln!("Validation errors block save:");
+        eprintln!("Verification errors block save:");
         for f in &errors {
             eprintln!("  ERR [{}] {}", f.field, f.message);
         }

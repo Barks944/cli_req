@@ -1,4 +1,4 @@
-// Integration tests covering the load-bearing validator rules. Each test
+// Integration tests covering the load-bearing conformance rules. Each test
 // is named `req_NNNN_description` so `req test run` can attach pass/fail
 // records to the corresponding requirements.
 mod common;
@@ -12,7 +12,7 @@ fn add_minimal(s: &Sandbox, statement: &str, kind: &str, accepts: &[&str]) -> st
         "--statement",
         statement,
         "--rationale",
-        "Verifies a validator rule end-to-end.",
+        "Verifies a conformance rule end-to-end.",
         "--kind",
         kind,
         "--priority",
@@ -231,15 +231,15 @@ fn req_0030_emoji_title_too_short_rejected() {
     assert!(stderr(&out).contains("min 5"));
 }
 
-// ---------- REQ-0045: rule codes appear in validator output ----------
+// ---------- REQ-0045: rule codes appear in conformance output ----------
 
 #[test]
 fn req_0045_validator_emits_stable_rule_codes() {
     let s = Sandbox::new();
     s.init("v");
     let _ = add_minimal(&s, "Bad short.", "constraint", &[]);
-    let out = s.run(&["validate"]);
-    // Validate succeeds (empty project after rejected add); but try the JSON
+    let out = s.run(&["conform"]);
+    // Conform succeeds (empty project after rejected add); but try the JSON
     // contract on a known-bad existing requirement instead.
     assert!(out.status.success() || out.status.code() == Some(1));
     // The rule-code contract is independently verified by the modal-verb test

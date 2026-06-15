@@ -17,12 +17,12 @@ pub fn section(name: &str) -> Option<&'static Section> {
     SECTIONS.iter().find(|s| s.name.eq_ignore_ascii_case(name))
 }
 
-/// REQ-0045 / REQ-0089 / REQ-0093: render the validator rule catalogue from the
-/// single source of truth (`crate::validate::RULES`) so the `errors` and
-/// `best-practice` help sections list every code the validator can emit and
-/// cannot silently drift behind it.
+/// REQ-0045 / REQ-0089 / REQ-0093: render the conformance rule catalogue from the
+/// single source of truth (`crate::conform::RULES`) so the `errors` and
+/// `best-practice` help sections list every code the conformance checker can emit
+/// and cannot silently drift behind it.
 pub fn rule_code_table() -> String {
-    crate::validate::RULES
+    crate::conform::RULES
         .iter()
         .map(|(code, desc)| format!("  {code}  {desc}"))
         .collect::<Vec<_>>()
@@ -31,7 +31,7 @@ pub fn rule_code_table() -> String {
 
 /// Expand dynamic placeholders in a section body before it is printed,
 /// installed into AGENTS.md, or emitted as JSON. Currently substitutes the
-/// `{{RULE_CODES}}` token with the live validator rule catalogue.
+/// `{{RULE_CODES}}` token with the live conformance rule catalogue.
 pub fn render_body(body: &str) -> String {
     body.replace("{{RULE_CODES}}", &rule_code_table())
 }
@@ -71,7 +71,7 @@ Approved/Implemented/Verified functional reqs cannot lack acceptance.",
     },
     Section {
         name: "best-practice",
-        summary: "Rules the validator enforces.",
+        summary: "Rules the conformance checker enforces.",
         body: "Enforced (errors block save):
   * title 5-120 characters (counted as Unicode chars, not bytes), non-empty
   * statement >= 5 words, contains shall/must/should/will, not a question
@@ -81,9 +81,9 @@ Approved/Implemented/Verified functional reqs cannot lack acceptance.",
   * functional requirements need acceptance criteria
   * link targets must exist; no self-links; parent links cannot cycle
   * approved/implemented/verified functional reqs need acceptance
-  * Verified requirements (REQ + SR) need a passing validation dossier
+  * Verified requirements (REQ + SR) need a passing verification dossier
     (REQ-0139: plan → analysis → testing → statement → verdict). An
-    ordinary requirement may instead carry a `validation-exempt` tag or an
+    ordinary requirement may instead carry a `verification-exempt` tag or an
     audited back-fill; safety requirements have NO exemption — neither a tag
     nor a back-fill, only a genuine dossier (REQ-0143). See REQ-V-0032 /
     REQ-V-0033.
@@ -103,13 +103,13 @@ BACKTICK ESCAPE (use sparingly)
   The compound, weasel-word, and modal-verb checks all run against
   the statement AFTER stripping URLs and `inline code` spans. This
   lets you cite forbidden terms when documenting a rule
-  ('the validator shall warn on `etc`, `TBD`, ...') and embed
+  ('the conformance checker shall warn on `etc`, `TBD`, ...') and embed
   enumerations of identifiers, CLI flags, or REQ-IDs without
   tripping the heuristics. Use it for descriptive code citations,
   NOT to launder genuinely compound obligations into a single
-  statement — that would game the validator and weaken the spec.
+  statement — that would game the conformance checker and weaken the spec.
 
-VALIDATOR RULE CODES (every code the validator can emit, with its meaning)
+CONFORMANCE RULE CODES (every code the conformance checker can emit, with its meaning)
 
 {{RULE_CODES}}",
     },
@@ -122,7 +122,7 @@ VALIDATOR RULE CODES (every code the validator can emit, with its meaning)
 4. `req show REQ-0001`                    inspect one
 5. `req update REQ-0001 --status proposed --reason \"team review\"`
 6. `req link REQ-0002 REQ-0001 -k parent` build hierarchy
-7. `req validate`                         pre-flight check
+7. `req conform`                         pre-flight check
 8. `req export -f markdown -o reqs.md`    publish",
     },
     Section {
@@ -186,8 +186,8 @@ WHEN THE USER ASKS FOR SOMETHING NEW
   req add --title \"...\" \\        record the requirement BEFORE you write
           --statement \"...\" \\    the code. The statement should have a
           --rationale \"...\" \\    modal verb (shall / must / should / will)
-          --kind functional \\    and describe one obligation. The validator
-          --priority must \\      tells you if it doesn't.
+          --kind functional \\    and describe one obligation. The conformance
+          --priority must \\      checker tells you if it doesn't.
           --accept \"...\"
 
   Then drop a `// REQ-NNNN:` comment in the file that implements it.
@@ -198,10 +198,10 @@ WHEN THE USER ASKS FOR SOMETHING NEW
 WHILE YOU WORK
 
   req coverage --path src      where are the markers? what's orphaned?
-  req validate                 are the requirements well-formed?
+  req conform                 are the requirements well-formed?
   req lint                     softer audit (rationale length, etc.)
   req precheck                 run the local CI gate suite (REQ-0114) —
-                               fmt + clippy + test + validate + coverage
+                               fmt + clippy + test + conform + coverage
                                + review, in CI's order. Catches the
                                environment-skew failures (rustfmt drift,
                                fixture-config flakiness) that otherwise
@@ -228,20 +228,20 @@ WHEN YOU FINISH SOMETHING
 
   req update <id> --status implemented --reason \"...\"
 
-  Then VALIDATE it before claiming Verified. Don't one-shot it — walk
-  the validation dossier so the pass/fail is backed by real analysis
+  Then VERIFY it before claiming Verified. Don't one-shot it — walk
+  the verification dossier so the pass/fail is backed by real analysis
   and testing (REQ-0139):
 
-    req validation plan     <id> --plan \"how I'll review + test this\"
-    req validation analysis <id> --findings \"code-review notes\" --result pass
-    req validation test     <id> --findings \"what I ran\" --result pass
-    req validation conclude <id> --statement \"why this passes\" --promote
+    req verification plan     <id> --plan \"how I'll review + test this\"
+    req verification analysis <id> --findings \"code-review notes\" --result pass
+    req verification test     <id> --findings \"what I ran\" --result pass
+    req verification conclude <id> --statement \"why this passes\" --promote
 
   `conclude` derives the verdict (Pass only when BOTH analysis and
   testing passed) and `--promote` flips status to Verified. Promotion
   is BLOCKED without a passing dossier — this holds for `req verify`
   and `req sreq verify --promote` too. A trivial ordinary requirement
-  can carry a `validation-exempt` tag (or use `req verify --no-dossier
+  can carry a `verification-exempt` tag (or use `req verify --no-dossier
   --reason \"...\"`); safety requirements have no exemption. Works on
   both REQ-NNNN and SR-NNNN ids.
 
@@ -250,7 +250,7 @@ WHEN YOU FINISH SOMETHING
 
   CODE CHANGED LATER? The dossier anchors a hash of the linked source,
   so `req stale` flags a Verified item whose code moved since you
-  validated it. Re-validate with `req validation plan <id> --reopen
+  verified it. Re-verify with `req verification plan <id> --reopen
   --reason \"...\"`.
 
 HOW THE FILE IS PROTECTED
@@ -269,7 +269,7 @@ HOW THE FILE IS PROTECTED
 
 RULES THAT MATTER (the short list)
 
-  * One obligation per requirement (the validator catches compounds).
+  * One obligation per requirement (the conformance checker catches compounds).
   * A normative modal verb in every statement.
   * Pass `--reason` on every update so history attributes the why.
   * `// REQ-NNNN:` markers in source link spec to code.
@@ -320,7 +320,7 @@ Endpoints:
         body: "`req tui` opens an interactive menu that mirrors the agent-relevant
 CLI commands so a human can drive the tool without memorising flags.
 The current menu covers: browse, status, next, add, update, link,
-delete, validate, coverage, stale, doctor, diff, audit, export,
+delete, conform, coverage, stale, doctor, diff, audit, export,
 version, quit. REQ-0083 obliges the menu to stay one-to-one with the
 CLI's agent-relevant subset; a parity test fails the build if a new
 command lands without a menu entry.
@@ -344,7 +344,7 @@ PER-CLONE SETUP
 
 `req hooks install` writes `.git/hooks/pre-commit` that runs:
 
-  1. `req validate` on every staged `.req` file (integrity + rules).
+  1. `req conform` on every staged `.req` file (integrity + rules).
   2. `req review --staged --gate` on every commit with staged files
      (catches new code without a REQ marker).
 
@@ -370,7 +370,7 @@ deterministically.
 PER-COMMIT vs WHOLE-PROJECT FINDINGS (REQ-0131)
 
   The pre-commit gate runs `req review --staged`, which implies
-  `--new`: the validator section is scoped to requirements ADDED or
+  `--new`: the conformance section is scoped to requirements ADDED or
   CHANGED by this commit. You are NOT shown — and not blocked by —
   compound-statement warnings on requirements you never touched. A
   linter that reprints the same six backlog warnings every commit
@@ -378,7 +378,7 @@ PER-COMMIT vs WHOLE-PROJECT FINDINGS (REQ-0131)
   about THIS change.
 
   Whole-project error enforcement is unaffected. Step 1 above runs
-  the full `req validate` whenever a `.req` file is staged, and CI
+  the full `req conform` whenever a `.req` file is staged, and CI
   runs it on the whole project — a structurally broken spec still
   cannot be committed or merged. `--new` only quiets the advisory
   backlog at the per-commit boundary.
@@ -427,7 +427,7 @@ CI / BUILD INTEGRATION
   exactly these in .github/workflows/ci.yml:
 
   # GATING — fail the build on any of these
-  req validate                                     # zero errors required
+  req conform                                     # zero errors required
   req coverage --strict \\
     --allow REQ-XXXX --allow REQ-YYYY              # orphan/ghost gate;
                                                    # whitelist verification-only
@@ -473,7 +473,7 @@ CROSS-LINKING CODE TO REQUIREMENTS
 CODE REVIEW
 
   req diff origin/main..HEAD  # per-requirement changes since the base ref
-  req check origin/main       # incremental validate + coverage scoped to
+  req check origin/main       # incremental conform + coverage scoped to
                               # files changed since the ref
 
 LOCAL CI EQUIVALENT (REQ-0114)
@@ -492,7 +492,7 @@ LOCAL CI EQUIVALENT (REQ-0114)
     1. cargo fmt --all -- --check
     2. cargo clippy --all-targets -- -D warnings
     3. cargo test --all
-    4. req validate
+    4. req conform
     5. req coverage --strict
     6. req review --gate
 
@@ -655,9 +655,9 @@ REQ_ACTOR_KIND   Tag history entries (and downstream audit output) with
                  'agent' so reviewers can separate human vs automated
                  edits when auditing.
 
-REQ_VALIDATE_LLM_CMD
+REQ_CONFORM_LLM_CMD
                  OPTIONAL statement-quality hook. When set, `req
-                 validate` invokes this command once per non-obsolete
+                 conform` invokes this command once per non-obsolete
                  requirement and surfaces the verdict as REQ-V-0023.
                  The command is run via the platform shell (`sh -c`
                  on Unix, `cmd /C` on Windows).
@@ -668,9 +668,9 @@ REQ_VALIDATE_LLM_CMD
                      a `read_to_end()` hook returns at once).
                    - stdout: JSON {ok: bool, message: string}.
                    - exit 0 expected; non-zero surfaces as a transport
-                     warning (not a validate error).
+                     warning (not a conformance error).
                    - 10s hard timeout per requirement; timeouts surface
-                     as transport warnings, validate continues.
+                     as transport warnings, conform continues.
                    - ok: true is silent; ok: false produces a
                      REQ-V-0023 warning carrying `message`.
 
@@ -680,17 +680,17 @@ REQ_VALIDATE_LLM_CMD
                    - Calls are sequential, so a 1s hook × 100 reqs is
                      ~100s. Cache verdicts by sha256(statement) in your
                      hook if you call a paid model.
-                   - Default validator stays deterministic and offline
-                     when this var is unset.
+                   - Default conformance checker stays deterministic and
+                     offline when this var is unset.
 
-REQ_VALIDATE_LLM_SHELL
+REQ_CONFORM_LLM_SHELL
                  Override the shell used to invoke the hook. Default is
                  `sh` on Unix and `cmd` on Windows. Set to `bash`,
                  `pwsh`, or `sh` to run shell-script hooks on Windows
                  when Git Bash or PowerShell are on PATH and cmd.exe is
                  not finding the interpreter.
 
-REQ_VALIDATE_LLM_CONCURRENCY
+REQ_CONFORM_LLM_CONCURRENCY
                  Maximum number of hook invocations in flight at once.
                  Default 1 (sequential, matches 0.2.x behaviour). Set
                  to a small integer (e.g. 4) to fan out across reqs
@@ -765,25 +765,25 @@ fresh when their evidence is re-affirmed.",
     },
     Section {
         name: "lint",
-        summary: "Project-wide quality audit beyond the validator.",
-        body: "`req lint` is to `req validate` what `clippy` is to `rustc`: same
-domain, softer signal, opt-in by running the command. The validator
-gates ship; lint surfaces things you might want to fix that wouldn't
-block a release.
+        summary: "Project-wide quality audit beyond the conformance checker.",
+        body: "`req lint` is to `req conform` what `clippy` is to `rustc`: same
+domain, softer signal, opt-in by running the command. The conformance
+checker gates ship; lint surfaces things you might want to fix that
+wouldn't block a release.
 
 WHAT LINT REPORTS
 
-  validator findings    Same as `req validate`, included for context.
+  conformance findings  Same as `req conform`, included for context.
   markerless_active     Non-Draft, non-Obsolete requirements with no
                         `// REQ-NNNN:` reference in the scanned source
                         tree. May be verification-only or policy meta-
                         reqs that legitimately carry no code marker —
                         document the exception in the rationale.
-  short_rationale       Active rationales under 10 words. The validator
-                        catches very short ones (REQ-V-0013); lint
-                        catches the 3-9 word band the validator lets
-                        through. De-duped against the validator so a
-                        single req is never flagged twice.
+  short_rationale       Active rationales under 10 words. The conformance
+                        checker catches very short ones (REQ-V-0013); lint
+                        catches the 3-9 word band the conformance checker
+                        lets through. De-duped against the conformance
+                        checker so a single req is never flagged twice.
   single_acceptance     Functional requirements with one or zero
                         acceptance criteria. Functional reqs usually
                         deserve multiple observable checkpoints.
@@ -808,16 +808,16 @@ OUTPUT MODES
 
 EXIT CODE
 
-  Reflects validator errors only. Quality observations NEVER gate.
-  Zero exit on a healthy project. Non-zero only when `req validate`
+  Reflects conformance errors only. Quality observations NEVER gate.
+  Zero exit on a healthy project. Non-zero only when `req conform`
   would also fail.
 
 CI USE
 
   Lint is informational by design; do not gate on it. Print it as a
   PR comment or upload as a workflow artefact alongside `req review`.
-  If you want a gate, raise it via the validator (add a new REQ-V
-  rule), not via lint.
+  If you want a gate, raise it via the conformance checker (add a new
+  REQ-V rule), not via lint.
 
 WHEN TO RUN
 
@@ -875,13 +875,13 @@ ERROR CODES (stable)
   REQ-E-INTEGRITY       File integrity hash mismatch. Hint names
                         `req repair --confirm-direct-edit`.
   REQ-E-NOT-FOUND       Referenced requirement / file / ref does not exist.
-  REQ-E-VALIDATION      Validator rejected the input.
+  REQ-E-CONFORMANCE     Conformance checker rejected the input.
   REQ-E-CYCLE           A parent link would create a cycle.
   REQ-E-DUPLICATE       Link already exists, or another uniqueness clash.
   REQ-E-INVALID-INPUT   Malformed arguments or unknown enum value.
   REQ-E-IO              File or process error (read/write/exec).
 
-VALIDATOR RULE CODES (stable)
+CONFORMANCE RULE CODES (stable)
 
 {{RULE_CODES}}
 
@@ -909,14 +909,14 @@ TOOLS EXPOSED
 
   req_list       List requirements with filters. Call FIRST.
   req_show       Full detail for one ID (statement, rationale, ACs, history).
-  req_add        Create. Validator rejects bad input — rewrite, don't bypass.
+  req_add        Create. Conformance checker rejects bad input — rewrite, don't bypass.
   req_update     Modify; `reason` mandatory. Prefer add_acceptance over
                  acceptance (append vs replace).
   req_delete     Soft by default (status→Obsolete). hard=true refuses if
                  inbound links exist.
   req_link       parent / depends_on / refines / conflicts / verifies.
                  Parent links cycle-checked.
-  req_validate   Run rules across the whole project.
+  req_conform   Run rules across the whole project.
   req_coverage   default / unlinked_files=true / by_file=true modes.
   req_export     markdown / json (csv & html via CLI only for now).
   req_help       Fetch any documentation section by name.
@@ -931,7 +931,7 @@ SCHEMAS
 
   Every tool has a JSON Schema in its description that names required
   vs optional fields, enumerated values for kind/priority/status, and
-  short per-field descriptions. Honour the schema; the server validates.
+  short per-field descriptions. Honour the schema; the server checks conformance.
 
 DEBUGGING
 
@@ -969,7 +969,7 @@ artifacts, each with its own id space:
 ENABLING THE FEATURES — a human signs on first. The safety features are
 OFF until a person accepts the liability disclaimer:
 
-  req safety accept --name \"Your Name <you@example.com>\"
+  req safety accept-disclaimer --name \"Your Name <you@example.com>\"
 
 This writes `req-safety-acceptance.json` beside project.req — COMMIT it.
 Its presence (for the current disclaimer version) is what activates
@@ -979,11 +979,11 @@ on the agent/MCP surface, and `accept` refuses when REQ_ACTOR_KIND=agent.
 An agent can author hazards/SF/SR once a human has signed on, but it can
 never accept on your behalf. `req safety status` shows the current state.
 
-HUMAN CONFIRMATION OF SAFETY VALIDATION (REQ-0145). An agent may author and
-validate a safety requirement's dossier (analysis + testing), but the result
+HUMAN CONFIRMATION OF SAFETY VERIFICATION (REQ-0145). An agent may author and
+verify a safety requirement's dossier (analysis + testing), but the result
 is NOT considered passed until a HUMAN co-signs it:
 
-  req validation confirm SR-0001
+  req verification confirm SR-0001
 
 `confirm` refuses `REQ_ACTOR_KIND=agent`. A Verified safety requirement that
 carries an agent's dossier but no human confirmation is flagged `REQ-V-0034`
@@ -1074,7 +1074,7 @@ guard opening.\" --rationale \"Bounds exposure to a moving blade.\" \\
 THE VERIFICATION GATE — a SIL 3/4 safety requirement CANNOT reach
 Verified on inspection alone. Provide automated or composition
 evidence. If you genuinely must accept inspection, `--force` records an
-AUDITED exception (it is logged and re-flagged at every `req validate`).
+AUDITED exception (it is logged and re-flagged at every `req conform`).
 Do not reach for `--force` to make a red gate green; fix the evidence.
 
 SEEING THE WHOLE PICTURE — `req trace` is the single best command. Given
@@ -1085,19 +1085,19 @@ any HAZ/SF/SR id it prints the end-to-end chain and a traceability roll-up:
   TRACE STATUS is COMPLETE when every link is present and every realizing
   safety requirement is Verified with evidence whose rigour meets its SIL.
   The SIL line is an *allocation* check (allocated ≥ required). `req
-  validate` enforces the same rules, so a broken chain fails CI.
+  conform` enforces the same rules, so a broken chain fails CI.
 
   Read \"complete\" as *traceability complete*, NOT \"safe\". See the
   limits below before you treat a green trace as assurance.
 
-WHAT THE VALIDATOR WILL HOLD YOU TO (REQ-V-0025..0031):
+WHAT THE CONFORMANCE CHECKER WILL HOLD YOU TO (REQ-V-0025..0031):
   • a hazard needs a harm narrative;
   • an assessed hazard needs all four C/F/P/W;
   • a mitigated hazard needs a live safety function;
   • mitigates/realizes links must resolve;
   • a Verified safety requirement needs passing evidence of adequate
     rigour for its SIL.
-Don't argue with the validator — assess, link, and verify properly.
+Don't argue with the conformance checker — assess, link, and verify properly.
 
 WHAT REQ DOES NOT DO — and you must not let it imply otherwise:
 
@@ -1127,20 +1127,63 @@ WHAT REQ DOES NOT DO — and you must not let it imply otherwise:
   Treat req's output as an organised aid for a competent assessor, never
   as the assessment.",
     },
+    // REQ-0196 / REQ-0197: the single terminology reference. Every command,
+    // output, history entry and doc uses these words in the senses defined
+    // here, grounded in IEC 61508 / ISO 26262.
+    Section {
+        name: "terminology",
+        summary: "What verification, validation, conformance and Verified mean in req.",
+        body: "req uses these words in their IEC 61508 / ISO 26262 senses. This
+section is the single source of truth; every command, output, history
+entry and doc is meant to match it (REQ-0196 / REQ-0197).
+
+VERIFICATION — \"built it right\"
+  Evidence that a requirement is met as specified. In req this is the
+  staged dossier `req verification` (plan -> analysis -> testing ->
+  conclude), plus, for a safety requirement, an independent human
+  co-sign (`req verification confirm`). Completed verification is the
+  `Verified` state. Verification answers: does the implementation
+  conform to the requirement?
+
+VALIDATION — \"built the right thing\"  (OUT OF SCOPE for req)
+  Confirmation that the chosen requirements meet real needs and reduce
+  residual risk to an acceptable level — the HARA-adequacy / real-world
+  / acceptance judgement. req does NOT do this and models no residual
+  risk; it is your responsibility, performed outside req. req never
+  labels any of its own output or states \"validated\".
+
+  (At the safety-requirement level the human co-sign is independent
+  VERIFICATION review — confirming the evidence supports the claim —
+  not validation. Validation lives above the SR, over the safety goals.)
+
+CONFORMANCE — `req conform`
+  A well-formedness check that the spec file obeys req's rule set
+  (atomic statements, modal verbs, acceptance, links, integrity). It is
+  neither verification nor validation; it says nothing about whether the
+  system meets its requirements. (Formerly misnamed `req validate`.)
+
+VERIFIED
+  The lifecycle state that denotes completed verification of one
+  requirement. It does NOT mean validated or safe.
+
+SIL (functional safety)
+  A *candidate* integrity target derived from the risk-graph parameters
+  you enter — never typed directly. See `req help safety`.",
+    },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // REQ-0045: `req help best-practice` (and `errors`) list EVERY validator
+    // REQ-0045: `req help best-practice` (and `errors`) list EVERY conformance
     // rule code with its meaning, rendered from the single source of truth so
-    // they cannot drift behind the rules the validator emits.
+    // they cannot drift behind the rules the conformance checker emits.
     #[test]
     fn req_0045_help_lists_every_validator_rule_code() {
         let errors = render_body(section("errors").unwrap().body);
         let bp = render_body(section("best-practice").unwrap().body);
-        for (code, _desc) in crate::validate::RULES.iter() {
+        for (code, _desc) in crate::conform::RULES.iter() {
             assert!(errors.contains(*code), "errors help is missing {code}");
             assert!(bp.contains(*code), "best-practice help is missing {code}");
         }

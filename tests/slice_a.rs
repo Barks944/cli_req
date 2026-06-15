@@ -287,7 +287,7 @@ fn req_0072_add_from_json_validator_still_rejects() {
     let doc = serde_json::json!({
         "title": "Bad",
         "statement": "too short",
-        "rationale": "Verify validator path is shared.",
+        "rationale": "Verify conformance checker path is shared.",
         "kind": "constraint",
         "priority": "could"
     });
@@ -296,7 +296,7 @@ fn req_0072_add_from_json_validator_still_rejects() {
     let out = s.run(&["add", "--from-json", json_path.to_str().unwrap()]);
     assert!(
         !out.status.success(),
-        "validator should still reject bad input from JSON"
+        "conformance checker should still reject bad input from JSON"
     );
     assert!(
         stderr(&out).contains("title is too short")

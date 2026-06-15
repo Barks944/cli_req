@@ -11,9 +11,33 @@ pub fn run(args: ListArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_, project) = load_resolved(file)?;
     let filtered = filter(&project, &args);
 
+    // REQ-0163: page the result set. `total` is the full match count before
+    // paging; `page` is the slice the caller asked for.
+    let total = filtered.len();
+    let paginated = args.offset.is_some() || args.limit.is_some();
+    let offset = args.offset.unwrap_or(0).min(total);
+    let page: Vec<&Requirement> = match args.limit {
+        Some(limit) => filtered.into_iter().skip(offset).take(limit).collect(),
+        None => filtered.into_iter().skip(offset).collect(),
+    };
+
     if args.json {
-        let refs: Vec<&Requirement> = filtered;
-        println!("{}", serde_json::to_string_pretty(&refs)?);
+        // REQ-0163: when paged, wrap with the total so a caller can drive
+        // further pages; unpaged callers keep the bare-array shape.
+        if paginated {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "total": total,
+                    "offset": offset,
+                    "limit": args.limit,
+                    "count": page.len(),
+                    "items": page,
+                }))?
+            );
+        } else {
+            println!("{}", serde_json::to_string_pretty(&page)?);
+        }
         return Ok(());
     }
 
@@ -22,7 +46,8 @@ pub fn run(args: ListArgs, file: &Option<PathBuf>) -> Result<()> {
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec!["ID", "Title", "Kind", "Pri", "Status", "Tags"]);
-    for r in filtered {
+    let shown = page.len();
+    for r in page {
         table.add_row(vec![
             Cell::new(&r.id),
             Cell::new(truncate(&r.title, 60)),
@@ -36,6 +61,11 @@ pub fn run(args: ListArgs, file: &Option<PathBuf>) -> Result<()> {
         println!("(no requirements match)");
     } else {
         println!("{table}");
+    }
+    // REQ-0163: always state the total so a paged view is unambiguous.
+    if paginated {
+        let last = offset + shown;
+        println!("Showing {}-{} of {} match(es).", offset + 1, last, total);
     }
     Ok(())
 }

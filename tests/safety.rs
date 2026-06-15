@@ -104,18 +104,18 @@ fn req_0135_sil_gate_blocks_inspection_and_force_needs_reason() {
         "r",
     ]);
 
-    // REQ-0139: give the SR a passing validation dossier (without promoting)
+    // REQ-0139: give the SR a passing verification dossier (without promoting)
     // so the dossier gate is satisfied and the SIL-rigour gate is what's
     // under test below.
     s.run(&[
-        "validation",
+        "verification",
         "plan",
         "SR-0001",
         "--plan",
         "review logic and bench-test the stop",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "analysis",
         "SR-0001",
         "--findings",
@@ -124,7 +124,7 @@ fn req_0135_sil_gate_blocks_inspection_and_force_needs_reason() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "test",
         "SR-0001",
         "--findings",
@@ -133,7 +133,7 @@ fn req_0135_sil_gate_blocks_inspection_and_force_needs_reason() {
         "pass",
     ]);
     s.run(&[
-        "validation",
+        "verification",
         "conclude",
         "SR-0001",
         "--statement",
@@ -228,7 +228,7 @@ fn req_0135_recording_inspection_without_promote_is_allowed() {
 }
 
 /// REQ-0135: an Obsolete hazard stops feeding its SIL into a live safety
-/// function's allocation (model agrees with the validator).
+/// function's allocation (model agrees with the conformance checker).
 #[test]
 fn req_0135_obsolete_hazard_drops_from_allocation() {
     let s = Sandbox::new();
@@ -302,7 +302,7 @@ fn req_0135_directory_layout_persists_safety_artifacts() {
     );
     // Integrity must still verify.
     assert!(
-        req(&["--file", p, "validate"]).status.success(),
+        req(&["--file", p, "conform"]).status.success(),
         "directory integrity must hold after a safety write"
     );
 }
@@ -348,9 +348,9 @@ fn req_0136_trace_is_honest_about_what_it_asserts() {
     );
 }
 
-/// REQ-0137: the validator flags a hazard with no harm narrative. (Built
+/// REQ-0137: the conformance checker flags a hazard with no harm narrative. (Built
 /// via batch-free path: a normal add always has harm, so we drive the
-/// rule by checking a well-formed chain validates clean, and that the
+/// rule by checking a well-formed chain conforms clean, and that the
 /// rule codes are present in the catalogue surfaced by `req help`.)
 #[test]
 fn req_0137_wellformed_safety_chain_validates_clean() {
@@ -376,10 +376,10 @@ fn req_0137_wellformed_safety_chain_validates_clean() {
         "--realizes",
         "SF-0001",
     ]);
-    let out = s.run(&["validate"]);
+    let out = s.run(&["conform"]);
     assert!(
         out.status.success(),
-        "well-formed safety chain must validate: {}",
+        "well-formed safety chain must conform: {}",
         stdout(&out)
     );
 }
@@ -661,13 +661,16 @@ fn req_0138_governance_gate_agent_refusal_and_calibration() {
     assert!(String::from_utf8_lossy(&blocked.stderr).contains("not enabled"));
 
     // An agent cannot accept (refused on the self-identified actor kind).
-    let agent = run(&["safety", "accept", "--name", "Bot"], Some("agent"));
+    let agent = run(
+        &["safety", "accept-disclaimer", "--name", "Bot"],
+        Some("agent"),
+    );
     assert!(!agent.status.success(), "agent must not be able to accept");
     assert!(String::from_utf8_lossy(&agent.stderr).contains("human"));
 
     // Even a non-agent cannot accept without an interactive terminal —
     // there is no --yes backdoor. (Tests have no TTY.)
-    let no_tty = run(&["safety", "accept", "--name", "Tom"], None);
+    let no_tty = run(&["safety", "accept-disclaimer", "--name", "Tom"], None);
     assert!(!no_tty.status.success(), "accept must require a terminal");
     assert!(String::from_utf8_lossy(&no_tty.stderr).contains("interactive terminal"));
 
@@ -712,7 +715,7 @@ fn req_0138_governance_gate_agent_refusal_and_calibration() {
 }
 
 /// REQ-0137 (SF-0002 protective path): a BROKEN safety case must FAIL
-/// `req validate` with a non-zero exit, not merely print — this is the
+/// `req conform` with a non-zero exit, not merely print — this is the
 /// "a broken safety case fails CI" half of SF-0002, which the clean-case
 /// test above (`req_0137_wellformed_safety_chain_validates_clean`) does
 /// not exercise. We drive rule REQ-V-0027 by retiring the only safety
@@ -742,10 +745,10 @@ fn req_0137_broken_safety_case_fails_validate() {
     // A safety function mitigating the hazard auto-advances it to Mitigated.
     s.run(&["sf", "add", "-t", "Interlock", "--mitigates", "HAZ-0001"]);
 
-    // Baseline: a well-formed chain validates clean (guards against the
+    // Baseline: a well-formed chain conforms clean (guards against the
     // test passing for the wrong reason).
     assert!(
-        s.run(&["validate"]).status.success(),
+        s.run(&["conform"]).status.success(),
         "baseline chain must be clean"
     );
 
@@ -766,15 +769,15 @@ fn req_0137_broken_safety_case_fails_validate() {
         "obsoleting the SF should itself succeed"
     );
 
-    let broken = s.run(&["validate"]);
+    let broken = s.run(&["conform"]);
     assert!(
         !broken.status.success(),
-        "a broken safety case must fail validate with a non-zero exit"
+        "a broken safety case must fail conform with a non-zero exit"
     );
     let out = stdout(&broken) + &stderr(&broken);
     assert!(
         out.contains("REQ-V-0027"),
-        "validate must flag the mitigated-hazard-without-live-SF rule:\n{}",
+        "conform must flag the mitigated-hazard-without-live-SF rule:\n{}",
         out
     );
 }
@@ -925,11 +928,11 @@ fn req_0144_stale_disclaimer_version_blocks_safety_features() {
     );
 }
 
-/// REQ-0145: a safety requirement validated by an agent is NOT passed until a
+/// REQ-0145: a safety requirement verified by an agent is NOT passed until a
 /// human confirms the result. REQ-V-0034 flags the unconfirmed SR; an agent
 /// cannot confirm; a human's confirmation clears the finding.
 #[test]
-fn req_0145_safety_validation_needs_human_confirmation() {
+fn req_0145_safety_verification_needs_human_confirmation() {
     use std::process::Command;
     let dir = tempfile::Builder::new()
         .prefix("req-0145-")
@@ -1012,12 +1015,12 @@ fn req_0145_safety_validation_needs_human_confirmation() {
         None,
     );
     run(
-        &["validation", "plan", "SR-0001", "--plan", "review+bench"],
+        &["verification", "plan", "SR-0001", "--plan", "review+bench"],
         None,
     );
     run(
         &[
-            "validation",
+            "verification",
             "analysis",
             "SR-0001",
             "--findings",
@@ -1029,7 +1032,7 @@ fn req_0145_safety_validation_needs_human_confirmation() {
     );
     run(
         &[
-            "validation",
+            "verification",
             "test",
             "SR-0001",
             "--findings",
@@ -1041,7 +1044,7 @@ fn req_0145_safety_validation_needs_human_confirmation() {
     );
     assert!(run(
         &[
-            "validation",
+            "verification",
             "conclude",
             "SR-0001",
             "--statement",
@@ -1053,46 +1056,54 @@ fn req_0145_safety_validation_needs_human_confirmation() {
     .status
     .success());
 
-    // Verified on the agent's dossier, but REQ-V-0034 flags it as not-yet-passed.
-    let v1 = run(&["validate"], None);
-    assert!(
-        !v1.status.success(),
-        "an agent-only SR validation must not pass a clean validate"
-    );
+    // REQ-0187/0188: conclude leaves the SR at Implemented awaiting a human
+    // co-sign — a non-blocking advisory (REQ-V-0038), NOT a hard error, so the
+    // spec stays committable while the human signature is outstanding.
+    let v1 = run(&["conform"], None);
     let v1out = format!(
         "{}{}",
         String::from_utf8_lossy(&v1.stdout),
         String::from_utf8_lossy(&v1.stderr)
     );
     assert!(
-        v1out.contains("REQ-V-0034"),
-        "REQ-V-0034 must flag the unconfirmed safety requirement: {v1out}"
+        v1.status.success(),
+        "awaiting-cosign must be a non-blocking advisory, not a hard error: {v1out}"
+    );
+    assert!(
+        v1out.contains("REQ-V-0038"),
+        "REQ-V-0038 advisory must name the awaiting safety requirement: {v1out}"
+    );
+    // It must NOT read as verified yet.
+    assert!(
+        String::from_utf8_lossy(&run(&["sreq", "show", "SR-0001"], None).stdout)
+            .contains("awaiting human co-sign"),
+        "sreq show must surface the awaiting state"
     );
 
     // An agent cannot confirm on a human's behalf.
-    let by_agent = run(&["validation", "confirm", "SR-0001"], Some("agent"));
+    let by_agent = run(&["verification", "confirm", "SR-0001"], Some("agent"));
     assert!(
         !by_agent.status.success(),
-        "an agent must not be able to confirm a safety validation"
+        "an agent must not be able to confirm a safety verification"
     );
 
-    // A human confirms — and the project validates clean.
+    // A human confirms — and the project conforms clean.
     assert!(
-        run(&["validation", "confirm", "SR-0001"], Some("human"))
+        run(&["verification", "confirm", "SR-0001"], Some("human"))
             .status
             .success(),
         "a human confirmation must succeed"
     );
-    let v2 = run(&["validate"], None);
+    let v2 = run(&["conform"], None);
     assert!(
         v2.status.success(),
-        "after human confirmation the project validates clean: {}",
+        "after human confirmation the project conforms clean: {}",
         String::from_utf8_lossy(&v2.stderr)
     );
 }
 
 /// REQ-0146: `req trace` from a safety requirement resolves upward to the
-/// mitigated hazard and inlines the validation dossier (human output and
+/// mitigated hazard and inlines the verification dossier (human output and
 /// --json carry the same chain).
 #[test]
 fn req_0146_trace_from_sr_shows_chain_and_dossier() {
@@ -1178,12 +1189,12 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
         None,
     );
     run(
-        &["validation", "plan", "SR-0001", "--plan", "review+bench"],
+        &["verification", "plan", "SR-0001", "--plan", "review+bench"],
         None,
     );
     run(
         &[
-            "validation",
+            "verification",
             "analysis",
             "SR-0001",
             "--findings",
@@ -1195,7 +1206,7 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
     );
     run(
         &[
-            "validation",
+            "verification",
             "test",
             "SR-0001",
             "--findings",
@@ -1207,7 +1218,7 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
     );
     run(
         &[
-            "validation",
+            "verification",
             "conclude",
             "SR-0001",
             "--statement",
@@ -1216,7 +1227,7 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
         ],
         None,
     );
-    run(&["validation", "confirm", "SR-0001"], Some("human"));
+    run(&["verification", "confirm", "SR-0001"], Some("human"));
 
     // Human output: tracing from the SR resolves UP to the hazard and inlines
     // the dossier.
@@ -1227,20 +1238,20 @@ fn req_0146_trace_from_sr_shows_chain_and_dossier() {
     );
     assert!(
         human.contains("dossier: verdict pass"),
-        "trace must inline the validation dossier verdict:\n{human}"
+        "trace must inline the verification dossier verdict:\n{human}"
     );
     assert!(
         human.contains("human-confirmed"),
         "trace must show the human confirmation:\n{human}"
     );
 
-    // --json carries the chain with each SR's validation dossier.
+    // --json carries the chain with each SR's verification dossier.
     let j = String::from_utf8_lossy(&run(&["trace", "SR-0001", "--json"], None).stdout).to_string();
     let v: serde_json::Value = serde_json::from_str(&j).expect("trace --json parses");
-    let val = &v["chain"][0]["safety_requirements"][0]["validation"];
+    let val = &v["chain"][0]["safety_requirements"][0]["verification"];
     assert!(
         val.get("verdict").is_some() && val.get("human_confirmation").is_some(),
-        "--json chain must include the SR's validation dossier:\n{j}"
+        "--json chain must include the SR's verification dossier:\n{j}"
     );
 }
 
@@ -1338,10 +1349,10 @@ fn setup_marked_confirmed_sr(root: &std::path::Path) {
         ],
         None,
     );
-    run(&["validation", "plan", "SR-0001", "--plan", "p"], None);
+    run(&["verification", "plan", "SR-0001", "--plan", "p"], None);
     run(
         &[
-            "validation",
+            "verification",
             "analysis",
             "SR-0001",
             "--findings",
@@ -1353,7 +1364,7 @@ fn setup_marked_confirmed_sr(root: &std::path::Path) {
     );
     run(
         &[
-            "validation",
+            "verification",
             "test",
             "SR-0001",
             "--findings",
@@ -1365,7 +1376,7 @@ fn setup_marked_confirmed_sr(root: &std::path::Path) {
     );
     run(
         &[
-            "validation",
+            "verification",
             "conclude",
             "SR-0001",
             "--statement",
@@ -1374,7 +1385,7 @@ fn setup_marked_confirmed_sr(root: &std::path::Path) {
         ],
         None,
     );
-    run(&["validation", "confirm", "SR-0001"], Some("human"));
+    run(&["verification", "confirm", "SR-0001"], Some("human"));
 }
 
 fn req_in(root: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -1397,11 +1408,12 @@ fn req_0149_staleness_scopes_to_comment_markers_not_prose() {
     let root = dir.path();
     setup_marked_confirmed_sr(root);
 
-    let shown =
-        String::from_utf8_lossy(&req_in(root, &["validation", "show", "SR-0001", "--json"]).stdout)
-            .to_string();
-    let v: serde_json::Value = serde_json::from_str(&shown).expect("validation show --json");
-    let linked: Vec<String> = v["validation"]["linked_files"]
+    let shown = String::from_utf8_lossy(
+        &req_in(root, &["verification", "show", "SR-0001", "--json"]).stdout,
+    )
+    .to_string();
+    let v: serde_json::Value = serde_json::from_str(&shown).expect("verification show --json");
+    let linked: Vec<String> = v["verification"]["linked_files"]
         .as_array()
         .map(|a| {
             a.iter()
@@ -1421,12 +1433,12 @@ fn req_0149_staleness_scopes_to_comment_markers_not_prose() {
     // Editing the prose file must not make the safety requirement stale.
     std::fs::write(root.join("notes.md"), "Design notes: rewritten prose.\n").unwrap();
     assert!(
-        req_in(root, &["validate"]).status.success(),
+        req_in(root, &["conform"]).status.success(),
         "editing prose must not invalidate the safety requirement"
     );
 }
 
-/// REQ-0148: once the validated source drifts, the SR is a hard validate error.
+/// REQ-0148: once the verified source drifts, the SR is a hard conformance error.
 #[test]
 fn req_0148_stale_safety_requirement_is_a_validate_error() {
     let dir = tempfile::Builder::new()
@@ -1436,10 +1448,10 @@ fn req_0148_stale_safety_requirement_is_a_validate_error() {
     let root = dir.path();
     setup_marked_confirmed_sr(root);
 
-    // Confirmed + fresh → validate clean.
+    // Confirmed + fresh → conform clean.
     assert!(
-        req_in(root, &["validate"]).status.success(),
-        "a freshly validated + confirmed SR should pass"
+        req_in(root, &["conform"]).status.success(),
+        "a freshly verified + confirmed SR should pass"
     );
 
     // Drift the marker file → stale → REQ-V-0035 error.
@@ -1448,10 +1460,10 @@ fn req_0148_stale_safety_requirement_is_a_validate_error() {
         "// SR-0001: the interlock implementation\npub fn interlock() { /* changed */ }\n",
     )
     .unwrap();
-    let out = req_in(root, &["validate"]);
+    let out = req_in(root, &["conform"]);
     assert!(
         !out.status.success(),
-        "a stale safety requirement must fail validate"
+        "a stale safety requirement must fail conform"
     );
     let msg = format!(
         "{}{}",
@@ -1461,5 +1473,994 @@ fn req_0148_stale_safety_requirement_is_a_validate_error() {
     assert!(
         msg.contains("REQ-V-0035"),
         "stale SR must be flagged REQ-V-0035:\n{msg}"
+    );
+}
+
+/// REQ-0158: a safety requirement obeys the same lifecycle ladder as an
+/// ordinary requirement — a Verified SR cannot be quietly demoted without
+/// an explicit --force (and a substantive --reason, per REQ-0161).
+#[test]
+fn req_0158_safety_requirement_obeys_status_ladder() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "H",
+        "--harm",
+        "someone is hurt",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "R",
+        "-s",
+        "The system shall stop.",
+        "-r",
+        "because",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    // Seed a Verified state via a forced irregular jump (with a real reason).
+    let up = s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "verified",
+        "--force",
+        "--reason",
+        "seed verified state for the ladder test",
+    ]);
+    assert!(up.status.success(), "seed verify: {}", stderr(&up));
+    // Demoting Verified -> Draft without --force must be rejected.
+    let demote = s.run(&["sreq", "update", "SR-0001", "--status", "draft"]);
+    assert!(
+        !demote.status.success(),
+        "SR demotion without --force should be rejected"
+    );
+    assert!(
+        stderr(&demote).contains("irregular transition"),
+        "expected irregular-transition error, got: {}",
+        stderr(&demote)
+    );
+    // With --force and a substantive reason it succeeds.
+    let forced = s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "draft",
+        "--force",
+        "--reason",
+        "correcting a bad promotion record",
+    ]);
+    assert!(
+        forced.status.success(),
+        "forced demote: {}",
+        stderr(&forced)
+    );
+}
+
+// ---------- REQ-0154/0155/0157: SIL provenance & escalation ----------
+
+/// Build a Verified safety requirement chain at SIL2 via the dossier flow.
+/// Returns the sandbox with HAZ-0001(SIL2) ← SF-0001 ← SR-0001 (Verified,
+/// evidence snapshotted at SIL2).
+fn verified_sil2_chain() -> Sandbox {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Hazard A",
+        "--harm",
+        "someone is hurt",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W2", // -> SIL2
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "Function", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Requirement",
+        "-s",
+        "The system shall stop within 200 ms.",
+        "-r",
+        "bounds exposure",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    // Advance the SR up the lifecycle ladder so conclude --promote is eligible.
+    let _ = s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "proposed",
+        "--reason",
+        "advance for verification",
+    ]);
+    let _ = s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "approved",
+        "--reason",
+        "advance for verification",
+    ]);
+    let _ = s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "implemented",
+        "--reason",
+        "advance for verification",
+    ]);
+    // Walk the dossier to Verified (records the SIL snapshot at conclude).
+    let _ = s.run(&[
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "analysis + testing of the stop path",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "reviewed the stop path",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench test passes",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "SR-0001 met: stop path verified.",
+        "--promote",
+    ]);
+    // REQ-0187: conclude leaves a safety requirement at Implemented awaiting a
+    // human co-sign; the confirm (non-agent actor here) promotes to Verified.
+    let _ = s.run(&[
+        "verification",
+        "confirm",
+        "SR-0001",
+        "--note",
+        "reviewed and accepted",
+    ]);
+    s
+}
+
+#[test]
+fn req_0154_evidence_snapshots_sil_at_verification() {
+    let s = verified_sil2_chain();
+    let show = stdout(&s.run(&["sreq", "show", "SR-0001"]));
+    assert!(
+        show.contains("SIL2 (verified at)"),
+        "sreq show should display the verification-time SIL:\n{}",
+        show
+    );
+}
+
+#[test]
+fn req_0155_escalation_flags_evidence_below_current_sil() {
+    let s = verified_sil2_chain();
+    // Link a higher-SIL hazard to the same function: SF allocates SIL3, so
+    // SR-0001 now inherits SIL3 while its evidence was justified at SIL2.
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Hazard B",
+        "--harm",
+        "worse harm",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3", // -> SIL3
+    ]);
+    let _ = s.run(&["sf", "mitigate", "SF-0001", "HAZ-0002"]);
+    let val = s.run(&["conform"]);
+    let body = format!("{}{}", stdout(&val), stderr(&val));
+    assert!(
+        body.contains("REQ-V-0036"),
+        "escalation should raise REQ-V-0036:\n{}",
+        body
+    );
+    // REQ-0154: the show view flags the escalation too.
+    let show = stdout(&s.run(&["sreq", "show", "SR-0001"]));
+    assert!(
+        show.contains("inherited SIL rose"),
+        "sreq show should flag the escalation:\n{}",
+        show
+    );
+}
+
+#[test]
+fn req_0157_brief_surfaces_sil_escalated() {
+    let s = verified_sil2_chain();
+    let _ = s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Hazard B",
+        "--harm",
+        "worse harm",
+        "-C",
+        "C_C",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3",
+    ]);
+    let _ = s.run(&["sf", "mitigate", "SF-0001", "HAZ-0002"]);
+    let brief = s.run(&["brief", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&brief)).expect("brief json");
+    let esc = v["sil_escalated"].as_array().expect("sil_escalated array");
+    assert!(
+        esc.iter()
+            .any(|x| x.as_str().unwrap_or("").contains("SR-0001")),
+        "brief should surface escalated SR-0001: {}",
+        v["sil_escalated"]
+    );
+}
+
+// ---------- REQ-0160: trace states verification scope, not validated risk ----------
+
+#[test]
+fn req_0160_trace_labels_verification_scope() {
+    let s = verified_sil2_chain();
+    let trace = stdout(&s.run(&["trace", "HAZ-0001"]));
+    assert!(
+        trace.contains("NOT a residual-risk verification"),
+        "trace must state its scope:\n{}",
+        trace
+    );
+    assert!(
+        !trace.contains("residual risk is acceptable"),
+        "trace must not imply residual risk is acceptable:\n{}",
+        trace
+    );
+}
+
+// ---------- REQ-0168: independence — author should not be the verifier ----------
+
+#[test]
+fn req_0168_warns_when_author_verifies_own_safety_requirement() {
+    // verified_sil2_chain authors and verifies SR-0001 as the same actor.
+    let s = verified_sil2_chain();
+    let val = s.run(&["conform"]);
+    let body = format!("{}{}", stdout(&val), stderr(&val));
+    assert!(
+        body.contains("REQ-V-0037"),
+        "same author+verifier should warn REQ-V-0037:\n{}",
+        body
+    );
+}
+
+// ---------- REQ-0169..0174: guided safety walkthrough ----------
+
+use std::process::Command as PCommand;
+
+fn git_sandbox_run(s: &Sandbox, args: &[&str]) -> std::process::Output {
+    let mut full: Vec<String> = vec!["--file".into(), s.path().to_str().unwrap().into()];
+    full.extend(args.iter().map(|a| a.to_string()));
+    PCommand::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path()) // walkthrough/acknowledge anchor on git HEAD
+        .args(&full)
+        .env_remove("REQ_FILE")
+        .output()
+        .expect("invoke req")
+}
+
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let _ = PCommand::new("git").current_dir(dir).args(args).output();
+}
+
+/// A safety chain with passing evidence on SR-0001, inside a git repo so the
+/// walkthrough can anchor acknowledgements to HEAD.
+fn walkthrough_chain() -> Sandbox {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let dir = s.dir.path();
+    git(dir, &["init", "-q", "-b", "main"]);
+    git(dir, &["config", "user.email", "t@example.com"]);
+    git(dir, &["config", "user.name", "Tester"]);
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-q", "-m", "init"]);
+    let _ = s.run(&[
+        "hazard", "add", "-t", "Hazard A", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+        "-W", "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "Func", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Req",
+        "-s",
+        "The system shall stop.",
+        "-r",
+        "bounds",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    let _ = s.run(&[
+        "sreq",
+        "verify",
+        "SR-0001",
+        "--by",
+        "automated",
+        "--notes",
+        "bench pass",
+    ]);
+    s
+}
+
+#[test]
+fn req_0173_walkthrough_acknowledge_refuses_agent() {
+    let s = walkthrough_chain();
+    let out = PCommand::new(env!("CARGO_BIN_EXE_req"))
+        .current_dir(s.dir.path())
+        .args([
+            "--file",
+            s.path().to_str().unwrap(),
+            "safety",
+            "acknowledge",
+            "SR-0001",
+        ])
+        .env_remove("REQ_FILE")
+        .env("REQ_ACTOR_KIND", "agent")
+        .output()
+        .expect("invoke");
+    assert!(!out.status.success(), "agent ack must be refused");
+    assert!(stderr(&out).contains("must be made by a human"));
+}
+
+#[test]
+fn req_0174_walkthrough_refuses_incomplete_chain() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let dir = s.dir.path();
+    git(dir, &["init", "-q", "-b", "main"]);
+    git(dir, &["config", "user.email", "t@example.com"]);
+    git(dir, &["config", "user.name", "Tester"]);
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-q", "-m", "init"]);
+    // Chain with no passing evidence yet.
+    let _ = s.run(&[
+        "hazard", "add", "-t", "Hazard A", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+        "-W", "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "Func", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Req",
+        "-s",
+        "The system shall stop.",
+        "-r",
+        "bounds",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    let out = git_sandbox_run(&s, &["safety", "acknowledge", "SR-0001"]);
+    assert!(
+        !out.status.success(),
+        "incomplete chain ack must be refused"
+    );
+    assert!(stderr(&out).contains("cannot be acknowledged"));
+}
+
+#[test]
+fn req_0169_172_walkthrough_gate_and_acknowledge() {
+    let s = walkthrough_chain();
+    // REQ-0169: walkthrough renders the chain.
+    let render = git_sandbox_run(&s, &["safety", "walkthrough"]);
+    assert!(render.status.success());
+    let body = stdout(&render);
+    assert!(
+        body.contains("HAZ-0001") && body.contains("SF-0001") && body.contains("SR-0001"),
+        "chain shown:\n{}",
+        body
+    );
+    // REQ-0172: gate fails before acknowledgement.
+    let before = git_sandbox_run(&s, &["safety", "walkthrough", "--gate"]);
+    assert!(!before.status.success(), "gate should fail before ack");
+    // REQ-0170/0171: acknowledge.
+    let ack = git_sandbox_run(
+        &s,
+        &["safety", "acknowledge", "SR-0001", "--note", "reviewed"],
+    );
+    assert!(ack.status.success(), "ack: {}", stderr(&ack));
+    // REQ-0172: gate passes after a fresh ack.
+    let after = git_sandbox_run(&s, &["safety", "walkthrough", "--gate"]);
+    assert!(
+        after.status.success(),
+        "gate should pass after ack: {}",
+        stderr(&after)
+    );
+}
+
+/// REQ-0198: the walkthrough surfaces the verification dossier (verdict,
+/// staleness, co-sign), not just the conclusion; --full adds the detail.
+#[test]
+fn req_0198_walkthrough_shows_dossier() {
+    let s = walkthrough_chain();
+    // Build a concluded verification dossier so the SR has a verdict + stages.
+    let _ = s.run(&["verification", "plan", "SR-0001", "--plan", "review + test"]);
+    let _ = s.run(&[
+        "verification",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "code reviewed",
+        "--ref",
+        "src/lib.rs",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench passed",
+        "--ref",
+        "tests/x.rs",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "obligation met",
+    ]);
+
+    let render = git_sandbox_run(&s, &["safety", "walkthrough", "SR-0001"]);
+    assert!(render.status.success());
+    let body = stdout(&render);
+    assert!(
+        body.contains("EVIDENCE") && body.contains("co-sign"),
+        "default view should show the dossier verdict + co-sign line:\n{}",
+        body
+    );
+    // --full reveals the analysis/testing detail and their source references.
+    let full = git_sandbox_run(&s, &["safety", "walkthrough", "SR-0001", "--full"]);
+    assert!(full.status.success());
+    let fbody = stdout(&full);
+    assert!(
+        fbody.contains("analysis") && fbody.contains("testing") && fbody.contains("refs:"),
+        "full view should expand analysis/testing with refs:\n{}",
+        fbody
+    );
+}
+
+/// REQ-0199: requesting interactive mode without a terminal falls back to the
+/// static rendering (the test harness has no TTY) rather than hanging on a
+/// keypress, so agents, pipes, and CI are unaffected.
+#[test]
+fn req_0199_interactive_falls_back_without_tty() {
+    let s = walkthrough_chain();
+    let out = git_sandbox_run(&s, &["safety", "walkthrough", "SR-0001", "-i"]);
+    assert!(
+        out.status.success(),
+        "should not hang or fail: {}",
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).contains("SR-0001"),
+        "fallback should render the chain statically:\n{}",
+        stdout(&out)
+    );
+}
+
+// ---------- REQ-0187/0188/0189: human co-sign promotes; awaiting state is visible ----------
+
+#[test]
+fn req_0187_conclude_leaves_sr_awaiting_then_confirm_promotes() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the line",
+        "-s",
+        "The system shall stop the line on demand.",
+        "-r",
+        "operator safety",
+        "-a",
+        "stops within 200ms",
+        "--realizes",
+        "SF-0001",
+    ]);
+    for st in ["proposed", "approved", "implemented"] {
+        let _ = s.run(&[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            st,
+            "--reason",
+            "advance for verification",
+        ]);
+    }
+    let _ = s.run(&[
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "logic reviewed",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench passes",
+    ]);
+    // conclude --promote on an SR must NOT reach Verified.
+    let c = s.run(&[
+        "verification",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "stop obligation met",
+        "--promote",
+    ]);
+    assert!(c.status.success(), "{}", stderr(&c));
+    assert!(
+        !stdout(&s.run(&["sreq", "list"])).contains("verified"),
+        "SR must not be Verified after agent conclude"
+    );
+    assert!(stdout(&s.run(&["sreq", "show", "SR-0001"])).contains("awaiting human co-sign"));
+    // An agent may not confirm.
+    let by_agent = common::req(&[
+        "--file",
+        s.path().to_str().unwrap(),
+        "verification",
+        "confirm",
+        "SR-0001",
+    ]);
+    // (default actor kind is unknown here; force agent)
+    let by_agent2 = {
+        use std::process::Command;
+        Command::new(env!("CARGO_BIN_EXE_req"))
+            .args([
+                "--file",
+                s.path().to_str().unwrap(),
+                "verification",
+                "confirm",
+                "SR-0001",
+            ])
+            .env_remove("REQ_FILE")
+            .env("REQ_ACTOR_KIND", "agent")
+            .output()
+            .unwrap()
+    };
+    let _ = by_agent;
+    assert!(!by_agent2.status.success(), "agent must not confirm");
+    // Human confirm promotes to Verified.
+    let conf = s.run(&["verification", "confirm", "SR-0001", "--note", "reviewed"]);
+    assert!(conf.status.success(), "{}", stderr(&conf));
+    assert!(stdout(&s.run(&["sreq", "show", "SR-0001"])).contains("verified"));
+}
+
+#[test]
+fn req_0188_awaiting_cosign_is_advisory_not_error() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the line",
+        "-s",
+        "The system shall stop the line on demand.",
+        "-r",
+        "operator safety",
+        "-a",
+        "stops within 200ms",
+        "--realizes",
+        "SF-0001",
+    ]);
+    for st in ["proposed", "approved", "implemented"] {
+        let _ = s.run(&[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            st,
+            "--reason",
+            "advance for verification",
+        ]);
+    }
+    let _ = s.run(&[
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "logic reviewed",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench passes",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "met",
+        "--promote",
+    ]);
+    // conform: advisory (success), names REQ-V-0038.
+    let v = s.run(&["conform"]);
+    assert!(
+        v.status.success(),
+        "awaiting must not block conform: {}",
+        stdout(&v)
+    );
+    let body = format!("{}{}", stdout(&v), stderr(&v));
+    assert!(
+        body.contains("REQ-V-0038"),
+        "advisory must name the awaiting SR: {}",
+        body
+    );
+}
+
+#[test]
+fn req_0189_trace_incomplete_until_cosign() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the line",
+        "-s",
+        "The system shall stop the line on demand.",
+        "-r",
+        "operator safety",
+        "-a",
+        "stops within 200ms",
+        "--realizes",
+        "SF-0001",
+    ]);
+    for st in ["proposed", "approved", "implemented"] {
+        let _ = s.run(&[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            st,
+            "--reason",
+            "advance for verification",
+        ]);
+    }
+    let _ = s.run(&[
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "logic reviewed",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench passes",
+    ]);
+    let _ = s.run(&[
+        "verification",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "met",
+        "--promote",
+    ]);
+    // Trace: incomplete, blocking names the awaiting SR (REQ-0189).
+    let t1 = stdout(&s.run(&["trace", "HAZ-0001"]));
+    assert!(
+        t1.contains("incomplete"),
+        "trace must be incomplete pre-cosign: {}",
+        t1
+    );
+    assert!(
+        t1.contains("SR-0001 awaiting human co-sign"),
+        "blocker named: {}",
+        t1
+    );
+    // After co-sign, trace is complete.
+    let _ = s.run(&["verification", "confirm", "SR-0001"]);
+    let t2 = stdout(&s.run(&["trace", "HAZ-0001"]));
+    assert!(
+        t2.contains("linked and verified"),
+        "trace complete after cosign: {}",
+        t2
+    );
+}
+
+// ---------- REQ-0156: read-only safety-graph impact analysis ----------
+
+fn impact_chain() -> Sandbox {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    let _ = s.run(&[
+        "hazard", "add", "-t", "HA", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]); // SIL2
+    let _ = s.run(&[
+        "hazard", "add", "-t", "HB", "--harm", "worse", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+        "-W", "W3",
+    ]); // SIL3
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "R",
+        "-s",
+        "The system shall stop on demand.",
+        "-r",
+        "bounds",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    s
+}
+
+#[test]
+fn req_0156_impact_link_shows_before_after_without_mutating() {
+    let s = impact_chain();
+    let before = stdout(&s.run(&["sreq", "show", "SR-0001"]));
+    let out = s.run(&["impact", "--mitigate", "SF-0001=HAZ-0002", "--json"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("impact json");
+    assert_eq!(v["applied"], false);
+    let changes = v["changes"].as_array().unwrap();
+    let sf = changes
+        .iter()
+        .find(|c| c["id"] == "SF-0001")
+        .expect("SF changed");
+    assert_eq!(sf["before"], "SIL2");
+    assert_eq!(sf["after"], "SIL3");
+    assert!(changes
+        .iter()
+        .any(|c| c["id"] == "SR-0001" && c["after"] == "SIL3"));
+    // No mutation: the SR is unchanged on disk.
+    assert_eq!(before, stdout(&s.run(&["sreq", "show", "SR-0001"])));
+}
+
+#[test]
+fn req_0156_impact_calibration_shows_before_after() {
+    let s = impact_chain();
+    let out = s.run(&[
+        "impact",
+        "--calibrate",
+        "C_C/F_B/P_B=W3:SIL1,W2:SIL1,W1:SIL1",
+        "--json",
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("impact json");
+    let changes = v["changes"].as_array().unwrap();
+    assert!(
+        changes
+            .iter()
+            .any(|c| c["id"] == "HAZ-0002" && c["before"] == "SIL3" && c["after"] == "SIL1"),
+        "{}",
+        v["changes"]
+    );
+}
+
+#[test]
+fn req_0156_impact_requires_a_proposed_edit() {
+    let s = impact_chain();
+    let out = s.run(&["impact"]);
+    assert!(!out.status.success(), "impact with no edit should error");
+    assert!(stderr(&out).contains("nothing to analyse"));
+}
+
+#[test]
+fn req_0172_no_deadlock_walkthrough_acknowledge_under_stale_acceptance() {
+    // Regression: `safety accept` is blocked until every SR is acknowledged
+    // (REQ-0172), but acknowledge was gated on the CURRENT disclaimer version.
+    // With an older-version acceptance on file that made accept unreachable.
+    // Walkthrough + acknowledge must work under a stale acceptance so the
+    // accept-gate is satisfiable; only MUTATIONS stay version-gated.
+    let s = walkthrough_chain(); // git repo, v2 acceptance, SR-0001 with evidence
+                                 // Downgrade the acceptance to an older disclaimer version.
+    std::fs::write(
+        s.dir.path().join("req-safety-acceptance.json"),
+        r#"{"accepted_by":"H","at":"2026-01-01T00:00:00Z","tool_version":"old","disclaimer_version":"1"}"#,
+    )
+    .unwrap();
+    // Read-only walkthrough still works.
+    let wt = git_sandbox_run(&s, &["safety", "walkthrough"]);
+    assert!(
+        wt.status.success(),
+        "walkthrough under stale acceptance: {}",
+        stderr(&wt)
+    );
+    // Acknowledge still works (no deadlock).
+    let ack = git_sandbox_run(
+        &s,
+        &["safety", "acknowledge", "SR-0001", "--note", "reviewed"],
+    );
+    assert!(
+        ack.status.success(),
+        "acknowledge under stale acceptance: {}",
+        stderr(&ack)
+    );
+    // But a safety MUTATION remains gated on the current disclaimer version.
+    let hz = git_sandbox_run(
+        &s,
+        &[
+            "hazard", "add", "-t", "H2", "--harm", "x", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+            "-W", "W2",
+        ],
+    );
+    assert!(!hz.status.success(), "mutations must stay version-gated");
+}
+
+// ---------- REQ-0193: accept-disclaimer activates, decoupled from acks ----------
+
+#[test]
+fn req_0193_accept_disclaimer_not_gated_on_acknowledgement() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    // An unacknowledged safety requirement exists.
+    let _ = s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W2",
+    ]);
+    let _ = s.run(&["sf", "add", "-t", "F", "--mitigates", "HAZ-0001"]);
+    let _ = s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "R",
+        "-s",
+        "The system shall stop on demand.",
+        "-r",
+        "bounds",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    // accept-disclaimer (non-interactive) must fail on the TTY requirement, NOT
+    // on the acknowledgement gate — activation is decoupled from sign-off.
+    let out = s.run(&["safety", "accept-disclaimer", "--name", "Tom"]);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(
+        err.contains("interactive terminal"),
+        "should fail on TTY, not acks: {}",
+        err
+    );
+    assert!(
+        !err.to_lowercase().contains("acknowledge"),
+        "activation must not be gated on acknowledgement: {}",
+        err
+    );
+    // The bare `accept` name is removed (pre-release) — it must not resolve.
+    assert!(
+        !s.run(&["safety", "accept", "--help"]).status.success(),
+        "bare `accept` should be gone in favour of accept-disclaimer"
     );
 }

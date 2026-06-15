@@ -3,7 +3,7 @@
 // recording an "adopt" history entry per hop so the trail is auditable.
 //
 // Decision (locked into this implementation): when adopting a
-// functional requirement to Implemented or Verified, the validator
+// functional requirement to Implemented or Verified, the conformance
 // rule REQ-V-0018 requires at least one acceptance criterion. Rather
 // than refuse to run or require the user to pre-edit, we auto-generate
 // a placeholder entry of the form `implementation in source at
@@ -149,6 +149,8 @@ pub fn run(args: AdoptArgs, file: &Option<PathBuf>) -> Result<()> {
                 content_hash: None,
                 linked_files: None,
                 sil_gate_exception: false,
+                sil_at_verification: None,
+                external: None,
             });
         }
         println!("adopted {} → {}", id, target_status.as_str());

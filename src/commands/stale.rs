@@ -23,13 +23,13 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
     // rather than standing as a claim forever.
     let mut process = |id: &str,
                        tests: &[crate::model::TestRecord],
-                       validation: Option<&crate::model::Validation>| {
-        // REQ-0139: when the item carries a concluded validation dossier
+                       verification: Option<&crate::model::Verification>| {
+        // REQ-0139: when the item carries a concluded verification dossier
         // with a content-hash anchor, that anchor is the authoritative
-        // staleness source — a code change since the validation was
+        // staleness source — a code change since the verification was
         // concluded invalidates the verification. Prefer it over the test
         // record hash (which may pre-date the dossier).
-        let dossier_anchor = validation.filter(|v| !v.exempt).and_then(|v| {
+        let dossier_anchor = verification.filter(|v| !v.exempt).and_then(|v| {
             v.content_hash
                 .as_deref()
                 .map(|h| (h, v.linked_files.as_ref(), &v.concluded_commit))
@@ -80,10 +80,10 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
         );
     };
     for r in project.requirements.values() {
-        process(&r.id, &r.tests, r.validation.as_ref());
+        process(&r.id, &r.tests, r.verification.as_ref());
     }
     for sr in project.safety_requirements.values() {
-        process(&sr.id, &sr.tests, sr.validation.as_ref());
+        process(&sr.id, &sr.tests, sr.verification.as_ref());
     }
 
     if args.json {
@@ -138,7 +138,7 @@ pub fn run(args: StaleArgs, file: &Option<PathBuf>) -> Result<()> {
 
 /// Label a computed `Staleness`, bump the running counts, and push a row
 /// (honouring `--only-stale`). Shared by the test-record and the REQ-0139
-/// validation-dossier staleness paths.
+/// verification-dossier staleness paths.
 #[allow(clippy::type_complexity)]
 fn record_staleness(
     id: &str,

@@ -25,6 +25,10 @@ pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
         TestCmd::Record(args) => record(args, file),
         TestCmd::Run(args) => run_suite(args, file),
         TestCmd::List(args) => list(args, file),
+        // REQ-0175/0177/0181: external test-system integration.
+        TestCmd::Requests(args) => super::integration::requests(args, file),
+        TestCmd::Ingest(args) => super::integration::ingest(args, file),
+        TestCmd::Pull(args) => super::integration::pull(args, file),
     }
 }
 
@@ -49,12 +53,26 @@ fn list(mut args: TestListArgs, file: &Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
     for t in &r.tests {
+        // REQ-0179: show provenance — external records name their system and
+        // environment; locally-produced records are labelled as such.
+        let source = match &t.external {
+            Some(e) => format!(
+                "ext:{}{}",
+                e.system,
+                e.environment
+                    .as_deref()
+                    .map(|env| format!("/{}", env))
+                    .unwrap_or_default()
+            ),
+            None => "local".to_string(),
+        };
         println!(
-            "{}  {}  {}  {}  {}",
+            "{}  {}  {}  {}  [{}]  {}",
             t.at.format("%Y-%m-%d %H:%M UTC"),
             short(&t.commit),
             t.outcome.as_str(),
             t.kind.as_str(),
+            source,
             t.notes
         );
     }
@@ -84,15 +102,17 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         content_hash: None,
         linked_files: None,
         sil_gate_exception: false,
+        sil_at_verification: None,
+        external: None,
     };
-    // REQ-0139: evaluate the validation-dossier gate before taking the
+    // REQ-0139: evaluate the verification-dossier gate before taking the
     // mutable borrow (the gate needs to read project config + the dossier).
     let dossier_ok = project.requirements[&args.id]
-        .validation
+        .verification
         .as_ref()
         .map(|v| v.passed())
         .unwrap_or(false);
-    let exempt_by_tag = project.req_is_validation_exempt(&project.requirements[&args.id]);
+    let exempt_by_tag = project.req_is_verification_exempt(&project.requirements[&args.id]);
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
     r.history.push(super::history(
@@ -118,19 +138,16 @@ pub fn verify(mut args: VerifyArgs, file: &Option<PathBuf>) -> Result<()> {
                 if !dossier_ok && !exempt_by_tag {
                     if args.no_dossier {
                         let reason = args.reason.clone().unwrap_or_default();
-                        r.validation = Some(super::validation::exemption_dossier(
+                        r.verification = Some(super::verification::exemption_dossier(
                             &reason,
                             super::current_actor(),
                             commit.clone(),
                         ));
                     } else {
+                        // REQ-0165: enumerate the legal routes (shared with MCP).
                         return Err(anyhow!(
-                            "{} cannot be promoted to Verified without a passing validation \
-                             dossier. Run `req validation plan {} ...` → analysis → test → \
-                             conclude, tag it `{}` to exempt it, or pass --no-dossier --reason \"...\".",
-                            args.id,
-                            args.id,
-                            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                            "{}",
+                            super::verification::promotion_blocked_message(&args.id)
                         ));
                     }
                 }
@@ -221,6 +238,8 @@ fn record(mut args: TestRecordArgs, file: &Option<PathBuf>) -> Result<()> {
             )
         },
         sil_gate_exception: false,
+        sil_at_verification: None,
+        external: None,
     };
     let r = project.requirements.get_mut(&args.id).unwrap();
     r.tests.push(record.clone());
@@ -354,11 +373,11 @@ pub fn hash_files(files: &[std::path::PathBuf]) -> String {
 }
 
 /// REQ-0153: the pre-REQ-0152 hashing algorithm — path string verbatim, raw
-/// file bytes, no normalization. Kept ONLY so `req validation refresh-anchors`
+/// file bytes, no normalization. Kept ONLY so `req verification refresh-anchors`
 /// can prove a dossier's source is byte-identical to what it anchored: if the
 /// legacy hash of the current source still equals the stored hash, the bytes
 /// have not changed since the anchor (so the new normalized hash can be
-/// substituted safely, without re-validation). Never use for new anchors.
+/// substituted safely, without re-verification). Never use for new anchors.
 pub fn hash_files_legacy(files: &[std::path::PathBuf]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -544,32 +563,38 @@ static TEST_LINE: Lazy<Regex> = Lazy::new(|| {
 });
 
 #[derive(Debug, Default)]
-struct ReqResult {
-    passed: Vec<String>,
-    failed: Vec<String>,
-    ignored: Vec<String>,
+pub(crate) struct ReqResult {
+    pub(crate) passed: Vec<String>,
+    pub(crate) failed: Vec<String>,
+    pub(crate) ignored: Vec<String>,
 }
 
-fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
-    let (path, mut project, _lock) = load_for_mutation(file)?;
-
+/// REQ-0200: run (or ingest via `from_file`) the test command and parse its
+/// output into a per-requirement pass/fail/ignored map. Shared by `req test
+/// run` and `req verification reverify --by-tests` so both read results the
+/// same way. Returns the map and whether the command exited successfully.
+pub(crate) fn collect_results(
+    cmd: &str,
+    from_file: Option<&std::path::Path>,
+    map_file: Option<&std::path::Path>,
+) -> Result<(BTreeMap<String, ReqResult>, bool)> {
     // Either parse a pre-captured log file (--from-file) or run the test
     // command and parse its combined stdout+stderr. The file path bypasses
     // shell quoting entirely, which matters for tests on Windows where
     // splitting --cmd on whitespace drops cmd.exe's /C argument boundaries.
-    let (combined, exec_success) = if let Some(p) = &args.from_file {
+    let (combined, exec_success) = if let Some(p) = from_file {
         let body = std::fs::read_to_string(p)
             .with_context(|| format!("read --from-file {}", p.display()))?;
         (body, true)
     } else {
-        let parts: Vec<&str> = args.cmd.split_whitespace().collect();
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
         if parts.is_empty() {
             return Err(anyhow!("empty test command"));
         }
         let out = Command::new(parts[0])
             .args(&parts[1..])
             .output()
-            .with_context(|| format!("invoke {}", args.cmd))?;
+            .with_context(|| format!("invoke {}", cmd))?;
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
         (format!("{}\n{}", stdout, stderr), out.status.success())
@@ -593,7 +618,7 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     // generic verdict regex over the same combined output. This is
     // the Node/Python/etc. path: tests don't follow `req_NNNN_*` so
     // the mapping is explicit. Format: `{ "<test name>": ["REQ-NNNN", ...] }`.
-    if let Some(map_path) = &args.map_file {
+    if let Some(map_path) = map_file {
         let body = std::fs::read_to_string(map_path)
             .with_context(|| format!("read --map {}", map_path.display()))?;
         let map: BTreeMap<String, Vec<String>> = serde_json::from_str(&body)
@@ -633,6 +658,18 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         }
     }
+
+    Ok((by_req, exec_success))
+}
+
+fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+
+    let (by_req, exec_success) = collect_results(
+        &args.cmd,
+        args.from_file.as_deref(),
+        args.map_file.as_deref(),
+    )?;
 
     if by_req.is_empty() {
         let msg = "no test names matched the `req_NNNN_*` convention";
@@ -722,6 +759,8 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
                 )
             },
             sil_gate_exception: false,
+            sil_at_verification: None,
+            external: None,
         };
         records_to_apply.push((req_id.clone(), record));
     }
@@ -753,17 +792,20 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
         // already on tests when we evaluate "is there fresh evidence?".
         if args.promote {
             // REQ-0139: a bulk test run promotes only items that already
-            // carry a passing validation dossier (or, for ordinary reqs, a
+            // carry a passing verification dossier (or, for ordinary reqs, a
             // tag exemption). Items without one are left for the explicit
-            // `req validation` flow rather than erroring the whole run.
+            // `req verification` flow rather than erroring the whole run.
             let dossier_ok: std::collections::BTreeSet<String> = records_to_apply
                 .iter()
                 .filter_map(|(id, _)| {
                     let ok = if let Some(r) = project.requirements.get(id) {
-                        r.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
-                            || project.req_is_validation_exempt(r)
+                        r.verification.as_ref().map(|v| v.passed()).unwrap_or(false)
+                            || project.req_is_verification_exempt(r)
                     } else if let Some(sr) = project.safety_requirements.get(id) {
-                        sr.validation.as_ref().map(|v| v.passed()).unwrap_or(false)
+                        sr.verification
+                            .as_ref()
+                            .map(|v| v.passed())
+                            .unwrap_or(false)
                     } else {
                         false
                     };

@@ -119,7 +119,7 @@ pub fn run(args: SetupArgs) -> Result<()> {
     // - Functional reqs need acceptance (so the example has `-a`).
     // - Title must be >=5 chars, statement >=5 words, rationale
     //   non-empty: the placeholders below all clear those gates so
-    //   a literal copy-paste passes validation and produces REQ-0001.
+    //   a literal copy-paste passes verification and produces REQ-0001.
     println!("  req add -t \"My first requirement\" \\");
     println!("          -s \"The system shall expose a hello endpoint.\" \\");
     println!("          -r \"Establishes the baseline contract.\" \\");

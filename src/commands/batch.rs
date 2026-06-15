@@ -1,5 +1,5 @@
 // Implements REQ-0066: req batch — apply many mutations atomically from a
-// JSON document. The whole batch is staged in memory and validated; any
+// JSON document. The whole batch is staged in memory and conformance-checked; any
 // rejection rolls the entire transaction back (file is byte-identical to
 // its pre-batch state). One file write per batch, one history entry per
 // affected requirement.
@@ -11,9 +11,9 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use crate::cli::BatchArgs;
+use crate::conform;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
 
 #[derive(Deserialize)]
 struct BatchDoc {
@@ -230,18 +230,18 @@ fn apply_one(
                     reason.clone().or_else(|| default_reason.clone()),
                 )],
                 tests: Vec::new(),
-                // REQ-0139: new requirements start without a validation dossier.
-                validation: None,
+                // REQ-0139: new requirements start without a verification dossier.
+                verification: None,
                 extra: Default::default(),
             };
-            let findings = validate::validate_requirement(&req);
-            let errs = validate::errors_only(&findings);
+            let findings = conform::conform_requirement(&req);
+            let errs = conform::errors_only(&findings);
             if !errs.is_empty() {
                 let msg: Vec<String> = errs
                     .iter()
                     .map(|f| format!("[{}] {}", f.field, f.message))
                     .collect();
-                return Err(anyhow!("validation failed: {}", msg.join("; ")));
+                return Err(anyhow!("verification failed: {}", msg.join("; ")));
             }
             let id = project.allocate_id();
             req.id = id.clone();
@@ -336,14 +336,14 @@ fn apply_one(
                     changes.push(format!("-tag {}", t));
                 }
             }
-            let findings = validate::validate_requirement(r);
-            let errs = validate::errors_only(&findings);
+            let findings = conform::conform_requirement(r);
+            let errs = conform::errors_only(&findings);
             if !errs.is_empty() {
                 let msg: Vec<String> = errs
                     .iter()
                     .map(|f| format!("[{}] {}", f.field, f.message))
                     .collect();
-                return Err(anyhow!("validation failed on {}: {}", id, msg.join("; ")));
+                return Err(anyhow!("verification failed on {}: {}", id, msg.join("; ")));
             }
             r.updated = now;
             r.history.push(super::history(
@@ -485,6 +485,8 @@ fn apply_one(
             } else {
                 format!("cites: {} — ", cites.join(", "))
             };
+            // REQ-0154: ordinary requirements carry no inherited SIL, so the
+            // verification-SIL snapshot is None here (set only for SR evidence).
             let record = TestRecord {
                 at: now,
                 actor: super::current_actor(),
@@ -495,6 +497,8 @@ fn apply_one(
                 content_hash: None,
                 linked_files: None,
                 sil_gate_exception: false,
+                sil_at_verification: None,
+                external: None,
             };
             let r = project
                 .requirements

@@ -2,7 +2,7 @@
 //
 // Three artifact families — hazards (HAZ), safety functions (SF), and
 // safety requirements (SR) — plus `req trace`, the end-to-end safety
-// case. Every mutation goes through the same load-lock-validate-save
+// case. Every mutation goes through the same load-lock-conform-save
 // cycle as the requirement commands, records a reasoned history entry,
 // and never lets a caller hand-set a SIL: integrity levels are always
 // derived from the risk graph and the link structure.
@@ -694,8 +694,10 @@ fn sreq_add(args: SreqAddArgs, file: &Option<PathBuf>) -> Result<()> {
         updated: now,
         history: vec![super::history("created", None)],
         tests: Vec::new(),
-        // REQ-0139: a new safety requirement starts without a validation dossier.
-        validation: None,
+        // REQ-0139: a new safety requirement starts without a verification dossier.
+        verification: None,
+        // REQ-0171: no walkthrough acknowledgement yet.
+        walkthrough: None,
         // REQ-0140: forward-compat catch-all preserves unknown fields.
         extra: Default::default(),
     };
@@ -749,13 +751,20 @@ fn sreq_list(args: SreqListArgs, file: &Option<PathBuf>) -> Result<()> {
         println!("No safety requirements.");
         return Ok(());
     }
-    println!("{:<8}  {:<6}  {:<12}  TITLE", "ID", "SIL", "STATUS");
+    println!("{:<8}  {:<6}  {:<14}  TITLE", "ID", "SIL", "STATUS");
     for sr in rows {
+        // REQ-0188: an awaiting-co-sign requirement reads as such, never as a
+        // plain "implemented" that a reviewer might mistake for done.
+        let status = if super::provenance::sr_awaiting_cosign(sr) {
+            "awaiting-cosign"
+        } else {
+            sr.status.as_str()
+        };
         println!(
-            "{:<8}  {:<6}  {:<12}  {}",
+            "{:<8}  {:<6}  {:<14}  {}",
             sr.id,
             sil_str(project.inherited_sil(sr)),
-            sr.status.as_str(),
+            status,
             sr.title
         );
     }
@@ -772,7 +781,16 @@ fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
     println!("{}  {}", sr.id, sr.title);
-    println!("  status:       {}", sr.status.as_str());
+    // REQ-0188: surface the awaiting-co-sign state explicitly.
+    if super::provenance::sr_awaiting_cosign(sr) {
+        println!(
+            "  status:       {} (awaiting human co-sign — `req verification confirm {}`)",
+            sr.status.as_str(),
+            sr.id
+        );
+    } else {
+        println!("  status:       {}", sr.status.as_str());
+    }
     println!("  priority:     {}", sr.priority.as_str());
     println!("  inherits SIL: {}", sil_str(project.inherited_sil(sr)));
     println!("  statement:    {}", sr.statement);
@@ -802,16 +820,34 @@ fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
     match sr.tests.last() {
-        Some(t) => println!(
-            "  evidence:     {} · {} · {}",
-            t.kind.as_str(),
-            if t.commit.is_empty() {
-                "—"
-            } else {
-                &t.commit[..t.commit.len().min(8)]
-            },
-            t.outcome.as_str()
-        ),
+        Some(t) => {
+            println!(
+                "  evidence:     {} · {} · {}",
+                t.kind.as_str(),
+                if t.commit.is_empty() {
+                    "—"
+                } else {
+                    &t.commit[..t.commit.len().min(8)]
+                },
+                t.outcome.as_str()
+            );
+            // REQ-0154: show the SIL this evidence was justified against next
+            // to the current inherited SIL, so escalation is visible here.
+            let current = project.inherited_sil(sr);
+            if let Some(at) = t.sil_at_verification {
+                let cur = current.map(|s| s.as_str()).unwrap_or("—");
+                let flag = match current {
+                    Some(c) if c.rank() > at.rank() => "  ⚠ inherited SIL rose since verification",
+                    _ => "",
+                };
+                println!(
+                    "  evidence SIL: {} (verified at) · {} (current){}",
+                    at.as_str(),
+                    cur,
+                    flag
+                );
+            }
+        }
         None => println!("  evidence:     none"),
     }
     println!("\nRun `req trace {}` for the full safety case.", sr.id);
@@ -823,6 +859,8 @@ fn sreq_update(args: SreqUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_sr(&project, &args.id)?;
     let now = Utc::now();
+    // REQ-0161: capture the force-reason floor before the mutable borrow.
+    let min_force_reason_len = project.min_force_reason_len();
     {
         let sr = project.safety_requirements.get_mut(&id).unwrap();
         if let Some(t) = args.title {
@@ -844,7 +882,27 @@ fn sreq_update(args: SreqUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
             sr.priority = p.into();
         }
         if let Some(s) = args.status {
-            sr.status = s.into();
+            // REQ-0158: safety requirements obey the same lifecycle ladder as
+            // ordinary requirements — an irregular transition (backward, a
+            // skip, or leaving Verified for anything but Obsolete) needs an
+            // explicit --force, so a Verified SR cannot be quietly demoted.
+            let to: crate::model::Status = s.into();
+            if sr.status != to {
+                if !crate::model::is_natural_transition(sr.status, to) && !args.force {
+                    return Err(anyhow!(
+                        "{} -> {} is an irregular transition for {}; pass --force \
+                         --reason \"...\" to record an explicit override.",
+                        sr.status.as_str(),
+                        to.as_str(),
+                        id
+                    ));
+                }
+                // REQ-0161: a forced irregular transition needs a substantive reason.
+                if !crate::model::is_natural_transition(sr.status, to) {
+                    super::ensure_force_reason(&args.reason, min_force_reason_len)?;
+                }
+                sr.status = to;
+            }
         }
         for t in &args.add_tag {
             if !sr.tags.contains(t) {
@@ -921,10 +979,10 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
     // overrides them and records a structured, audited exception.
     let mut gate_exception = false;
     if args.promote {
-        // REQ-0139: a passing validation dossier is the precondition for a
+        // REQ-0139: a passing verification dossier is the precondition for a
         // safety requirement to reach Verified. There is no tag exemption
-        // for safety (only an audited `req validation backfill`).
-        super::validation::gate_safety_requirement(&project.safety_requirements[&id])?;
+        // for safety (only an audited `req verification backfill`).
+        super::verification::gate_safety_requirement(&project.safety_requirements[&id])?;
         // Status-ladder guard, mirroring ordinary `req verify`: promote
         // only from Implemented (or re-affirming Verified); never resurrect
         // an Obsolete requirement, except under an explicit --force.
@@ -976,6 +1034,9 @@ fn sreq_verify(args: SreqVerifyArgs, file: &Option<PathBuf>) -> Result<()> {
         content_hash: None,
         linked_files: None,
         sil_gate_exception: gate_exception,
+        // REQ-0154: snapshot the SIL this evidence was justified against.
+        sil_at_verification: inherited,
+        external: None,
     };
     {
         let sr = project.safety_requirements.get_mut(&id).unwrap();
@@ -1065,6 +1126,14 @@ fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
     let mut sr_total = 0;
     let mut sr_verified = 0;
     let mut blocking = Vec::new();
+    // REQ-0189: a realizing safety requirement counts toward completeness only
+    // when the conformance checker also considers it done — genuinely verified,
+    // human co-signed, and not stale — so `req trace` can never claim a hazard's
+    // safety case complete while `req conform` reports findings on the same
+    // requirements. Staleness is judged against the working tree (root "."),
+    // matching how `req conform` (REQ-V-0035) checks it.
+    use crate::commands::provenance::{classify, sr_awaiting_cosign, Provenance};
+    let root = std::path::Path::new(".");
     for sf in &sfs {
         for sr in project
             .safety_requirements
@@ -1072,10 +1141,30 @@ fn assess_hazard(project: &Project, haz_id: &str) -> Verdict {
             .filter(|sr| realizes(sr, &sf.id))
         {
             sr_total += 1;
-            if matches!(sr.status, Status::Verified) {
+            let standing = classify(sr.verification.as_ref(), Some(root), &sr.id);
+            let confirmed = sr
+                .verification
+                .as_ref()
+                .and_then(|v| v.human_confirmation.as_ref())
+                .is_some();
+            let clean = matches!(sr.status, Status::Verified)
+                && confirmed
+                && standing == Provenance::Genuine;
+            if clean {
                 sr_verified += 1;
             } else {
-                blocking.push(format!("{} not verified", sr.id));
+                let why = if sr_awaiting_cosign(sr)
+                    || (matches!(sr.status, Status::Verified) && !confirmed)
+                {
+                    "awaiting human co-sign"
+                } else if standing == Provenance::Stale {
+                    "stale"
+                } else if !matches!(sr.status, Status::Verified) {
+                    "not verified"
+                } else {
+                    "not genuinely verified"
+                };
+                blocking.push(format!("{} {}", sr.id, why));
             }
         }
     }
@@ -1102,7 +1191,7 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     let v = assess_hazard(project, haz_id);
     if json {
         // REQ-0146: include the full safety-function → safety-requirement chain
-        // with each SR's validation dossier so --json carries the same chain
+        // with each SR's verification dossier so --json carries the same chain
         // the human view renders, not just roll-up counts.
         let chain: Vec<_> = project
             .safety_functions
@@ -1119,7 +1208,9 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                             "title": sr.title,
                             "status": sr.status.as_str(),
                             "inherited_sil": project.inherited_sil(sr).map(|s| s.as_str()),
-                            "validation": sr.validation,
+                            "verification": sr.verification,
+                            // REQ-0171: walkthrough acknowledgement state in trace JSON.
+                            "walkthrough": sr.walkthrough,
                         })
                     })
                     .collect();
@@ -1232,10 +1323,10 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                 ),
                 None => println!("            evidence: none                       ✗ unverified"),
             }
-            // REQ-0146: inline the validation dossier so a reviewer sees how
-            // each safety requirement was validated within the chain, not just
+            // REQ-0146: inline the verification dossier so a reviewer sees how
+            // each safety requirement was verified within the chain, not just
             // its status.
-            match &sr.validation {
+            match &sr.verification {
                 Some(val) => {
                     let verdict = val.verdict.map(|o| o.as_str()).unwrap_or("open");
                     let a = val
@@ -1265,6 +1356,24 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                 }
                 None => println!("            dossier: (none recorded)"),
             }
+            // REQ-0171: surface the human walkthrough acknowledgement state in
+            // the trace, so a reviewer sees whether the chain was signed off.
+            match &sr.walkthrough {
+                Some(a) if a.objected => {
+                    println!("            walkthrough: ✗ objection by {}", a.reviewer)
+                }
+                Some(a) => println!(
+                    "            walkthrough: ✓ acknowledged by {} at {} (commit {})",
+                    a.reviewer,
+                    a.at.format("%Y-%m-%d %H:%M UTC"),
+                    if a.commit.is_empty() {
+                        "—".to_string()
+                    } else {
+                        a.commit[..a.commit.len().min(8)].to_string()
+                    }
+                ),
+                None => println!("            walkthrough: ▷ not yet acknowledged"),
+            }
         }
     }
 
@@ -1276,12 +1385,17 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
     // comparison below is an *allocation* check (allocated ≥ required),
     // which says nothing about whether the function *achieves* that
     // integrity. The wording is deliberately modest; see the disclaimer.
+    // REQ-0160: state the scope explicitly. A complete chain means every
+    // link is present and every realizing requirement is verified to its
+    // SIL's rigour — it is "linked and verified", NOT a judgement that the
+    // residual risk is acceptable or that the system is validated.
     let verdict = if v.complete {
-        "✓ traceability complete"
+        "✓ chain linked and verified"
     } else {
-        "⚠ traceability incomplete"
+        "⚠ chain incomplete"
     };
     println!("  TRACE STATUS:  {}", verdict);
+    println!("    scope: traceability + verification only — NOT a residual-risk verification");
     println!(
         "    SIL allocation: required {} — allocated {}    {}",
         sil_str(v.required),

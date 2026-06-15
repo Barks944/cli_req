@@ -32,11 +32,11 @@
 
 It exists because **conversational coding loses track of requirements.** The agent and the user have a session, they build something, the conversation ends. Without something that survives the conversation, the next session starts blind. `req` is what survives: a tool both humans and agents reach for, with hooks that nudge at commit time and a session-start brief that says "where are we right now?"
 
-### The mental model: where spec-memory and validation-memory meet
+### The mental model: where spec-memory and verification-memory meet
 
-`req` is your project's **spec-memory** — what the system is *supposed* to do, surviving between conversations. A test/validation tool (your test runner, a validation-statement harness, your CI evidence trail) is your project's **validation-memory** — what the system was *observed* to do, and when.
+`req` is your project's **spec-memory** — what the system is *supposed* to do, surviving between conversations. A test/verification tool (your test runner, an evidence-dossier harness, your CI evidence trail) is your project's **verification-memory** — what the system was *observed* to do, and when.
 
-They are two different memories, and they meet at one join key: **`(commit_sha, req_id)`**. A requirement (`req_id`) describes intent; a validation record pins that intent to a concrete state of the code (`commit_sha`) where it was checked. That join is why the hooks, the `// REQ-NNNN:` markers, and `req verify --cites` exist — each one is a thread tying a requirement to the commit where it was implemented or validated. `req test record` and `req stale` live on this same join: a record is *fresh* when its `commit_sha` still matches the code behind its `req_id`, and *stale* when the code moved on.
+They are two different memories, and they meet at one join key: **`(commit_sha, req_id)`**. A requirement (`req_id`) describes intent; a verification record pins that intent to a concrete state of the code (`commit_sha`) where it was checked. That join is why the hooks, the `// REQ-NNNN:` markers, and `req verify --cites` exist — each one is a thread tying a requirement to the commit where it was implemented or verified. `req test record` and `req stale` live on this same join: a record is *fresh* when its `commit_sha` still matches the code behind its `req_id`, and *stale* when the code moved on.
 
 Once that clicks, the hooks stop feeling like friction and start reading as what keeps the two memories from drifting apart. If you only take one idea from this README, take the join key.
 
@@ -50,7 +50,7 @@ If you're an LLM agent reading this in someone else's project, the short story:
 req brief             # what's the spec? what's queued? what's loose?
 req next              # what should I work on?
 req add ...           # record a new requirement (before you implement)
-req validate          # is everything well-formed?
+req conform          # is everything well-formed?
 ```
 
 The pre-commit hook will catch you if you write code without citing a `// REQ-NNNN:` marker. The post-commit hook prints what just landed and suggests the next status change. The full agent guide is `req help agents` — written for you, not at you.
@@ -88,7 +88,7 @@ Requirements rot when they live in wikis, drift when they live in code comments,
 - **Agent-shaped**: a session-start `req brief`, an MCP server (`req mcp`), and an AGENTS.md template that explains the workflow in the agent's voice.
 - **Optional IEC 61508 safety layer**: hazards, safety functions, and safety requirements with a *derived* SIL — off until a human signs on (see [Functional safety](#functional-safety-optional)).
 
-The validator IS the product. The CLI is the only legitimate way to mutate the file.
+The conformance checker IS the product. The CLI is the only legitimate way to mutate the file.
 
 ---
 
@@ -123,7 +123,7 @@ If you're joining a project that already has a `project.req`, your installed
 refuse to read newer formats and tell you to upgrade rather than silently
 mis-reading; the symptom is an `unsupported _format` error pointing you at
 this section. Pre-commit hooks and Claude Code Stop hooks invoke `req
-validate`, so a stale binary will fail every commit until upgraded.
+conform`, so a stale binary will fail every commit until upgraded.
 
 ---
 
@@ -153,8 +153,8 @@ req show REQ-0001
 # change something — always with a reason
 req update REQ-0001 --status approved --reason "Reviewed in 2026-05-17 sync"
 
-# validate before you commit (the pre-commit hook does this for you)
-req validate
+# conform before you commit (the pre-commit hook does this for you)
+req conform
 ```
 
 For everything else: `req help` lists the section index, `req help <section>` drills in. The agent guide is `req help agents`.
@@ -188,8 +188,8 @@ Spec and code stay in sync, or you find out fast.
 ### 2. Link for hierarchy and trace
 
 ```sh
-req link REQ-0026 REQ-0019 -k parent
-req link REQ-0026 REQ-0019 -k depends-on
+req link REQ-0026 REQ-0022 -k parent
+req link REQ-0026 REQ-0022 -k depends-on
 req link REQ-0030 REQ-0026 -k verifies
 ```
 
@@ -205,7 +205,7 @@ Soft delete by default — links and history are preserved. `--hard` is gated on
 
 ```sh
 cargo build --release      # or whatever your project uses
-req validate               # must be 0 errors
+req conform               # must be 0 errors
 req coverage --path src    # no new ghosts
 git diff project.req       # human-readable, by design
 ```
@@ -222,7 +222,7 @@ req hooks install
 
 installs:
 
-- `.git/hooks/pre-commit` — runs `req validate` on staged `.req` files and rejects the commit on errors.
+- `.git/hooks/pre-commit` — runs `req conform` on staged `.req` files and rejects the commit on errors.
 - `.gitattributes` line — `*.req merge=req-merge` so merges run `req renumber --base %O` and auto-fix ID collisions. The command prints the two `git config` lines needed to activate the driver in your clone.
 
 If you ever merge by hand and IDs collide:
@@ -266,7 +266,7 @@ That command writes a managed block, between sentinel markers, into `AGENTS.md`.
 - Never read or write `project.req` directly.
 - Every mutation goes through `req <subcommand>` with a `--reason`.
 - Use `// REQ-NNNN` markers in source; `req coverage` ties spec to code.
-- Don't argue with the validator — rewrite.
+- Don't argue with the conformance checker — rewrite.
 
 ---
 
@@ -277,7 +277,7 @@ Project lifecycle
   req init -n <name> [--layout directory]   Create project.req (file or dir layout)
   req setup [--strict] [--no-hooks]         One-shot bootstrap: init + hooks + AGENTS.md
   req tui                                   Interactive menu (mirrors CLI surface)
-  req validate                              Run all rules; 0 errors to ship
+  req conform                              Run all rules; 0 errors to ship
   req status [--tag ...]                     Per-status counts + delivery_progress_pct
   req brief [--full]                        Session-start "where are we now?" summary
   req purpose ["..."] --reason "..."        Set/print the one-paragraph project purpose
@@ -299,9 +299,9 @@ Day-to-day
   req next [--status ... --tag ...]         Suggest one requirement to work on
   req split REQ-0007 --into "..." --into "..."  Break a compound req into atomic parts
   req batch path/to/changes.json            Transactional multi-mutation
-  req import -f markdown spec.md            Bulk ingest through the validator
+  req import -f markdown spec.md            Bulk ingest through the conformance checker
   req adopt --all-drafts --to verified      Retroactive backfill of existing work
-  req lint [--path src]                     Quality audit beyond the validator
+  req lint [--path src]                     Quality audit beyond the conformance checker
 
 Evidence & verification
   req test record REQ-0007 --result pass --notes "..."
@@ -315,7 +315,7 @@ Evidence & verification
 
 Integration & review
   req hooks install [--strict] [--claude-code]
-                                            Pre-commit (validate + marker gate) +
+                                            Pre-commit (conform + marker gate) +
                                             post-commit summary + merge driver
                                             (+ .claude/settings.json allowlist)
   req doctor                                Per-clone setup audit (gates 5 checks)
@@ -329,13 +329,13 @@ Integration & review
   req coverage --strict --allow REQ-NNNN... CI gate; non-zero on findings
   req review [--gate] [--staged] [--new]    One-shot PR-style spec review report
   req diff origin/main..HEAD                Per-requirement changes between revs
-  req check origin/main                     Incremental validate + scoped coverage
+  req check origin/main                     Incremental conform + scoped coverage
   req audit [--gate --require-good-signature --require-signer NAME]
                                             Git signature trail / CI gate
   req migrate                               Migrate project.req to the current _format
 
 Functional safety (opt-in — see Functional safety section)
-  req safety accept --name "..."            Human signs on; activates the safety surface
+  req safety accept-disclaimer --name "..."            Human signs on; activates the safety surface
   req safety status / calibrate             Show state / edit the risk-graph SIL bands
   req hazard add ... && req hazard assess HAZ-0001 -C ... -F ... -P ... -W ...
                                             Log a hazard; derive its required SIL
@@ -367,7 +367,7 @@ Drop these three commands into your CI pipeline. The repo's own
 
 ```yaml
 # Gating: any of these failing should fail the build.
-- run: req validate
+- run: req conform
 - run: |
     req coverage --path . --strict \
       --allow REQ-NNNN --allow REQ-MMMM     # whitelist verification-only reqs
@@ -377,7 +377,7 @@ Drop these three commands into your CI pipeline. The repo's own
 - run: req stale --path . || true
 ```
 
-`req validate` checks every requirement against the rule set (0 errors required to ship).
+`req conform` checks every requirement against the rule set (0 errors required to ship).
 `req coverage --strict` turns orphan / ghost / obsolete-in-code findings into a non-zero exit.
 `req doctor` audits per-clone setup — useful as a warning when contributors skip `req hooks install`.
 `req stale` is informational; staleness trips on every commit that touches a tested file, so blocking on it would block every PR.
@@ -423,7 +423,7 @@ Issues and contributions: <https://github.com/Barks944/cli_req/issues>
 
 `req` has an opt-in mode for recording a functional-safety argument on the
 IEC 61508 model. It is **off by default** and stays off until a human runs
-`req safety accept` — an agent cannot (the command refuses `REQ_ACTOR_KIND=agent`,
+`req safety accept-disclaimer` — an agent cannot (the command refuses `REQ_ACTOR_KIND=agent`,
 and `req safety` is not on the MCP surface). Acceptance writes a committed
 `req-safety-acceptance.json` beside `project.req`; its presence activates the
 feature, deleting it switches the feature back off.
@@ -446,7 +446,7 @@ risk-graph table is the IEC 61508-5 Annex D *worked example*; the standard
 requires you to calibrate it per project/sector via `req safety calibrate`.
 
 ```sh
-req safety accept --name "Your Name <you@example.com>"   # human signs on; commit the file
+req safety accept-disclaimer --name "Your Name <you@example.com>"   # human signs on; commit the file
 req hazard add --title "Blade restarts during cleaning" \
   --harm "an operator's hand could be severed" --context "guard removed"
 req hazard assess HAZ-0001 -C C_D -F F_B -P P_B -W W2    # derives the required SIL
@@ -464,7 +464,7 @@ using it for any safety-related work.**
 
 ## Functional safety — scope & disclaimer
 
-`req` can manage hazards, safety functions, and safety requirements on the IEC 61508 model (`req help safety`). **The features are off until a human signs on:** `req safety accept --name "..."` writes a committed `req-safety-acceptance.json` whose presence activates them — an agent cannot accept on your behalf (`req safety` is not on the MCP surface and refuses `REQ_ACTOR_KIND=agent`). Read this before using it for safety-related work:
+`req` can manage hazards, safety functions, and safety requirements on the IEC 61508 model (`req help safety`). **The features are off until a human signs on:** `req safety accept-disclaimer --name "..."` writes a committed `req-safety-acceptance.json` whose presence activates them — an agent cannot accept on your behalf (`req safety` is not on the MCP surface and refuses `REQ_ACTOR_KIND=agent`). Read this before using it for safety-related work:
 
 - **`req` is NOT a qualified safety tool.** Under IEC 61508-3 §7.4.4 (and ISO 26262-8), a tool whose output you rely on without independent verification needs a tool-confidence/qualification argument. `req` provides none. If you work to a functional-safety standard, qualifying it — or independently verifying every classification it computes — is **your** responsibility.
 - **The SIL is a *candidate*.** It is derived from the qualitative risk parameters you enter. The "derive, never type" design prevents casual fudging; it does **not** make the result objective or remove the need for competent review. The risk-graph table is the **worked example** from IEC 61508-5 Annex D — the standard requires a risk graph to be *calibrated per project/sector*, so confirm or recalibrate the SIL-band boundaries against your own scheme before relying on the result.
