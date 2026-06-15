@@ -370,6 +370,24 @@ fn badge(kind: &str, text: &str) -> String {
     format!("<span class=\"badge b-{}\">{}</span>", kind, h(text))
 }
 
+// REQ-0206: the derived sign-off basis card (reuses the same machine-checked
+// chain summary the CLI `show` commands render).
+fn signoff_card(lines: Vec<String>) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+    let body: String = lines
+        .iter()
+        .map(|l| h(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "<div class=\"card\"><h2>Sign-off basis</h2>\
+         <pre style=\"white-space:pre-wrap;margin:0;font-family:inherit;\">{}</pre></div>",
+        body
+    )
+}
+
 // REQ-0205: one-word standing badge for a safety requirement (provenance-aware).
 fn sr_badge(sr: &SafetyRequirement) -> String {
     let s = crate::commands::provenance::sr_standing(sr, None);
@@ -731,7 +749,11 @@ fn render_hazard(project: &Project, raw: &str) -> Option<String> {
             ),
             _ => String::new(),
         },
-        adequacy = adequacy_html(hz, project),
+        adequacy = format!(
+            "{}{}",
+            adequacy_html(hz, project),
+            signoff_card(crate::commands::safety::hazard_signoff_lines(project, hz))
+        ),
         chain = chain,
     ))
 }
@@ -775,7 +797,11 @@ fn render_sf(project: &Project, raw: &str) -> Option<String> {
         } else {
             format!("<h2>Safe state</h2><p>{}</p>", h(&sf.safe_state))
         },
-        dossier = dossier_html(sf.verification.as_ref(), project),
+        dossier = format!(
+            "{}{}",
+            dossier_html(sf.verification.as_ref(), project),
+            signoff_card(crate::commands::safety::sf_signoff_lines(project, sf))
+        ),
         haz = if haz.is_empty() {
             "<li class=\"meta\">none</li>".into()
         } else {

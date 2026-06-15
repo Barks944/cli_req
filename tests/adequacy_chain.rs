@@ -121,6 +121,52 @@ fn req_0204_cover_rejects_non_realizing_sr() {
     assert!(stderr(&bad).contains("does not live-realize"), "{}", stderr(&bad));
 }
 
+// REQ-0206: the derived sign-off basis reflects the chain state — "NOT yet
+// signable" while a child is unverified, "conclude ... then co-sign" once the
+// children are Verified but the parent dossier isn't concluded.
+#[test]
+fn req_0206_signoff_basis_tracks_the_chain() {
+    let s = Sandbox::new();
+    seed(&s);
+    // SR-0001 still Draft → SF and hazard are not signable, and say why.
+    let sf0 = stdout(&s.run(&["sf", "show", "SF-0001"]));
+    assert!(
+        sf0.contains("sign-off basis") && sf0.contains("NOT yet signable") && sf0.contains("SR-0001"),
+        "SF basis must name the unverified SR:\n{sf0}"
+    );
+    let hz0 = stdout(&s.run(&["hazard", "show", "HAZ-0001"]));
+    assert!(
+        hz0.contains("sign-off basis") && hz0.contains("NOT yet signable"),
+        "hazard basis must be not-yet-signable:\n{hz0}"
+    );
+
+    // Verify SR-0001 → the SF's realizing chain is now sound; basis says conclude-then-cosign.
+    verify_sr(&s);
+    let sf1 = stdout(&s.run(&["sf", "show", "SF-0001"]));
+    assert!(
+        sf1.contains("safety requirements Verified: 1/1")
+            && sf1.contains("conclude the dossier"),
+        "SF basis should show all SRs verified and prompt to conclude:\n{sf1}"
+    );
+
+    // Conclude + co-sign the SF → its basis becomes ready.
+    open_sf_dossier(&s);
+    assert!(s
+        .run(&["verification", "cover", "SF-0001", "--child", "SR-0001", "--note", "implements"])
+        .status
+        .success());
+    assert!(s
+        .run(&["verification", "conclude", "SF-0001", "--statement", "achieves safe state", "--promote"])
+        .status
+        .success());
+    assert!(run_as(&s, "human", &["verification", "confirm", "SF-0001"]).status.success());
+    let hz1 = stdout(&s.run(&["hazard", "show", "HAZ-0001"]));
+    assert!(
+        hz1.contains("safety functions Verified: 1/1") && hz1.contains("conclude the adequacy dossier"),
+        "hazard basis should show its SF verified and prompt to conclude:\n{hz1}"
+    );
+}
+
 // REQ-0204: a hazard adequacy dossier cannot conclude until every mitigating SF
 // is covered AND Verified; the full bottom-up chain then conforms with no
 // adequacy-chain errors.

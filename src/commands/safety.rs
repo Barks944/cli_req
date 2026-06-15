@@ -635,6 +635,11 @@ fn hazard_show(args: HazardShowArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         }
     }
+    // REQ-0206: the derived sign-off basis — what the tool guarantees about the
+    // chain, and whether the hazard is ready for a human co-sign.
+    for line in hazard_signoff_lines(&project, h) {
+        println!("{}", line);
+    }
     println!("\nRun `req trace {}` for the full safety case.", h.id);
     Ok(())
 }
@@ -737,6 +742,151 @@ fn realizes(sr: &SafetyRequirement, sf_id: &str) -> bool {
     sr.links
         .iter()
         .any(|l| l.kind == LinkKind::Realizes && l.target == sf_id)
+}
+
+// REQ-0206: the derived sign-off basis for a SAFETY FUNCTION — the
+// machine-checked spine of its verification argument ("this group of safety
+// requirements implements the function, and they are all Verified"). The
+// adequacy JUDGEMENT (do these SRs adequately implement the *intent*) is the
+// agent's coverage notes + statement, shown above; this block reports the part
+// the tool can guarantee, and whether the function is ready for a human co-sign.
+pub fn sf_signoff_lines(project: &Project, sf: &SafetyFunction) -> Vec<String> {
+    let srs = project.realizing_srs(&sf.id);
+    let mut out = Vec::new();
+    if srs.is_empty() {
+        out.push("  sign-off basis: no realizing safety requirement — nothing to implement the function".into());
+        return out;
+    }
+    let total = srs.len();
+    let verified: Vec<&str> = srs
+        .iter()
+        .filter(|sr| matches!(sr.status, Status::Verified))
+        .map(|sr| sr.id.as_str())
+        .collect();
+    let pending: Vec<&str> = srs
+        .iter()
+        .filter(|sr| !matches!(sr.status, Status::Verified))
+        .map(|sr| sr.id.as_str())
+        .collect();
+    let ids: Vec<&str> = srs.iter().map(|sr| sr.id.as_str()).collect();
+    out.push("  sign-off basis:".into());
+    out.push(format!(
+        "    implemented by {} safety requirement(s): {}",
+        total,
+        ids.join(", ")
+    ));
+    out.push(format!(
+        "    safety requirements Verified: {}/{}",
+        verified.len(),
+        total
+    ));
+    let concluded = sf
+        .verification
+        .as_ref()
+        .map(|v| v.verdict.is_some())
+        .unwrap_or(false);
+    if !pending.is_empty() {
+        out.push(format!(
+            "    \u{21d2} NOT yet signable — these safety requirements are not Verified: {}",
+            pending.join(", ")
+        ));
+    } else if concluded {
+        out.push(
+            "    \u{21d2} the realizing safety requirements adequately implement this function and are all"
+                .into(),
+        );
+        out.push(
+            "      Verified; with the concluded dossier above, the function is ready for human co-sign."
+                .into(),
+        );
+    } else {
+        out.push(
+            "    \u{21d2} the realizing safety requirements are all Verified — conclude the dossier".into(),
+        );
+        out.push(format!(
+            "      (`req verification conclude {} --statement \"...\" --promote`), then co-sign.",
+            sf.id
+        ));
+    }
+    out
+}
+
+// REQ-0206: the derived sign-off basis for a HAZARD — the machine-checked spine
+// of the adequacy argument ("the specified safety functions mitigate the hazard,
+// each is implemented by its Verified safety requirements, and all are
+// Verified"). Completeness ("the *right* set of SFs is specified") and residual
+// risk are the agent's judgement, shown above as the plan / coverage / residual
+// statement; this block reports what the tool guarantees and whether the hazard
+// is ready for a human co-sign.
+pub fn hazard_signoff_lines(project: &Project, hz: &Hazard) -> Vec<String> {
+    let sfs = project.mitigating_sfs(&hz.id);
+    let mut out = Vec::new();
+    if sfs.is_empty() {
+        return out;
+    }
+    let sf_total = sfs.len();
+    let sf_verified = sfs
+        .iter()
+        .filter(|sf| matches!(sf.status, SafetyFunctionStatus::Verified))
+        .count();
+    let mut sr_total = 0usize;
+    let mut sr_verified = 0usize;
+    let mut pending: Vec<&str> = Vec::new();
+    for sf in &sfs {
+        let srs = project.realizing_srs(&sf.id);
+        sr_total += srs.len();
+        sr_verified += srs
+            .iter()
+            .filter(|sr| matches!(sr.status, Status::Verified))
+            .count();
+        if !matches!(sf.status, SafetyFunctionStatus::Verified) {
+            pending.push(sf.id.as_str());
+        }
+    }
+    let ids: Vec<&str> = sfs.iter().map(|sf| sf.id.as_str()).collect();
+    out.push("  sign-off basis:".into());
+    out.push(format!(
+        "    mitigated by {} safety function(s): {}",
+        sf_total,
+        ids.join(", ")
+    ));
+    out.push(format!(
+        "    safety functions Verified: {}/{}   (each implemented by its realizing SRs)",
+        sf_verified, sf_total
+    ));
+    out.push(format!(
+        "    realizing SRs Verified:    {}/{}",
+        sr_verified, sr_total
+    ));
+    let concluded = hz
+        .adequacy
+        .as_ref()
+        .map(|a| matches!(a.verdict, Some(crate::model::AdequacyVerdict::Adequate)))
+        .unwrap_or(false);
+    if !pending.is_empty() {
+        out.push(format!(
+            "    \u{21d2} NOT yet signable — these mitigations are not Verified: {}",
+            pending.join(", ")
+        ));
+    } else if concluded {
+        out.push(
+            "    \u{21d2} every specified safety function is Verified and implemented by Verified safety"
+                .into(),
+        );
+        out.push(
+            "      requirements; with the residual-risk argument above, the hazard is ready for human co-sign."
+                .into(),
+        );
+    } else {
+        out.push(
+            "    \u{21d2} every mitigating safety function is Verified — conclude the adequacy dossier".into(),
+        );
+        out.push(format!(
+            "      (`req hazard adequacy conclude {} --statement \"...\"`), then co-sign.",
+            hz.id
+        ));
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -941,7 +1091,34 @@ fn sf_show(args: SfShowArgs, file: &Option<PathBuf>) -> Result<()> {
                 "awaiting human co-sign"
             };
             println!("  verification:  verdict {} ({})", verdict, cosign);
+            if !v.plan.is_empty() {
+                println!("    plan:        {}", v.plan);
+            }
+            if let Some(a) = &v.analysis {
+                println!("    analysis:    {} — {}", a.outcome.as_str(), a.summary);
+            }
+            if let Some(t) = &v.testing {
+                println!("    testing:     {} — {}", t.outcome.as_str(), t.summary);
+            }
+            // REQ-0204/REQ-0206: the realizing-SR adequacy walk-through — the
+            // agent's argument that each SR implements the function's intent.
+            for c in &v.coverage {
+                let sb = project
+                    .safety_requirements
+                    .get(&c.target)
+                    .map(|sr| sr.status.as_str())
+                    .unwrap_or("?");
+                println!("    covers {} [{}]: {}", c.target, sb, c.note);
+            }
+            if let Some(s) = &v.statement {
+                println!("    statement:   {}", s);
+            }
         }
+    }
+    // REQ-0206: the derived sign-off basis — the realizing SRs and whether they
+    // are all Verified, ending in whether the function is ready for co-sign.
+    for line in sf_signoff_lines(&project, sf) {
+        println!("{}", line);
     }
     // REQ-0203: make the achieved-integrity boundary visible on the artifact.
     println!("  scope:         {}", ACHIEVED_INTEGRITY_STAMP);
