@@ -4062,6 +4062,8 @@ mod safety_mcp {
                             "id": sr.id, "title": sr.title, "status": sr.status.as_str(),
                             "inherited_sil": sil_s(p.inherited_sil(sr)),
                             "evidence": sr.tests.last().map(|t| t.kind.as_str()),
+                            // REQ-0171: walkthrough acknowledgement state in the trace case.
+                            "walkthrough": sr.walkthrough,
                         })
                     })
                     .collect();

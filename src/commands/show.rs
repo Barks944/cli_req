@@ -73,13 +73,28 @@ pub fn render(r: &Requirement) {
             } else {
                 format!(" — {}", t.notes)
             };
+            // REQ-0179: surface external-test provenance (system/environment)
+            // in plain `req show`, matching `req test list`. Local records show
+            // nothing extra.
+            let source = match &t.external {
+                Some(e) => format!(
+                    " ext:{}{}",
+                    e.system,
+                    e.environment
+                        .as_deref()
+                        .map(|env| format!("/{}", env))
+                        .unwrap_or_default()
+                ),
+                None => String::new(),
+            };
             println!(
-                "  {} {} [{}] commit={} actor={}{}{}",
+                "  {} {} [{}] commit={} actor={}{}{}{}",
                 t.at.format("%Y-%m-%d %H:%M"),
                 t.outcome.as_str().to_uppercase(),
                 t.kind.as_str(),
                 super::test_cmd::short(&t.commit),
                 t.actor,
+                source,
                 drift,
                 notes,
             );

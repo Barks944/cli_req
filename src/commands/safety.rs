@@ -1209,6 +1209,8 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                             "status": sr.status.as_str(),
                             "inherited_sil": project.inherited_sil(sr).map(|s| s.as_str()),
                             "verification": sr.verification,
+                            // REQ-0171: walkthrough acknowledgement state in trace JSON.
+                            "walkthrough": sr.walkthrough,
                         })
                     })
                     .collect();
@@ -1353,6 +1355,24 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
                     }
                 }
                 None => println!("            dossier: (none recorded)"),
+            }
+            // REQ-0171: surface the human walkthrough acknowledgement state in
+            // the trace, so a reviewer sees whether the chain was signed off.
+            match &sr.walkthrough {
+                Some(a) if a.objected => {
+                    println!("            walkthrough: ✗ objection by {}", a.reviewer)
+                }
+                Some(a) => println!(
+                    "            walkthrough: ✓ acknowledged by {} at {} (commit {})",
+                    a.reviewer,
+                    a.at.format("%Y-%m-%d %H:%M UTC"),
+                    if a.commit.is_empty() {
+                        "—".to_string()
+                    } else {
+                        a.commit[..a.commit.len().min(8)].to_string()
+                    }
+                ),
+                None => println!("            walkthrough: ▷ not yet acknowledged"),
             }
         }
     }

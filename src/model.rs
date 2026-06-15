@@ -95,6 +95,11 @@ pub struct ProjectConfig {
 /// `pass` or `fail`. Overrides merge over the built-in defaults.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TestIntegrationConfig {
+    /// REQ-0182: an explicit version identifying the verdict-mapping vocabulary,
+    /// so a bench's verdict-vocabulary change is a visible, tracked config bump
+    /// rather than a silent semantic drift. Recorded on each ingested record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict_map: Option<BTreeMap<String, String>>,
 }
@@ -473,6 +478,12 @@ pub struct ExternalSource {
     /// (e.g. "bench_cap_suspected") so a mapped Pass/Fail never loses nuance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_verdict: Option<String>,
+    /// REQ-0182: the verdict-mapping version (`_config.test_integration.version`)
+    /// in effect when this record was ingested, so the translation that
+    /// produced the local verdict is traceable and a vocabulary change is
+    /// visible after the fact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mapping_version: Option<String>,
 }
 
 fn is_false(b: &bool) -> bool {

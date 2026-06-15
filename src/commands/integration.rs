@@ -269,10 +269,16 @@ pub fn ingest_payload(
             Some("inspection") => EvidenceKind::Inspection,
             _ => EvidenceKind::Automated,
         };
+        // REQ-0182: stamp the verdict-mapping version in effect onto the record.
         let external = ExternalSource {
             system: payload.system.clone(),
             environment: payload.environment.clone(),
             raw_verdict: Some(r.verdict.clone()),
+            mapping_version: project
+                .config
+                .as_ref()
+                .and_then(|c| c.test_integration.as_ref())
+                .and_then(|t| t.version.clone()),
         };
         let record = TestRecord {
             at: now,
