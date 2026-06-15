@@ -369,6 +369,12 @@ fn render_sr(
                         }
                     }
                 }
+                // REQ-0206: the hazard's derived sign-off basis — whether its
+                // mitigating SFs (and their SRs) are all Verified, so the
+                // reviewer co-signing the hazard sees the chain spine here.
+                for line in crate::commands::safety::hazard_signoff_lines(project, h) {
+                    out.push(format!("  {}", line.trim_start()));
+                }
             }
         }
         let asil = project.allocated_sil(sf).map(|s| s.as_str()).unwrap_or("—");
@@ -381,6 +387,11 @@ fn render_sr(
                     field(&mut out, "", &format!("{} covers via {}: {}", sf.id, c.target, c.note));
                 }
             }
+        }
+        // REQ-0206: the safety function's derived sign-off basis — whether its
+        // realizing SRs are all Verified, for the reviewer co-signing the SF.
+        for line in crate::commands::safety::sf_signoff_lines(project, sf) {
+            out.push(format!("  {}", line.trim_start()));
         }
         out.push(String::new());
     }
