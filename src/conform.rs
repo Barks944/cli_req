@@ -154,6 +154,26 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0038",
         "safety requirement has a genuine dossier and awaits a human co-sign to reach Verified (advisory)",
     ),
+    (
+        "REQ-V-0039",
+        "safety function is Verified but lacks a genuine verification dossier (exemptions are not allowed for safety functions)",
+    ),
+    (
+        "REQ-V-0040",
+        "safety function is Verified on an agent's dossier but lacks a human confirmation of the verification result (run `req verification confirm`)",
+    ),
+    (
+        "REQ-V-0041",
+        "safety function is Verified but its verified source has drifted (stale) — re-verify and have a human re-confirm",
+    ),
+    (
+        "REQ-V-0042",
+        "safety function has a genuine dossier and awaits a human co-sign to reach Verified (advisory)",
+    ),
+    (
+        "REQ-V-0043",
+        "Verified hazard lacks a human-co-signed mitigation-adequacy / residual-risk argument",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -836,6 +856,36 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                 );
             }
         }
+        // REQ-0202: a Verified hazard must carry a mitigation-adequacy /
+        // residual-risk argument that a human has co-signed. Closes the review's
+        // "Verified hazard is an unbacked label" gap: the derived
+        // `allocated_sil >= required_sil` comparison is explicitly NOT a
+        // residual-risk judgement, so Verified must rest on the recorded,
+        // co-signed reasoning instead of a typed status.
+        if matches!(h.status, HazardStatus::Verified) {
+            let cosigned = h
+                .adequacy
+                .as_ref()
+                .map(|a| a.human_confirmation.is_some())
+                .unwrap_or(false);
+            if !cosigned {
+                let why = match &h.adequacy {
+                    None => "has no recorded mitigation-adequacy argument",
+                    Some(_) => "has an adequacy argument that no human has co-signed",
+                };
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0043",
+                        "adequacy",
+                        format!(
+                            "{} is Verified but {} — record it with `req hazard adequacy {} --statement \"...\"`, then a human runs `req hazard confirm {}`",
+                            id, why, id, id
+                        ),
+                    ),
+                );
+            }
+        }
     }
 
     // ---- safety functions ----
@@ -871,6 +921,78 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     ),
                 ),
             );
+        }
+        // REQ-0201: a safety function gets the same dossier discipline a safety
+        // requirement does. Closes the review's central asymmetry: a Verified
+        // SF used to be an unbacked typed label.
+        let genuine =
+            crate::commands::verification::classify(sf.verification.as_ref(), None, id)
+                .is_genuine();
+        // REQ-V-0042: a genuine dossier sitting at Implemented awaiting a human
+        // co-sign is a non-blocking advisory (the co-sign is the act that
+        // promotes it to Verified), mirroring REQ-V-0038 for safety requirements.
+        if matches!(sf.status, SafetyFunctionStatus::Implemented)
+            && genuine
+            && sf
+                .verification
+                .as_ref()
+                .and_then(|v| v.human_confirmation.as_ref())
+                .is_none()
+        {
+            push(
+                id,
+                Finding::warn(
+                    "REQ-V-0042",
+                    "verification",
+                    format!(
+                        "{} has a genuine verification dossier and is awaiting a human co-sign — a person must run `req verification confirm {}` to promote it to Verified",
+                        id, id
+                    ),
+                ),
+            );
+        }
+        if matches!(sf.status, SafetyFunctionStatus::Verified) {
+            // REQ-V-0039: a Verified SF must carry a GENUINE concluded passing
+            // dossier — no exemption, no back-fill (the gate rejects both).
+            if !genuine {
+                let exempt = sf.verification.as_ref().map(|v| v.exempt).unwrap_or(false);
+                let why = if exempt {
+                    "rests on an audited exemption, which safety functions may not use"
+                } else {
+                    "has no passing verification dossier"
+                };
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0039",
+                        "verification",
+                        format!(
+                            "{} is Verified but {} — a safety function needs a genuine dossier; run `req verification plan {} ...` → analysis → test → conclude --promote, then a human co-signs it",
+                            id, why, id
+                        ),
+                    ),
+                );
+            }
+            // REQ-V-0040: a Verified SF also needs a HUMAN confirmation of the
+            // verification result — the independence co-sign, as for an SR.
+            let human_confirmed = sf
+                .verification
+                .as_ref()
+                .map(|v| v.human_confirmation.is_some())
+                .unwrap_or(false);
+            if genuine && !human_confirmed {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0040",
+                        "verification",
+                        format!(
+                            "{} is Verified on an agent's dossier but lacks a human confirmation of the verification result — a person must run `req verification confirm {}` to co-sign it",
+                            id, id
+                        ),
+                    ),
+                );
+            }
         }
     }
 

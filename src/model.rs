@@ -1289,9 +1289,43 @@ pub struct Hazard {
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub history: Vec<HistoryEntry>,
+    /// REQ-0202: the recorded mitigation-adequacy / residual-risk argument.
+    /// `req` does not perform the HARA or pronounce risk "acceptable" — it
+    /// records and forces the reasoning, and requires a human co-sign before
+    /// a hazard may reach Verified. None until an argument is recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adequacy: Option<AdequacyArgument>,
     /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// REQ-0202: a hazard's mitigation-adequacy / residual-risk argument. This is
+/// the validation-flavoured analogue of the verification dossier: it captures
+/// *why* the linked safety functions and requirements together reduce the
+/// residual risk to a level the project accepts — the judgement the derived
+/// `allocated_sil >= required_sil` comparison explicitly is NOT. An agent may
+/// record the argument; a human must co-sign it (`req hazard confirm`, which
+/// refuses REQ_ACTOR_KIND=agent) before the hazard is Verified. The tool never
+/// prints the word "validated".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdequacyArgument {
+    /// Why the residual risk, after all linked mitigations, is acceptable.
+    pub statement: String,
+    /// Risk-reduction measures credited OUTSIDE the safety functions modelled
+    /// here — the independent protection layers the W (avoidance) axis
+    /// implicitly assumes. Recording them stops the credit being invisible
+    /// (a common 61508 audit finding). None when nothing external is credited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credited_external_measures: Option<String>,
+    pub actor: String,
+    pub at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub commit: String,
+    /// A human's co-sign of the adequacy argument. None until a human confirms;
+    /// an agent cannot record it. Required before a hazard reaches Verified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human_confirmation: Option<VerificationActivity>,
 }
 
 impl Hazard {
@@ -1349,6 +1383,14 @@ pub struct SafetyFunction {
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub history: Vec<HistoryEntry>,
+    /// REQ-0201: the staged verification dossier — the same struct a safety
+    /// requirement carries. A safety function reaches Verified only through a
+    /// concluded passing dossier plus a human co-sign, never a typed status:
+    /// the dossier records *why/how* the function achieves its `safe_state`.
+    /// Absent until a verification is opened; serialised only when present so
+    /// projects that never use it keep a byte-identical file (and hash).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<Verification>,
     /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,

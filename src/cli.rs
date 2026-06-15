@@ -547,6 +547,41 @@ pub enum HazardCmd {
     Assess(HazardAssessArgs),
     /// Update title/description/context/harm/status with a reason.
     Update(HazardUpdateArgs),
+    // REQ-0202: record + co-sign a hazard's mitigation-adequacy argument.
+    /// Record the mitigation-adequacy / residual-risk argument: why the linked
+    /// mitigations together reduce the residual risk to an acceptable level.
+    /// This is recorded reasoning, not a validation claim — a human must
+    /// `req hazard confirm` it before the hazard reaches Verified.
+    Adequacy(HazardAdequacyArgs),
+    /// Human co-sign of the recorded adequacy argument; promotes a Mitigated
+    /// hazard to Verified. Refuses REQ_ACTOR_KIND=agent.
+    Confirm(HazardConfirmArgs),
+}
+
+// REQ-0202: arguments for the hazard mitigation-adequacy record + co-sign.
+
+#[derive(Args, Debug)]
+pub struct HazardAdequacyArgs {
+    pub id: String,
+    /// Why the residual risk, after all linked mitigations, is acceptable.
+    #[arg(long)]
+    pub statement: String,
+    /// Risk-reduction credited OUTSIDE the modelled safety functions (the
+    /// independent protection layers the W axis implicitly assumes).
+    #[arg(long)]
+    pub external: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazardConfirmArgs {
+    pub id: String,
+    /// An optional note recorded with the co-sign.
+    #[arg(long, default_value = "")]
+    pub note: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

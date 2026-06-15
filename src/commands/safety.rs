@@ -11,15 +11,26 @@ use chrono::Utc;
 use std::path::PathBuf;
 
 use crate::cli::{
-    HazardAddArgs, HazardAssessArgs, HazardCmd, HazardListArgs, HazardShowArgs, HazardUpdateArgs,
-    SfAddArgs, SfCmd, SfListArgs, SfMitigateArgs, SfShowArgs, SfUpdateArgs, SreqAddArgs, SreqCmd,
-    SreqListArgs, SreqRealizeArgs, SreqShowArgs, SreqUpdateArgs, SreqVerifyArgs, TraceArgs,
+    HazardAddArgs, HazardAdequacyArgs, HazardAssessArgs, HazardCmd, HazardConfirmArgs,
+    HazardListArgs, HazardShowArgs, HazardUpdateArgs, SfAddArgs, SfCmd, SfListArgs, SfMitigateArgs,
+    SfShowArgs, SfUpdateArgs, SreqAddArgs, SreqCmd, SreqListArgs, SreqRealizeArgs, SreqShowArgs,
+    SreqUpdateArgs, SreqVerifyArgs, TraceArgs,
 };
 use crate::model::{
     EvidenceKind, Hazard, HazardStatus, Link, LinkKind, Project, SafetyFunction,
     SafetyFunctionStatus, SafetyRequirement, Sil, Status, TestOutcome, TestRecord,
 };
 use crate::storage::{self, load_for_mutation, load_resolved};
+
+/// REQ-0203: the achieved-integrity boundary stamp. `req` tracks the
+/// REQUIRED/allocated/inherited integrity TARGET and the verified links
+/// between artifacts — never the ACHIEVED failure measure. Printed on every
+/// safety-function and safety-requirement view so the gap travels with the
+/// artifact, not just the README/disclaimer (61508-2; 61508-3 §7.4.3).
+const ACHIEVED_INTEGRITY_STAMP: &str =
+    "target only — no PFD/PFH, architectural-constraint (HFT/SFF), diagnostic-coverage \
+     or systematic-capability evidence is recorded here; achieved integrity is out of scope \
+     (see `req help safety`).";
 
 // ---------------------------------------------------------------------------
 // id resolution
@@ -105,9 +116,125 @@ pub fn run_hazard(cmd: HazardCmd, file: &Option<PathBuf>) -> Result<()> {
             super::safety_gov::ensure_enabled(file)?;
             hazard_update(a, file)
         }
+        HazardCmd::Adequacy(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            hazard_adequacy(a, file)
+        }
+        HazardCmd::Confirm(a) => {
+            super::safety_gov::ensure_enabled(file)?;
+            hazard_confirm(a, file)
+        }
         HazardCmd::List(a) => hazard_list(a, file),
         HazardCmd::Show(a) => hazard_show(a, file),
     }
+}
+
+// REQ-0202: record the mitigation-adequacy / residual-risk argument for a
+// hazard. req records and forces the reasoning; it does not perform the HARA
+// or pronounce the risk acceptable. An agent may record the argument; a human
+// co-signs it via `req hazard confirm`.
+fn hazard_adequacy(args: HazardAdequacyArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let id = resolve_haz(&project, &args.id)?;
+    if args.statement.trim().is_empty() {
+        return Err(anyhow!("--statement must not be empty"));
+    }
+    let now = Utc::now();
+    let commit = crate::commands::test_cmd::current_head_sha_opt().unwrap_or_default();
+    {
+        let h = project.hazards.get_mut(&id).unwrap();
+        // Recording (or revising) the argument clears any prior human co-sign:
+        // a changed adequacy argument must be co-signed afresh.
+        h.adequacy = Some(crate::model::AdequacyArgument {
+            statement: args.statement.clone(),
+            credited_external_measures: args.external.clone(),
+            actor: super::current_actor(),
+            at: now,
+            commit,
+            human_confirmation: None,
+        });
+        h.updated = now;
+        h.history.push(super::history(
+            "mitigation-adequacy argument recorded (awaiting human co-sign)",
+            None,
+        ));
+    }
+    project.updated = now;
+    storage::save(&path, &project)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&project.hazards[&id])?);
+    } else {
+        println!("Recorded mitigation-adequacy argument for {}.", id);
+        println!(
+            "Next: a human runs `req hazard confirm {}` to co-sign it and promote to Verified.",
+            id
+        );
+    }
+    Ok(())
+}
+
+// REQ-0202: a human co-signs the recorded adequacy argument and promotes a
+// Mitigated hazard to Verified. Refuses an agent actor so an agent cannot
+// co-sign on a person's behalf — the same independence principle the safety
+// requirement / safety function co-sign enforces.
+fn hazard_confirm(args: HazardConfirmArgs, file: &Option<PathBuf>) -> Result<()> {
+    if matches!(
+        super::current_actor_kind(),
+        crate::model::ActorKind::Agent
+    ) {
+        return Err(anyhow!(
+            "co-signing a hazard's adequacy argument must be done by a human, but \
+             REQ_ACTOR_KIND=agent. A person must run `req hazard confirm`."
+        ));
+    }
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let id = resolve_haz(&project, &args.id)?;
+    let now = Utc::now();
+    {
+        let h = project.hazards.get_mut(&id).unwrap();
+        if h.adequacy.is_none() {
+            return Err(anyhow!(
+                "{} has no recorded adequacy argument to co-sign — record it first with \
+                 `req hazard adequacy {} --statement \"...\"`.",
+                id,
+                id
+            ));
+        }
+        if !matches!(h.status, HazardStatus::Mitigated | HazardStatus::Verified) {
+            return Err(anyhow!(
+                "{} is {} — only a Mitigated hazard can be promoted to Verified. Ensure a live \
+                 safety function mitigates it first.",
+                id,
+                h.status.as_str()
+            ));
+        }
+        let adequacy = h.adequacy.as_mut().unwrap();
+        adequacy.human_confirmation = Some(crate::model::VerificationActivity {
+            summary: if args.note.is_empty() {
+                "human co-sign of the mitigation-adequacy argument".to_string()
+            } else {
+                args.note.clone()
+            },
+            outcome: TestOutcome::Pass,
+            references: Vec::new(),
+            at: now,
+            actor: super::current_actor(),
+        });
+        h.status = HazardStatus::Verified;
+        h.updated = now;
+        h.history.push(super::history(
+            "mitigation-adequacy argument co-signed by human — promoted to Verified",
+            None,
+        ));
+    }
+    project.updated = now;
+    storage::save(&path, &project)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&project.hazards[&id])?);
+    } else {
+        println!("Co-signed adequacy argument for {} — promoted to Verified.", id);
+    }
+    Ok(())
 }
 
 fn hazard_add(args: HazardAddArgs, file: &Option<PathBuf>) -> Result<()> {
@@ -145,6 +272,8 @@ fn hazard_add(args: HazardAddArgs, file: &Option<PathBuf>) -> Result<()> {
         created: now,
         updated: now,
         history: vec![super::history("created", None)],
+        // REQ-0202: no adequacy argument until one is recorded.
+        adequacy: None,
         // REQ-0140: forward-compat catch-all preserves unknown fields.
         extra: Default::default(),
     };
@@ -267,6 +396,25 @@ fn hazard_show(args: HazardShowArgs, file: &Option<PathBuf>) -> Result<()> {
     if !h.tags.is_empty() {
         println!("  tags:        {}", h.tags.join(", "));
     }
+    // REQ-0202: the mitigation-adequacy / residual-risk argument standing.
+    match &h.adequacy {
+        None => println!(
+            "  adequacy:    (none — `req hazard adequacy {} --statement \"...\"` to record why \
+             residual risk is acceptable)",
+            h.id
+        ),
+        Some(a) => {
+            let cosign = if a.human_confirmation.is_some() {
+                "human co-signed"
+            } else {
+                "awaiting human co-sign"
+            };
+            println!("  adequacy:    {} ({})", a.statement, cosign);
+            if let Some(ext) = &a.credited_external_measures {
+                println!("  ext. credit: {}", ext);
+            }
+        }
+    }
     println!("\nRun `req trace {}` for the full safety case.", h.id);
     Ok(())
 }
@@ -320,7 +468,23 @@ fn hazard_update(args: HazardUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
             h.harm = harm;
         }
         if let Some(s) = args.status {
-            h.status = s.into();
+            let next: HazardStatus = s.into();
+            // REQ-0202: Verified is EARNED, not typed. A hazard reaches Verified
+            // only when a recorded mitigation-adequacy argument has been
+            // co-signed by a human (`req hazard confirm`); blocking the direct
+            // set stops Verified being an unbacked label. Stepping the status
+            // back, or retiring it, is still allowed directly.
+            if matches!(next, HazardStatus::Verified) {
+                return Err(anyhow!(
+                    "{} cannot be set to verified directly — record a mitigation-adequacy argument \
+                     with `req hazard adequacy {} --statement \"...\"`, then a human runs \
+                     `req hazard confirm {}` to co-sign it and promote the hazard to Verified.",
+                    id,
+                    id,
+                    id
+                ));
+            }
+            h.status = next;
         }
         for t in &args.add_tag {
             if !h.tags.contains(t) {
@@ -408,6 +572,8 @@ fn sf_add(args: SfAddArgs, file: &Option<PathBuf>) -> Result<()> {
         created: now,
         updated: now,
         history: vec![super::history("created", None)],
+        // REQ-0201: no verification dossier until one is opened.
+        verification: None,
         // REQ-0140: forward-compat catch-all preserves unknown fields.
         extra: Default::default(),
     };
@@ -536,6 +702,29 @@ fn sf_show(args: SfShowArgs, file: &Option<PathBuf>) -> Result<()> {
             println!("    {} — {} [{}]", sr.id, sr.title, sr.status.as_str());
         }
     }
+    // REQ-0201: the verification dossier standing — does a recorded argument
+    // back this function achieving its safe state, and is it co-signed?
+    match &sf.verification {
+        None => println!(
+            "  verification:  (none — `req verification plan {}` to record how this function \
+             achieves its safe state)",
+            sf.id
+        ),
+        Some(v) => {
+            let verdict = v
+                .verdict
+                .map(|o| o.as_str().to_uppercase())
+                .unwrap_or_else(|| "pending".to_string());
+            let cosign = if v.human_confirmation.is_some() {
+                "human co-signed"
+            } else {
+                "awaiting human co-sign"
+            };
+            println!("  verification:  verdict {} ({})", verdict, cosign);
+        }
+    }
+    // REQ-0203: make the achieved-integrity boundary visible on the artifact.
+    println!("  scope:         {}", ACHIEVED_INTEGRITY_STAMP);
     println!("\nRun `req trace {}` for the full safety case.", sf.id);
     Ok(())
 }
@@ -557,7 +746,30 @@ fn sf_update(args: SfUpdateArgs, file: &Option<PathBuf>) -> Result<()> {
             sf.safe_state = s;
         }
         if let Some(s) = args.status {
-            sf.status = s.into();
+            let next: SafetyFunctionStatus = s.into();
+            // REQ-0201: Implemented and Verified are EARNED through the
+            // verification dossier, never typed. A safety function reaches
+            // Implemented by concluding a passing dossier, and Verified by the
+            // subsequent human co-sign — the same discipline a safety
+            // requirement is held to. Block the shortcut so `Verified` can no
+            // longer be an unbacked label. Stepping back (to Proposed/Allocated)
+            // or retiring (Obsolete) is still allowed directly.
+            if matches!(
+                next,
+                SafetyFunctionStatus::Implemented | SafetyFunctionStatus::Verified
+            ) {
+                return Err(anyhow!(
+                    "{} cannot be set to {} directly — a safety function earns these through its \
+                     verification dossier: `req verification plan {} ...` → analysis → test → \
+                     conclude --promote (reaches Implemented), then a human runs \
+                     `req verification confirm {}` to co-sign it to Verified.",
+                    id,
+                    next.as_str(),
+                    id,
+                    id
+                ));
+            }
+            sf.status = next;
         }
         for t in &args.add_tag {
             if !sf.tags.contains(t) {
@@ -850,6 +1062,8 @@ fn sreq_show(args: SreqShowArgs, file: &Option<PathBuf>) -> Result<()> {
         }
         None => println!("  evidence:     none"),
     }
+    // REQ-0203: make the achieved-integrity boundary visible on the artifact.
+    println!("  scope:        {}", ACHIEVED_INTEGRITY_STAMP);
     println!("\nRun `req trace {}` for the full safety case.", sr.id);
     Ok(())
 }

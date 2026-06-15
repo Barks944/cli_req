@@ -3348,6 +3348,7 @@ mod safety_mcp {
             created: now,
             updated: now,
             history: vec![commands::history("created", None)],
+            adequacy: None,
             extra: Default::default(),
         };
         let sil = p.required_sil(&h);
@@ -3511,6 +3512,7 @@ mod safety_mcp {
             created: now,
             updated: now,
             history: vec![commands::history("created", None)],
+            verification: None,
             extra: Default::default(),
         };
         let alloc = p.allocated_sil(&sf);
