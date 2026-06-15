@@ -123,10 +123,10 @@ pub enum Command {
     Delete(DeleteArgs),
     /// Create parent/child or trace links between requirements.
     Link(LinkArgs),
-    // REQ-0190: the whole-project well-formedness check is NOT verification or
-    // verification — it checks the spec conforms to the rule set. Named `conform`
-    // so the V&V vocabulary is reserved for the evidence workflow. The old
-    // `validate` name is removed outright (pre-release): no alias.
+    // REQ-0190 / SR-0005: the whole-project well-formedness check is NOT
+    // verification or validation — it checks the spec conforms to the rule set.
+    // Named `conform` so the V&V vocabulary is reserved for the evidence
+    // workflow. The old `validate` name is removed outright (pre-release): no alias.
     /// Check every requirement conforms to the rule set (0 errors to ship).
     Conform(ConformArgs),
     /// Show project-level implementation status with counts and percentages.

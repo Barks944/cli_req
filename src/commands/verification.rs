@@ -1271,7 +1271,7 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut backfilled = 0usize;
     let mut no_dossier = 0usize;
     let mut stale = 0usize;
-    // REQ-0150: count the unconfirmed (genuine dossier, no human co-sign) bucket.
+    // REQ-0188: count the unconfirmed (genuine dossier, no human co-sign) bucket.
     let mut unconfirmed = 0usize;
     let mut ungated = 0usize;
     for r in &rows {
@@ -1324,7 +1324,7 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
                     "exempt_backfilled": backfilled,
                     "exempt_no_dossier": no_dossier,
                     "stale": stale,
-                    // REQ-0150: expose the unconfirmed-SR count in JSON too.
+                    // REQ-0188: expose the unconfirmed-SR count in JSON too.
                     "unconfirmed": unconfirmed,
                     "ungated": ungated,
                 },
@@ -1359,7 +1359,7 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
         "  stale            : {:>4}   (genuine dossier whose anchored source drifted)",
         stale
     );
-    // REQ-0150: surface the unconfirmed safety-requirement bucket in the report.
+    // REQ-0188: surface the unconfirmed safety-requirement bucket in the report.
     println!(
         "  unconfirmed      : {:>4}   (safety req: genuine dossier, no human co-sign — REQ-0145)",
         unconfirmed

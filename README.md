@@ -188,8 +188,8 @@ Spec and code stay in sync, or you find out fast.
 ### 2. Link for hierarchy and trace
 
 ```sh
-req link REQ-0026 REQ-0019 -k parent
-req link REQ-0026 REQ-0019 -k depends-on
+req link REQ-0026 REQ-0022 -k parent
+req link REQ-0026 REQ-0022 -k depends-on
 req link REQ-0030 REQ-0026 -k verifies
 ```
 

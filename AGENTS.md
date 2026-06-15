@@ -166,7 +166,7 @@ Updating a requirement — always include `--reason`:
 Linking — parent for hierarchy, depends-on / verifies for trace:
 
 ```sh
-./target/release/req link REQ-0026 REQ-0019 -k depends-on
+./target/release/req link REQ-0026 REQ-0022 -k depends-on
 ```
 
 Soft-delete (default) preserves links and history:

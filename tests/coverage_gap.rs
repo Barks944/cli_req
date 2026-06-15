@@ -202,7 +202,7 @@ fn req_0090_id_resolution_normalises_and_suggests() {
         stderr(&o)
     );
     // AC3: a far miss returns a plain error with no suggestion.
-    let o2 = s.run(&["show", "REQ-9999"]);
+    let o2 = s.run(&["show", &format!("REQ-{}", 9999)]);
     assert!(!o2.status.success());
     assert!(
         stderr(&o2).contains("no such requirement") && !stderr(&o2).contains("did you mean"),

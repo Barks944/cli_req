@@ -28,7 +28,7 @@ pub enum Provenance {
     /// A genuine concluded Pass dossier whose anchored source has since
     /// drifted — the verification no longer stands until re-verified.
     Stale,
-    /// REQ-0150: a safety requirement with a genuine, fresh, concluded Pass
+    /// REQ-0188: a safety requirement with a genuine, fresh, concluded Pass
     /// dossier that nonetheless lacks the mandatory human confirmation
     /// (REQ-0145 / REQ-V-0034). The agent's work is real, but the co-sign that
     /// makes a safety requirement truly pass is missing, so it is NOT yet
@@ -46,7 +46,7 @@ impl Provenance {
             Provenance::ExemptBackfilled => "exempt:backfilled",
             Provenance::ExemptNoDossier => "exempt:no-dossier",
             Provenance::Stale => "stale",
-            // REQ-0150: unconfirmed safety requirement (genuine dossier, no co-sign).
+            // REQ-0188: unconfirmed safety requirement (genuine dossier, no co-sign).
             Provenance::Unconfirmed => "unconfirmed",
             Provenance::Genuine => "genuine",
         }
@@ -191,7 +191,7 @@ pub fn provenance_report(project: &Project, source_root: Option<&Path>) -> Vec<P
         .collect();
     srs.sort_by(|a, b| a.id.cmp(&b.id));
     for sr in srs {
-        // REQ-0150: a safety requirement whose dossier is otherwise genuine
+        // REQ-0188: a safety requirement whose dossier is otherwise genuine
         // but which lacks the mandatory human co-sign (REQ-0145) is NOT genuine
         // standing — it is exactly what REQ-V-0034 blocks. Surface it as
         // `unconfirmed` so the report (SR-0004's HAZ-0002 tool-confidence

@@ -1,5 +1,5 @@
 // Implements REQ-0002 (git-diffable JSON), REQ-0003 (integrity hash),
-// REQ-0004 (in-file warning + instructions), REQ-0019 (atomic writes),
+// REQ-0004 (in-file warning + instructions), REQ-0022 (atomic writes),
 // REQ-0062 (advisory file lock around mutation sequences).
 // Discharges REQ-0020 (constraint: agents shall not edit project.req
 // directly) by making the integrity hash the enforcement mechanism — any

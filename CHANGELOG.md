@@ -50,7 +50,7 @@ validation dossier.
   requirement reaches Verified only after an ordered `plan → analysis →
   testing → statement → verdict` walk; the verdict is derived, never typed,
   and a passing dossier is the precondition the promotion gate checks.
-- **Verification provenance (REQ-0142 / REQ-0143 / REQ-0150):** `req
+- **Verification provenance (REQ-0142 / REQ-0143 / REQ-0188):** `req
   validation report` classifies every Verified item as genuine vs audited
   exemption vs stale vs `unconfirmed` (safety req with a genuine dossier but
   no human co-sign) vs ungated, so a non-genuine verification can never read

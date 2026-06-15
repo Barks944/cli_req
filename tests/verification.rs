@@ -696,7 +696,7 @@ fn req_0143_safety_requirement_cannot_be_exempted() {
     );
 }
 
-/// REQ-0150: a Verified safety requirement with a genuine passing dossier but
+/// REQ-0188: a Verified safety requirement with a genuine passing dossier but
 /// no human confirmation is reported as `unconfirmed` (not `genuine`), and is
 /// excluded from the genuine count. A human co-sign flips it to `genuine`.
 #[test]

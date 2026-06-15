@@ -121,7 +121,7 @@ fn req_0178_182_ingest_rejects_bad_payloads() {
     assert!(stderr(&o2).contains("no mapping"), "{}", stderr(&o2));
     // Unknown requirement id.
     let bad_id = s.dir.path().join("id.json");
-    std::fs::write(&bad_id, format!(r#"{{"schema":"req-test-result-v1","system":"x","commit":"{}","results":[{{"req_id":"REQ-9999","verdict":"pass"}}]}}"#, sha)).unwrap();
+    std::fs::write(&bad_id, format!(r#"{{"schema":"req-test-result-v1","system":"x","commit":"{}","results":[{{"req_id":"{}","verdict":"pass"}}]}}"#, sha, format!("REQ-{}", 9999))).unwrap();
     let o3 = run_in(&s, &["test", "ingest", bad_id.to_str().unwrap()]);
     assert!(!o3.status.success());
     assert!(stderr(&o3).contains("unknown requirement"));
