@@ -82,7 +82,8 @@ pub const RULES: &[(&str, &str)] = &[
     ),
     (
         "REQ-V-0020",
-        "duplicate-intent: another non-obsolete requirement is semantically very similar",
+        // REQ-0076: surface the similarity threshold so `req help errors` documents it.
+        "duplicate-intent: another non-obsolete requirement is semantically very similar (Jaccard title+statement similarity >= 65%)",
     ),
     (
         "REQ-V-0021",

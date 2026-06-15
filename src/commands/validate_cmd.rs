@@ -81,7 +81,9 @@ pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "errors": errs, "warnings": warns, "findings": findings
+                "errors": errs, "warnings": warns, "findings": findings,
+                // SR-0006: machine consumers also see this is well-formedness, not V&V.
+                "note": CONFORM_DISCLAIMER
             }))?
         );
         if errs > 0 {
@@ -95,6 +97,10 @@ pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
             "OK — {} requirement(s), no findings.",
             project.requirements.len()
         );
+        // SR-0006 / REQ-0197: a well-formedness check must not read as V&V
+        // status (terminology applied throughout output), and must point to the
+        // command that reports the true verification standing.
+        println!("{}", CONFORM_DISCLAIMER);
         return Ok(());
     }
 
@@ -107,8 +113,16 @@ pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
     }
     println!();
     println!("{} error(s), {} warning(s)", errs, warns);
+    // SR-0006: same disclaimer on the failure path.
+    println!("{}", CONFORM_DISCLAIMER);
     if errs > 0 {
         std::process::exit(1);
     }
     Ok(())
 }
+
+/// SR-0006: `req conform` checks model well-formedness only — it says nothing
+/// about whether requirements are verified or validated. Every conform output
+/// states this and points the user at the true V&V standing.
+const CONFORM_DISCLAIMER: &str = "This checks model well-formedness (req's rule set), not verification/validation status. \
+For each requirement's V&V standing, run `req verification status`.";
