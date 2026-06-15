@@ -424,3 +424,54 @@ fn req_0051_failed_add_does_not_burn_id() {
     assert!(ok.status.success(), "valid add: {}", stderr(&ok));
     assert!(stdout(&ok).contains("REQ-0002"), "rejected add must not burn the ID:\n{}", stdout(&ok));
 }
+
+/// SR-0001: a project.req whose content fails its integrity hash is refused at
+/// load with a pointer to `req repair` (not silently mis-read).
+#[test]
+fn sr_0001_integrity_tamper_refused_with_repair_pointer() {
+    let s = Sandbox::new();
+    s.init("p");
+    let p = s.path();
+    let body = std::fs::read_to_string(&p).unwrap().replace("\"name\": \"p\"", "\"name\": \"X\"");
+    std::fs::write(&p, body).unwrap();
+    let o = s.run(&["list"]);
+    assert!(!o.status.success(), "a tampered file must refuse to load");
+    let e = stderr(&o).to_lowercase();
+    assert!(e.contains("integrity") && e.contains("repair"), "error must flag integrity and point to repair:\n{}", stderr(&o));
+}
+
+/// SR-0004: the verification provenance report classifies every Verified item
+/// into the provenance categories with counts (genuine / exempt / stale /
+/// unconfirmed / ungated).
+#[test]
+fn sr_0004_provenance_report_classifies_categories() {
+    let s = Sandbox::new();
+    s.init("p");
+    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["verification", "report", "--json"]))).unwrap();
+    let counts = &v["counts"];
+    for k in ["genuine", "exempt_backfilled", "exempt_no_dossier", "stale", "unconfirmed", "ungated"] {
+        assert!(counts.get(k).is_some(), "provenance report must report category '{}':\n{}", k, v["counts"]);
+    }
+}
+
+/// SR-0006: a conformance (well-formedness) check must not present as V&V status
+/// and must point to the command that reports true verification standing —
+/// on the human and the --json paths.
+#[test]
+fn sr_0006_conform_disclaims_vv_and_points_to_status() {
+    let s = Sandbox::new();
+    s.init("p");
+    let human = stdout(&s.run(&["conform"]));
+    assert!(
+        human.contains("well-formedness") && human.contains("verification status"),
+        "conform output must disclaim V&V and point to `req verification status`:\n{}",
+        human
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["conform", "--json"]))).unwrap();
+    let note = v["note"].as_str().unwrap_or("");
+    assert!(
+        note.contains("well-formedness") && note.contains("verification status"),
+        "conform --json must carry the same disclaimer in `note`: {}",
+        note
+    );
+}
