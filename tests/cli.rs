@@ -61,7 +61,12 @@ fn req_0151_help_does_not_leak_requirement_id_markers() {
         &["sreq", "--help"],
         &["trace", "--help"],
         &["safety", "--help"],
+        // REQ-0151: leaf subcommands carry per-flag help that clap renders, so
+        // they must be checked too — the walkthrough flags once leaked markers.
+        &["safety", "walkthrough", "--help"],
+        &["safety", "acknowledge", "--help"],
         &["verification", "--help"],
+        &["verification", "conclude", "--help"],
         &["hooks", "--help"],
         &["review", "--help"],
         &["test", "--help"],

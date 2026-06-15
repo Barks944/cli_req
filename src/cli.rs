@@ -440,17 +440,19 @@ pub struct SafetyWalkthroughArgs {
     pub gate: bool,
     #[arg(long)]
     pub json: bool,
-    /// REQ-0198: show the full verification dossier (analysis + testing
-    /// summaries, outcomes, and the source files each referenced), not just
-    /// the verdict/staleness/co-sign summary. In interactive mode, `f` toggles
-    /// this live.
+    // REQ-0198: dossier-detail toggle (marker kept off the rendered help per
+    // REQ-0151 — clap renders `///` doc comments into --help).
+    /// Show the full verification dossier (analysis + testing summaries,
+    /// outcomes, and the source files each referenced), not just the
+    /// verdict/staleness/co-sign summary. In interactive mode, `f` toggles this.
     #[arg(long)]
     pub full: bool,
-    /// REQ-0199: force interactive arrow-key navigation even when it would not
+    // REQ-0199: interactive navigation controls.
+    /// Force interactive arrow-key navigation even when it would not
     /// auto-engage. Ignored (with a notice) when not attached to a terminal.
     #[arg(short = 'i', long)]
     pub interactive: bool,
-    /// REQ-0199: force the plain non-interactive rendering even on a terminal
+    /// Force the plain non-interactive rendering even on a terminal
     /// (for copy/paste or logging).
     #[arg(long)]
     pub no_interactive: bool,
