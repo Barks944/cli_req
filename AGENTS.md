@@ -32,7 +32,7 @@ cli_req/
     ├── cli.rs               clap surface — one source of truth
     ├── model.rs             Project / Requirement / Kind / Priority / Status / Link
     ├── storage.rs           JSON I/O + SHA-256 integrity hash
-    ├── validate.rs          best-practice rules
+    ├── conform.rs           conformance rules
     ├── help_text.rs         `req help <section>` content
     ├── tui.rs               dialoguer-based interactive browser
     ├── web.rs               STUB — local web server
@@ -257,7 +257,7 @@ git config commit.gpgsign true            # or use SSH-signed commits
   --release -- --test-threads=1` is the canonical invocation. CI runs
   each test binary serially to keep the concurrency suite within the
   30s file-lock timeout.
-- **`cargo-llvm-cov` line coverage ~58%**; validate.rs / storage.rs are
+- **`cargo-llvm-cov` line coverage ~58%**; conform.rs / storage.rs are
   > 85%, mcp.rs and web.rs ~50%, tui.rs is intentionally 0% (dialoguer
   interactive code is hard to fixture).
 - **All three surfaces are at parity** (REQ-0083): CLI, MCP, TUI offer
@@ -427,7 +427,7 @@ WHEN YOU FINISH SOMETHING
 
   req update <id> --status implemented --reason "..."
 
-  Then VALIDATE it before claiming Verified. Don't one-shot it — walk
+  Then VERIFY it before claiming Verified. Don't one-shot it — walk
   the verification dossier so the pass/fail is backed by real analysis
   and testing (REQ-NNNN):
 

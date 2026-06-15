@@ -228,7 +228,7 @@ WHEN YOU FINISH SOMETHING
 
   req update <id> --status implemented --reason \"...\"
 
-  Then VALIDATE it before claiming Verified. Don't one-shot it — walk
+  Then VERIFY it before claiming Verified. Don't one-shot it — walk
   the verification dossier so the pass/fail is backed by real analysis
   and testing (REQ-0139):
 
