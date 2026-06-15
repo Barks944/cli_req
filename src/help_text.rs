@@ -18,11 +18,11 @@ pub fn section(name: &str) -> Option<&'static Section> {
 }
 
 /// REQ-0045 / REQ-0089 / REQ-0093: render the validator rule catalogue from the
-/// single source of truth (`crate::validate::RULES`) so the `errors` and
+/// single source of truth (`crate::conform::RULES`) so the `errors` and
 /// `best-practice` help sections list every code the validator can emit and
 /// cannot silently drift behind it.
 pub fn rule_code_table() -> String {
-    crate::validate::RULES
+    crate::conform::RULES
         .iter()
         .map(|(code, desc)| format!("  {code}  {desc}"))
         .collect::<Vec<_>>()
@@ -1183,7 +1183,7 @@ mod tests {
     fn req_0045_help_lists_every_validator_rule_code() {
         let errors = render_body(section("errors").unwrap().body);
         let bp = render_body(section("best-practice").unwrap().body);
-        for (code, _desc) in crate::validate::RULES.iter() {
+        for (code, _desc) in crate::conform::RULES.iter() {
             assert!(errors.contains(*code), "errors help is missing {code}");
             assert!(bp.contains(*code), "best-practice help is missing {code}");
         }

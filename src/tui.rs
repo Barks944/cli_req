@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use crate::cli::{
     AddArgs, CoverageArgs, DeleteArgs, DiffArgs, DoctorArgs, ExportArgs, ExportFormat, ListArgs,
-    NextArgs, ShowArgs, StaleArgs, StatusArgs, UpdateArgs, ValidateArgs, VersionArgs,
+    ConformArgs, NextArgs, ShowArgs, StaleArgs, StatusArgs, UpdateArgs, VersionArgs,
 };
 use crate::commands;
 use crate::storage::load_resolved;
@@ -120,7 +120,7 @@ fn dispatch(
         }
         "Split a compound requirement" => split_flow(file, theme),
         "Conform (check spec against the rules)" => {
-            commands::validate_cmd::run(ValidateArgs { json: false }, file)
+            commands::conform_cmd::run(ConformArgs { json: false }, file)
         }
         // REQ-0101: lint TUI dispatch.
         "Lint (quality audit)" => commands::lint::run(

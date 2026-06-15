@@ -121,7 +121,7 @@ pub struct VerificationConfig {
 
 /// REQ-0139: the default tag that exempts an ordinary requirement from the
 /// verification-dossier gate when no project override is configured.
-pub const DEFAULT_VALIDATION_EXEMPT_TAG: &str = "verification-exempt";
+pub const DEFAULT_VERIFICATION_EXEMPT_TAG: &str = "verification-exempt";
 
 /// REQ-0161: default minimum length (in trimmed characters) for the
 /// `--reason` on a forced, irregular change. A one-character reason makes a
@@ -137,7 +137,7 @@ impl Project {
             .as_ref()
             .and_then(|c| c.verification.as_ref())
             .and_then(|v| v.exempt_tags.clone())
-            .unwrap_or_else(|| vec![DEFAULT_VALIDATION_EXEMPT_TAG.to_string()])
+            .unwrap_or_else(|| vec![DEFAULT_VERIFICATION_EXEMPT_TAG.to_string()])
     }
 
     /// REQ-0139: whether an ordinary requirement is exempt from the

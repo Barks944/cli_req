@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use crate::cli::AddArgs;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
+use crate::conform;
 
 pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     // REQ-0072: --from-json bypasses shell quoting for multi-line content.
@@ -175,8 +175,8 @@ pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
         extra: Default::default(),
     };
 
-    let findings = validate::validate_requirement(&req);
-    let errors = validate::errors_only(&findings);
+    let findings = conform::conform_requirement(&req);
+    let errors = conform::errors_only(&findings);
 
     // REQ-0095: warn when the new title is very similar to a
     // requirement retired to Obsolete in the last 60 days. The common

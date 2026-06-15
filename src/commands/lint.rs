@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::cli::LintArgs;
 use crate::model::{Project, Status};
 use crate::storage::load_resolved;
-use crate::validate;
+use crate::conform;
 
 const SHORT_RATIONALE_WORDS: usize = 10;
 const SINGLE_ACCEPTANCE: usize = 1;
@@ -36,7 +36,7 @@ struct LintReport {
     by_status: [usize; 6],
     validator_errors: usize,
     validator_warnings: usize,
-    validator_findings: Vec<(String, Vec<validate::Finding>)>,
+    conform_findings: Vec<(String, Vec<conform::Finding>)>,
     markerless_active: Vec<String>,
     short_rationale: Vec<(String, usize)>,
     /// REQ-0110: resolved short-rationale threshold (_config over default) so
@@ -80,13 +80,13 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         by_status[i] += 1;
     }
 
-    let validator_findings = validate::validate_project(project);
-    let validator_errors: usize = validator_findings
+    let conform_findings = conform::conform_project(project);
+    let validator_errors: usize = conform_findings
         .iter()
         .flat_map(|(_, fs)| fs.iter())
         .filter(|f| f.error)
         .count();
-    let validator_warnings: usize = validator_findings
+    let validator_warnings: usize = conform_findings
         .iter()
         .flat_map(|(_, fs)| fs.iter())
         .filter(|f| !f.error)
@@ -115,7 +115,7 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
     // when the validator has already named the same requirement, so
     // a user doesn't see the same REQ flagged twice with different
     // thresholds.
-    let validator_rationale_ids: std::collections::BTreeSet<String> = validator_findings
+    let validator_rationale_ids: std::collections::BTreeSet<String> = conform_findings
         .iter()
         .filter(|(_, fs)| fs.iter().any(|f| f.rule_code == "REQ-V-0013"))
         .map(|(id, _)| id.clone())
@@ -187,7 +187,7 @@ fn build_report(project: &Project, src_path: &Path) -> LintReport {
         by_status,
         validator_errors,
         validator_warnings,
-        validator_findings,
+        conform_findings,
         markerless_active,
         short_rationale,
         short_rationale_words,
@@ -239,7 +239,7 @@ impl LintReport {
             "validator": {
                 "errors": self.validator_errors,
                 "warnings": self.validator_warnings,
-                "findings": self.validator_findings.iter().map(|(id, fs)| {
+                "findings": self.conform_findings.iter().map(|(id, fs)| {
                     json!({
                         "id": id,
                         "findings": fs.iter().map(|f| json!({
@@ -288,7 +288,7 @@ impl LintReport {
             + self.no_test_record.len()
             + self.verified_but_defective.len();
         out.push_str(&format!(
-            "**Status:** {} — {} requirement(s); validate {} error(s), {} warning(s); {} quality observation(s).\n\n",
+            "**Status:** {} — {} requirement(s); conform {} error(s), {} warning(s); {} quality observation(s).\n\n",
             headline_emoji, self.total, self.validator_errors, self.validator_warnings, quality_count
         ));
 
@@ -308,9 +308,9 @@ impl LintReport {
         }
         out.push('\n');
 
-        if !self.validator_findings.is_empty() {
+        if !self.conform_findings.is_empty() {
             out.push_str("## Validator findings\n\n");
-            for (id, fs) in &self.validator_findings {
+            for (id, fs) in &self.conform_findings {
                 for f in fs {
                     let sev = if f.error { "ERR " } else { "WARN" };
                     out.push_str(&format!(

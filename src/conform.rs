@@ -10,7 +10,7 @@ use crate::model::{
     Status,
 };
 
-/// A verification finding. `error = true` blocks the operation; otherwise it's a warning.
+/// A conformance finding. `error = true` blocks the operation; otherwise it's a warning.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Finding {
     pub error: bool,
@@ -235,7 +235,7 @@ static BACKTICK_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"`[^`]*`").unwrap());
 // terms in req's domain. When they appear as a noun-phrase reference to
 // the priority field (`Must-priority requirements`) they are not modal
 // verbs and must be stripped before the modal-verb count, or the
-// validator's own ruleset bites our own spec. Narrowest fix: strip the
+// conformance checker's own ruleset bites our own spec. Narrowest fix: strip the
 // token only when immediately followed by `-priority` or `-priorities`.
 static PRIORITY_LABEL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\b(must|should|could|wont)(-priorit(?:y|ies))\b").unwrap());
@@ -250,9 +250,9 @@ fn strip_non_prose(s: &str) -> String {
     no_priority_labels.into_owned()
 }
 
-// REQ-0102: validator findings name the cause and a suggested fix so
+// REQ-0102: conformance findings name the cause and a suggested fix so
 // each warning is a teaching moment rather than a terse rule name.
-pub fn validate_requirement(r: &Requirement) -> Vec<Finding> {
+pub fn conform_requirement(r: &Requirement) -> Vec<Finding> {
     let mut out = Vec::new();
 
     let title = r.title.trim();
@@ -490,7 +490,7 @@ fn jaccard(a: &std::collections::HashSet<String>, b: &std::collections::HashSet<
     inter / union
 }
 
-pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
+pub fn conform_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     let mut out = Vec::new();
     // Precompute token sets for non-obsolete requirements once.
     let active: Vec<(&String, std::collections::HashSet<String>)> = p
@@ -500,7 +500,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
         .map(|(id, r)| (id, token_set(&format!("{} {}", r.title, r.statement))))
         .collect();
     for (id, r) in &p.requirements {
-        let mut findings = validate_requirement(r);
+        let mut findings = conform_requirement(r);
         // Advisory (warning-level) findings on retired requirements are
         // pure noise — they cannot be re-edited via the normal flow and
         // Obsolete is a terminal state. Drop warnings; keep errors.
@@ -556,7 +556,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
             // REQ-0093: gated on status >= Implemented. A Draft/Proposed/
             // Approved requirement is not yet expected to carry evidence,
             // and firing the warning that early trains authors to ignore
-            // validator output.
+            // conformance-checker output.
             let evidence_expected = matches!(r.status, Status::Implemented | Status::Verified);
             if matches!(link.kind, crate::model::LinkKind::Verifies)
                 && r.tests.is_empty()
@@ -612,7 +612,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
                         "{} is Verified but has no passing verification dossier — run `req verification plan {} ...` → analysis → test → conclude, or tag it `{}`",
                         r.id,
                         r.id,
-                        crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+                        crate::model::DEFAULT_VERIFICATION_EXEMPT_TAG
                     ),
                 ));
             }
@@ -749,7 +749,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     }
     // REQ-0137: functional-safety artifacts validate on the same pass so
     // the pre-commit hook and CI gate cover the whole spec.
-    for (id, findings) in validate_safety(p) {
+    for (id, findings) in conform_safety(p) {
         if let Some((_, existing)) = out.iter_mut().find(|(rid, _)| *rid == id) {
             existing.extend(findings);
         } else {
@@ -769,7 +769,7 @@ pub fn validate_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
 /// requirement cannot stay Verified on inspection-only evidence without
 /// an audited exception, an assessed hazard must carry its full risk
 /// profile, and a mitigated hazard must actually have a live mitigation.
-pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
+pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
     let mut out: Vec<(String, Vec<Finding>)> = Vec::new();
     let mut push = |id: &str, f: Finding| {
         if let Some((_, v)) = out.iter_mut().find(|(rid, _)| rid == id) {
@@ -917,7 +917,7 @@ pub fn validate_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
             verification: None,
             extra: Default::default(),
         };
-        for f in validate_requirement(&shim) {
+        for f in conform_requirement(&shim) {
             push(id, f);
         }
         for l in &sr.links {

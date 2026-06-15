@@ -16,7 +16,7 @@ pub fn run(args: RepairArgs, file: &Option<PathBuf>) -> Result<()> {
     let _lock = storage::acquire_lock(&path)?;
     let project = storage::load_with_options(&path, true)?;
 
-    let findings = crate::validate::validate_project(&project);
+    let findings = crate::conform::conform_project(&project);
     let errs: usize = findings
         .iter()
         .flat_map(|(_, fs)| fs.iter())

@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use crate::cli::SplitArgs;
 use crate::model::{Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
+use crate::conform;
 
 pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
@@ -89,8 +89,8 @@ pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
             verification: None,
             extra: Default::default(),
         };
-        let findings = validate::validate_requirement(&part);
-        let errs = validate::errors_only(&findings);
+        let findings = conform::conform_requirement(&part);
+        let errs = conform::errors_only(&findings);
         if !errs.is_empty() {
             let msg: Vec<String> = errs
                 .iter()

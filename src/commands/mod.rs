@@ -4,6 +4,7 @@ pub mod audit;
 pub mod batch;
 pub mod brief;
 pub mod check;
+pub mod conform_cmd;
 pub mod coverage;
 pub mod delete;
 pub mod diff;
@@ -37,7 +38,6 @@ pub mod stale;
 pub mod status;
 pub mod test_cmd;
 pub mod update;
-pub mod validate_cmd;
 pub mod verification;
 pub mod version;
 

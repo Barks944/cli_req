@@ -16,7 +16,7 @@ use crate::commands;
 use crate::help_text;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, resolve_path};
-use crate::validate;
+use crate::conform;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -40,7 +40,7 @@ impl std::error::Error for RuleViolation {}
 impl RuleViolation {
     /// Build a rejection from validator findings (errors only), preserving
     /// each finding's rule code and the existing `[field] message` prose.
-    fn from_findings(prefix: &str, errs: &[&validate::Finding]) -> Self {
+    fn from_findings(prefix: &str, errs: &[&conform::Finding]) -> Self {
         let message = format!(
             "{}: {}",
             prefix,
@@ -1140,7 +1140,7 @@ fn call_tool(name: &str, args: &Value, file: &Path) -> Result<String> {
         "req_delete" => tool_delete(args, file),
         "req_link" => tool_link(args, file),
         // REQ-0190: renamed from req_conform (removed, pre-release).
-        "req_conform" => tool_validate(file),
+        "req_conform" => tool_conform(file),
         "req_coverage" => tool_coverage(args, file),
         "req_export" => tool_export(args, file),
         "req_help" => tool_help(args),
@@ -1397,8 +1397,8 @@ fn tool_add(args: &Value, file: &Path) -> Result<String> {
         verification: None,
         extra: Default::default(),
     };
-    let findings = validate::validate_requirement(&req);
-    let errs = validate::errors_only(&findings);
+    let findings = conform::conform_requirement(&req);
+    let errs = conform::errors_only(&findings);
     if !errs.is_empty() {
         // REQ-0164: carry the rule codes as structured data, not just prose.
         return Err(RuleViolation::from_findings("rejected", &errs).into());
@@ -1515,8 +1515,8 @@ fn tool_update(args: &Value, file: &Path) -> Result<String> {
         return Ok(json!({ "id": id, "changes": [] }).to_string());
     }
 
-    let findings = validate::validate_requirement(r);
-    let errs = validate::errors_only(&findings);
+    let findings = conform::conform_requirement(r);
+    let errs = conform::errors_only(&findings);
     if !errs.is_empty() {
         let msgs: Vec<String> = errs
             .iter()
@@ -1643,9 +1643,9 @@ fn would_cycle(project: &crate::model::Project, from: &str, new_parent: &str) ->
     }
 }
 
-fn tool_validate(file: &Path) -> Result<String> {
+fn tool_conform(file: &Path) -> Result<String> {
     let project = storage::load(file)?;
-    let report = validate::validate_project(&project);
+    let report = conform::conform_project(&project);
     let mut errors = 0usize;
     let mut warnings = 0usize;
     let mut findings = Vec::new();
@@ -1995,7 +1995,7 @@ fn tool_check(args: &Value, file: &Path) -> Result<String> {
     let mut findings: Vec<Value> = Vec::new();
     for id in &changed_ids {
         if let Some(r) = current.requirements.get(id) {
-            for f in validate::validate_requirement(r) {
+            for f in conform::conform_requirement(r) {
                 if f.error {
                     errors += 1
                 } else {

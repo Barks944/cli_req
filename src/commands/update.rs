@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use crate::cli::UpdateArgs;
 use crate::model::Status;
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
+use crate::conform;
 
 pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
     // Snapshot which field categories were touched so we can suppress
@@ -151,8 +151,8 @@ pub fn run(mut args: UpdateArgs, file: &Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
 
-    let findings = validate::validate_requirement(r);
-    let errors = validate::errors_only(&findings);
+    let findings = conform::conform_requirement(r);
+    let errors = conform::errors_only(&findings);
     if !errors.is_empty() {
         eprintln!("Verification errors block save:");
         for f in &errors {

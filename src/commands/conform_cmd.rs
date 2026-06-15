@@ -1,16 +1,16 @@
-// Validator dispatcher — drives REQ-0006, REQ-0007, REQ-0008, REQ-0009, REQ-0029,
-// REQ-0030. (Rule bodies live in src/validate.rs.)
+// Conformance checker dispatcher — drives REQ-0006, REQ-0007, REQ-0008, REQ-0009,
+// REQ-0029, REQ-0030. (Rule bodies live in src/conform.rs.)
 use anyhow::Result;
 use serde_json::json;
 use std::path::PathBuf;
 
-use crate::cli::ValidateArgs;
+use crate::cli::ConformArgs;
+use crate::conform;
 use crate::storage::load_resolved;
-use crate::validate;
 
-pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
+pub fn run(args: ConformArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_, project) = load_resolved(file)?;
-    let mut report = validate::validate_project(&project);
+    let mut report = conform::conform_project(&project);
 
     // REQ-0148: a Verified safety requirement whose validated source has
     // drifted (content-hash staleness) is INVALID until it is re-validated and
@@ -39,7 +39,7 @@ pub fn run(args: ValidateArgs, file: &Option<PathBuf>) -> Result<()> {
         if stale {
             report.push((
                 id.clone(),
-                vec![validate::Finding {
+                vec![conform::Finding {
                     error: true,
                     field: "verification",
                     rule_code: "REQ-V-0035",

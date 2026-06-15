@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use crate::cli::{ImportArgs, ImportFormat};
 use crate::model::{Kind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
+use crate::conform;
 
 pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
     let raw = if args.source == "-" {
@@ -61,7 +61,7 @@ pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
             verification: None,
             extra: Default::default(),
         };
-        let findings = validate::validate_requirement(&req);
+        let findings = conform::conform_requirement(&req);
         let errs: Vec<String> = findings
             .iter()
             .filter(|f| f.error)

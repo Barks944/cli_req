@@ -29,7 +29,7 @@ pub fn promotion_routes(id: &str) -> Vec<String> {
         "waiver: pass --no-dossier --reason \"...\" to record an audited exemption".to_string(),
         format!(
             "exempt: tag {id} `{}` to exclude it from the dossier gate",
-            crate::model::DEFAULT_VALIDATION_EXEMPT_TAG
+            crate::model::DEFAULT_VERIFICATION_EXEMPT_TAG
         ),
     ]
 }
@@ -1200,7 +1200,7 @@ fn reverify(args: VerificationReverifyArgs, file: &Option<PathBuf>) -> Result<()
 /// dossier progressed, so the report shows the unvalidated surface instead
 /// of only the verified one. Returns `None` for Verified/Obsolete items
 /// (Verified ones are reported by provenance; Obsolete are out of scope).
-fn unvalidated_stage(
+fn unverified_stage(
     status: Status,
     v: Option<&crate::model::Verification>,
 ) -> Option<&'static str> {
@@ -1233,15 +1233,15 @@ const UNVALIDATED_STAGES: &[&str] = &[
 
 /// REQ-0185: collect `(id, family, stage)` for every requirement and safety
 /// requirement that has not reached a passing verification.
-fn unvalidated_rows(project: &Project) -> Vec<(String, &'static str, &'static str)> {
+fn unverified_rows(project: &Project) -> Vec<(String, &'static str, &'static str)> {
     let mut rows = Vec::new();
     for (id, r) in &project.requirements {
-        if let Some(stage) = unvalidated_stage(r.status, r.verification.as_ref()) {
+        if let Some(stage) = unverified_stage(r.status, r.verification.as_ref()) {
             rows.push((id.clone(), "requirement", stage));
         }
     }
     for (id, sr) in &project.safety_requirements {
-        if let Some(stage) = unvalidated_stage(sr.status, sr.verification.as_ref()) {
+        if let Some(stage) = unverified_stage(sr.status, sr.verification.as_ref()) {
             rows.push((id.clone(), "safety-requirement", stage));
         }
     }
@@ -1252,8 +1252,8 @@ fn unvalidated_rows(project: &Project) -> Vec<(String, &'static str, &'static st
 fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     let (_path, project) = load_resolved(file)?;
     let rows = provenance_report(&project, Some(&args.path));
-    // REQ-0185: the unvalidated surface, grouped by dossier-pipeline stage.
-    let unvalidated = unvalidated_rows(&project);
+    // REQ-0185: the unverified surface, grouped by dossier-pipeline stage.
+    let unverified = unverified_rows(&project);
     // REQ-0188: every safety requirement with its standing, none omitted.
     let mut sr_standings: Vec<(String, &'static str)> = project
         .safety_requirements
@@ -1306,12 +1306,12 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
         // REQ-0185: per-stage counts for the unvalidated surface.
         let mut unval_by_stage = serde_json::Map::new();
         for stage in UNVALIDATED_STAGES {
-            let n = unvalidated.iter().filter(|(_, _, s)| s == stage).count();
+            let n = unverified.iter().filter(|(_, _, s)| s == stage).count();
             if n > 0 {
                 unval_by_stage.insert((*stage).to_string(), serde_json::json!(n));
             }
         }
-        let unval_items: Vec<_> = unvalidated
+        let unval_items: Vec<_> = unverified
             .iter()
             .map(|(id, fam, stage)| serde_json::json!({ "id": id, "family": fam, "stage": stage }))
             .collect();
@@ -1330,7 +1330,7 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
                 },
                 "items": items,
                 // REQ-0185: the unvalidated surface alongside the verified one.
-                "unvalidated_total": unvalidated.len(),
+                "unvalidated_total": unverified.len(),
                 "unvalidated_by_stage": unval_by_stage,
                 "unvalidated": unval_items,
                 // REQ-0188: every safety requirement with its standing.
@@ -1375,17 +1375,17 @@ fn report(args: VerificationReportArgs, file: &Option<PathBuf>) -> Result<()> {
     println!();
     println!(
         "Unvalidated ({} item(s) with no passing dossier)",
-        unvalidated.len()
+        unverified.len()
     );
     for stage in UNVALIDATED_STAGES {
-        let n = unvalidated.iter().filter(|(_, _, s)| s == stage).count();
+        let n = unverified.iter().filter(|(_, _, s)| s == stage).count();
         if n > 0 {
             println!("  {:<18}: {:>4}", stage, n);
         }
     }
-    if !unvalidated.is_empty() {
+    if !unverified.is_empty() {
         println!();
-        for (id, fam, stage) in &unvalidated {
+        for (id, fam, stage) in &unverified {
             println!("  {:<9}  {:<18}  {}", id, stage, fam);
         }
     }

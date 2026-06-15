@@ -128,7 +128,7 @@ pub enum Command {
     // so the V&V vocabulary is reserved for the evidence workflow. The old
     // `validate` name is removed outright (pre-release): no alias.
     /// Check every requirement conforms to the rule set (0 errors to ship).
-    Conform(ValidateArgs),
+    Conform(ConformArgs),
     /// Show project-level implementation status with counts and percentages.
     Status(StatusArgs),
     /// Print the binary version (human or JSON).
@@ -1751,7 +1751,7 @@ pub struct TestRunArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct ValidateArgs {
+pub struct ConformArgs {
     /// Emit findings as JSON; preserves the non-zero exit on errors.
     #[arg(long)]
     pub json: bool,

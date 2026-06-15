@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use crate::cli::BatchArgs;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::validate;
+use crate::conform;
 
 #[derive(Deserialize)]
 struct BatchDoc {
@@ -234,8 +234,8 @@ fn apply_one(
                 verification: None,
                 extra: Default::default(),
             };
-            let findings = validate::validate_requirement(&req);
-            let errs = validate::errors_only(&findings);
+            let findings = conform::conform_requirement(&req);
+            let errs = conform::errors_only(&findings);
             if !errs.is_empty() {
                 let msg: Vec<String> = errs
                     .iter()
@@ -336,8 +336,8 @@ fn apply_one(
                     changes.push(format!("-tag {}", t));
                 }
             }
-            let findings = validate::validate_requirement(r);
-            let errs = validate::errors_only(&findings);
+            let findings = conform::conform_requirement(r);
+            let errs = conform::errors_only(&findings);
             if !errs.is_empty() {
                 let msg: Vec<String> = errs
                     .iter()

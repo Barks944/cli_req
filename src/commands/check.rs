@@ -10,7 +10,7 @@ use std::process::Command;
 use crate::cli::CheckArgs;
 use crate::model::Project;
 use crate::storage::{self, resolve_path};
-use crate::validate;
+use crate::conform;
 
 static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
 
@@ -46,7 +46,7 @@ pub fn run(args: CheckArgs, file: &Option<PathBuf>) -> Result<()> {
     let mut warns = 0usize;
     for id in &changed_reqs {
         if let Some(r) = current.requirements.get(id) {
-            for f in validate::validate_requirement(r) {
+            for f in conform::conform_requirement(r) {
                 if f.error {
                     errs += 1
                 } else {

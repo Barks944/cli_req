@@ -2,6 +2,7 @@
 // Top-level dispatch for REQ-0001 (single managed CLI binary).
 mod cli;
 mod commands;
+mod conform;
 mod errors;
 mod help_text;
 mod mcp;
@@ -10,7 +11,6 @@ mod model;
 mod source_walk;
 mod storage;
 mod tui;
-mod validate;
 mod web;
 
 use anyhow::Result;
@@ -48,7 +48,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Update(args) => commands::update::run(args, &cli.file),
         Command::Delete(args) => commands::delete::run(args, &cli.file),
         Command::Link(args) => commands::link::run(args, &cli.file),
-        Command::Conform(args) => commands::validate_cmd::run(args, &cli.file),
+        Command::Conform(args) => commands::conform_cmd::run(args, &cli.file),
         Command::Status(args) => commands::status::run(args, &cli.file),
         Command::Test(t) => commands::test_cmd::run(t, &cli.file),
         Command::Verify(args) => commands::test_cmd::verify(args, &cli.file),

@@ -15,7 +15,7 @@ use std::process::Command;
 use crate::cli::ReviewArgs;
 use crate::model::Project;
 use crate::storage::{self, resolve_path};
-use crate::validate;
+use crate::conform;
 
 pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);
@@ -86,8 +86,8 @@ pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     // .req files, and CI runs it on the whole project, so a structurally
     // broken spec still cannot be committed or merged.
     let new_scope = (args.new || args.staged) && !args.all;
-    let val_findings: Vec<(String, Vec<validate::Finding>)> = {
-        let all_findings = validate::validate_project(&current);
+    let val_findings: Vec<(String, Vec<conform::Finding>)> = {
+        let all_findings = conform::conform_project(&current);
         if new_scope {
             let touched: BTreeSet<&String> = added.iter().chain(changed.iter()).collect();
             all_findings
