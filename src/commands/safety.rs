@@ -1691,6 +1691,27 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
         ),
         _ => println!("  risk:     not yet assessed"),
     }
+    // REQ-0204: the staged mitigation-adequacy dossier — why the hazard is
+    // adequately mitigated by its verified safety functions.
+    if let Some(a) = &h.adequacy {
+        let standing = match (a.verdict, a.human_confirmation.is_some()) {
+            (Some(vd), true) => format!("{} (human co-signed)", vd.as_str()),
+            (Some(vd), false) => format!("{} (awaiting human co-sign)", vd.as_str()),
+            (None, _) => "in progress (not concluded)".to_string(),
+        };
+        println!("  adequacy: {}", standing);
+        for c in &a.coverage {
+            let sb = project
+                .safety_functions
+                .get(&c.target)
+                .map(|sf| sf.status.as_str())
+                .unwrap_or("?");
+            println!("    covers {} [{}]: {}", c.target, sb, c.note);
+        }
+        if !a.statement.is_empty() {
+            println!("    residual: {}", a.statement);
+        }
+    }
 
     let sfs: Vec<&SafetyFunction> = project
         .safety_functions
@@ -1720,6 +1741,18 @@ fn trace_hazard(project: &Project, haz_id: &str, json: bool) -> Result<()> {
             println!("       safe state:    {}", sf.safe_state);
         }
         println!("       allocated SIL: {}   {}", sil_str(alloc), meets);
+        // REQ-0204: the safety function's adequacy walk-through — why each
+        // realizing SR implements it (and whether that SR is Verified).
+        if let Some(sfv) = &sf.verification {
+            for c in &sfv.coverage {
+                let sb = project
+                    .safety_requirements
+                    .get(&c.target)
+                    .map(|sr| sr.status.as_str())
+                    .unwrap_or("?");
+                println!("       covers {} [{}]: {}", c.target, sb, c.note);
+            }
+        }
         let srs: Vec<&SafetyRequirement> = project
             .safety_requirements
             .values()
