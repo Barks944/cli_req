@@ -9,9 +9,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::cli::LintArgs;
+use crate::conform;
 use crate::model::{Project, Status};
 use crate::storage::load_resolved;
-use crate::conform;
 
 const SHORT_RATIONALE_WORDS: usize = 10;
 const SINGLE_ACCEPTANCE: usize = 1;

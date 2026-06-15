@@ -6,9 +6,9 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, MultiSelect, Select};
 use std::path::PathBuf;
 
 use crate::cli::AddArgs;
+use crate::conform;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::conform;
 
 pub fn run(args: AddArgs, file: &Option<PathBuf>) -> Result<()> {
     // REQ-0072: --from-json bypasses shell quoting for multi-line content.

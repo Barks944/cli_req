@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::McpArgs;
 use crate::commands;
+use crate::conform;
 use crate::help_text;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, resolve_path};
-use crate::conform;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 

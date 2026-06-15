@@ -8,9 +8,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::cli::CheckArgs;
+use crate::conform;
 use crate::model::Project;
 use crate::storage::{self, resolve_path};
-use crate::conform;
 
 static REQ_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"REQ-\d{4}").unwrap());
 

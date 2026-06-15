@@ -11,9 +11,9 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use crate::cli::BatchArgs;
+use crate::conform;
 use crate::model::{Kind, Link, LinkKind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::conform;
 
 #[derive(Deserialize)]
 struct BatchDoc {

@@ -77,10 +77,7 @@ fn req_0139_full_dossier_promotes_a_requirement() {
     ]);
     assert!(done.status.success(), "conclude: {}", stderr(&done));
     assert!(stdout(&s.run(&["show", "REQ-0001"])).contains("verified"));
-    assert!(
-        s.run(&["conform"]).status.success(),
-        "should conform clean"
-    );
+    assert!(s.run(&["conform"]).status.success(), "should conform clean");
 }
 
 /// REQ-0139: a requirement cannot be promoted to Verified via `req verify
@@ -834,11 +831,7 @@ fn req_0185_report_lists_unvalidated_by_stage() {
     ]);
     let rep = s.run(&["verification", "report", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&rep)).expect("report json");
-    assert_eq!(
-        v["unverified_total"], 2,
-        "both reqs are unverified: {}",
-        v
-    );
+    assert_eq!(v["unverified_total"], 2, "both reqs are unverified: {}", v);
     let by = &v["unverified_by_stage"];
     assert_eq!(by["no-plan"], 1, "one bare draft: {}", by);
     assert_eq!(by["plan-only"], 1, "one planned-only: {}", by);
@@ -989,26 +982,92 @@ fn req_0200_reverify_by_tests_reanchors_stale_passing() {
     let impl_path = dir.join("impl.rs");
     std::fs::write(&impl_path, "// REQ-0001: stop on demand\nfn stop() {}\n").unwrap();
     assert!(run(&[
-        "add", "--title", "Stop on demand", "--statement",
-        "The system shall stop the process on operator demand.", "--rationale",
-        "operator safety", "--accept", "stops on demand", "-k", "functional", "-p", "must",
+        "add",
+        "--title",
+        "Stop on demand",
+        "--statement",
+        "The system shall stop the process on operator demand.",
+        "--rationale",
+        "operator safety",
+        "--accept",
+        "stops on demand",
+        "-k",
+        "functional",
+        "-p",
+        "must",
     ])
     .status
     .success());
-    run(&["update", "REQ-0001", "--status", "implemented", "--reason", "implemented for reverify test", "--force"]);
-    run(&["verification", "plan", "REQ-0001", "--plan", "review + test"]);
-    run(&["verification", "analysis", "REQ-0001", "--result", "pass", "--findings", "reviewed impl.rs"]);
-    run(&["verification", "test", "REQ-0001", "--result", "pass", "--findings", "tested"]);
-    let c = run(&["verification", "conclude", "REQ-0001", "--statement", "met", "--promote"]);
-    assert!(c.status.success(), "conclude: {}", String::from_utf8_lossy(&c.stderr));
+    run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "implemented",
+        "--reason",
+        "implemented for reverify test",
+        "--force",
+    ]);
+    run(&[
+        "verification",
+        "plan",
+        "REQ-0001",
+        "--plan",
+        "review + test",
+    ]);
+    run(&[
+        "verification",
+        "analysis",
+        "REQ-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "reviewed impl.rs",
+    ]);
+    run(&[
+        "verification",
+        "test",
+        "REQ-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "tested",
+    ]);
+    let c = run(&[
+        "verification",
+        "conclude",
+        "REQ-0001",
+        "--statement",
+        "met",
+        "--promote",
+    ]);
+    assert!(
+        c.status.success(),
+        "conclude: {}",
+        String::from_utf8_lossy(&c.stderr)
+    );
 
     // Drift the linked file → the dossier goes stale.
-    std::fs::write(&impl_path, "// REQ-0001: stop on demand\nfn stop() { /* changed */ }\n").unwrap();
+    std::fs::write(
+        &impl_path,
+        "// REQ-0001: stop on demand\nfn stop() { /* changed */ }\n",
+    )
+    .unwrap();
     // A captured cargo-test log with a passing req_0001 test.
     std::fs::write(dir.join("log.txt"), "test req_0001_stops ... ok\n").unwrap();
 
-    let out = run(&["verification", "reverify", "--by-tests", "--from-file", "log.txt", "--json"]);
-    assert!(out.status.success(), "reverify: {}", String::from_utf8_lossy(&out.stderr));
+    let out = run(&[
+        "verification",
+        "reverify",
+        "--by-tests",
+        "--from-file",
+        "log.txt",
+        "--json",
+    ]);
+    assert!(
+        out.status.success(),
+        "reverify: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("reverify json");
     let reanchored: Vec<String> = v["reanchored"]
         .as_array()
@@ -1022,7 +1081,14 @@ fn req_0200_reverify_by_tests_reanchors_stale_passing() {
         stdout(&out)
     );
     // A second reverify finds nothing stale (the anchor is fresh again).
-    let again = run(&["verification", "reverify", "--by-tests", "--from-file", "log.txt", "--json"]);
+    let again = run(&[
+        "verification",
+        "reverify",
+        "--by-tests",
+        "--from-file",
+        "log.txt",
+        "--json",
+    ]);
     let v2: serde_json::Value = serde_json::from_str(&stdout(&again)).unwrap();
     assert!(
         v2["reanchored"].as_array().unwrap().is_empty(),

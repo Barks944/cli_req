@@ -124,5 +124,6 @@ pub fn run(args: ConformArgs, file: &Option<PathBuf>) -> Result<()> {
 /// SR-0006: `req conform` checks model well-formedness only — it says nothing
 /// about whether requirements are verified or validated. Every conform output
 /// states this and points the user at the true V&V standing.
-const CONFORM_DISCLAIMER: &str = "This checks model well-formedness (req's rule set), not verification/validation status. \
+const CONFORM_DISCLAIMER: &str =
+    "This checks model well-formedness (req's rule set), not verification/validation status. \
 For each requirement's V&V standing, run `req verification status`.";

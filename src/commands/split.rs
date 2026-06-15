@@ -13,9 +13,9 @@ use dialoguer::{theme::ColorfulTheme, Input};
 use std::path::PathBuf;
 
 use crate::cli::SplitArgs;
+use crate::conform;
 use crate::model::{Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::conform;
 
 pub fn run(mut args: SplitArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;

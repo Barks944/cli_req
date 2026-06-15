@@ -9,9 +9,9 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use crate::cli::{ImportArgs, ImportFormat};
+use crate::conform;
 use crate::model::{Kind, Priority, Requirement, Status};
 use crate::storage::{self, load_for_mutation};
-use crate::conform;
 
 pub fn run(args: ImportArgs, file: &Option<PathBuf>) -> Result<()> {
     let raw = if args.source == "-" {

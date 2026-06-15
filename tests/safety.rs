@@ -1942,15 +1942,33 @@ fn req_0198_walkthrough_shows_dossier() {
     // Build a concluded verification dossier so the SR has a verdict + stages.
     let _ = s.run(&["verification", "plan", "SR-0001", "--plan", "review + test"]);
     let _ = s.run(&[
-        "verification", "analysis", "SR-0001", "--result", "pass", "--findings", "code reviewed",
-        "--ref", "src/lib.rs",
+        "verification",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "code reviewed",
+        "--ref",
+        "src/lib.rs",
     ]);
     let _ = s.run(&[
-        "verification", "test", "SR-0001", "--result", "pass", "--findings", "bench passed",
-        "--ref", "tests/x.rs",
+        "verification",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench passed",
+        "--ref",
+        "tests/x.rs",
     ]);
     let _ = s.run(&[
-        "verification", "conclude", "SR-0001", "--statement", "obligation met",
+        "verification",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "obligation met",
     ]);
 
     let render = git_sandbox_run(&s, &["safety", "walkthrough", "SR-0001"]);
@@ -1979,7 +1997,11 @@ fn req_0198_walkthrough_shows_dossier() {
 fn req_0199_interactive_falls_back_without_tty() {
     let s = walkthrough_chain();
     let out = git_sandbox_run(&s, &["safety", "walkthrough", "SR-0001", "-i"]);
-    assert!(out.status.success(), "should not hang or fail: {}", stderr(&out));
+    assert!(
+        out.status.success(),
+        "should not hang or fail: {}",
+        stderr(&out)
+    );
     assert!(
         stdout(&out).contains("SR-0001"),
         "fallback should render the chain statically:\n{}",

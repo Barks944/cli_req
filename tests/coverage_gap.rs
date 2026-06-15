@@ -31,23 +31,51 @@ fn implemented_in_git() -> (Sandbox, String) {
     git(dir, &["config", "user.name", "Tester"]);
     git(dir, &["commit", "-q", "-m", "init", "--allow-empty"]);
     s.init("p");
-    let _ = run_in(&s, &[
-        "add", "-t", "Halt the line cleanly", "-s", "The system shall halt the line.",
-        "-r", "line safety constraint", "-k", "functional", "-a", "line halts within a second",
-    ]);
+    let _ = run_in(
+        &s,
+        &[
+            "add",
+            "-t",
+            "Halt the line cleanly",
+            "-s",
+            "The system shall halt the line.",
+            "-r",
+            "line safety constraint",
+            "-k",
+            "functional",
+            "-a",
+            "line halts within a second",
+        ],
+    );
     for st in ["proposed", "approved", "implemented"] {
-        let _ = run_in(&s, &["update", "REQ-0001", "--status", st, "--reason", "advance"]);
+        let _ = run_in(
+            &s,
+            &["update", "REQ-0001", "--status", st, "--reason", "advance"],
+        );
     }
-    let out = Command::new("git").current_dir(dir).args(["rev-parse", "HEAD"]).output().unwrap();
+    let out = Command::new("git")
+        .current_dir(dir)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
     let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (s, sha)
 }
 
 fn add_one(s: &Sandbox) {
     let o = s.run(&[
-        "add", "-t", "Stop on demand cleanly", "-s",
-        "The system shall stop on operator demand.", "-r",
-        "operator safety constraint", "-k", "functional", "-p", "must", "-a",
+        "add",
+        "-t",
+        "Stop on demand cleanly",
+        "-s",
+        "The system shall stop on operator demand.",
+        "-r",
+        "operator safety constraint",
+        "-k",
+        "functional",
+        "-p",
+        "must",
+        "-a",
         "process halts within one second",
     ]);
     assert!(o.status.success(), "add: {}", stderr(&o));
@@ -61,7 +89,14 @@ fn req_0084_status_machine_rejects_irregular_transitions() {
     s.init("p");
     add_one(&s);
     // AC1: draft -> verified fails without --force; error names the path.
-    let o = s.run(&["update", "REQ-0001", "--status", "verified", "--reason", "try to skip ahead"]);
+    let o = s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "verified",
+        "--reason",
+        "try to skip ahead",
+    ]);
     assert!(!o.status.success(), "draft->verified should fail");
     let e = stderr(&o).to_lowercase();
     assert!(
@@ -71,30 +106,74 @@ fn req_0084_status_machine_rejects_irregular_transitions() {
     );
     // AC2: draft -> approved succeeds (carve-out).
     assert!(s
-        .run(&["update", "REQ-0001", "--status", "approved", "--reason", "reviewed and approved"])
+        .run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            "approved",
+            "--reason",
+            "reviewed and approved"
+        ])
         .status
         .success());
     // AC3: active -> obsolete succeeds.
     assert!(s
-        .run(&["update", "REQ-0001", "--status", "obsolete", "--reason", "superseded by another"])
+        .run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            "obsolete",
+            "--reason",
+            "superseded by another"
+        ])
         .status
         .success());
     // AC5: obsolete -> draft requires --force.
     assert!(!s
-        .run(&["update", "REQ-0001", "--status", "draft", "--reason", "revive this please"])
+        .run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            "draft",
+            "--reason",
+            "revive this please"
+        ])
         .status
         .success());
     assert!(s
-        .run(&["update", "REQ-0001", "--status", "draft", "--reason", "revive with the force flag", "--force"])
+        .run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            "draft",
+            "--reason",
+            "revive with the force flag",
+            "--force"
+        ])
         .status
         .success());
     // AC4: verified -> implemented requires --force (reach verified via force).
     assert!(s
-        .run(&["update", "REQ-0001", "--status", "verified", "--reason", "force to verified for test", "--force"])
+        .run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            "verified",
+            "--reason",
+            "force to verified for test",
+            "--force"
+        ])
         .status
         .success());
     assert!(!s
-        .run(&["update", "REQ-0001", "--status", "implemented", "--reason", "demote it back"])
+        .run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            "implemented",
+            "--reason",
+            "demote it back"
+        ])
         .status
         .success());
 }
@@ -108,7 +187,11 @@ fn req_0090_id_resolution_normalises_and_suggests() {
     add_one(&s);
     // AC1: normalised forms resolve.
     for form in ["req-1", "REQ-1", "req-0001", "REQ-0001"] {
-        assert!(s.run(&["show", form]).status.success(), "{} should resolve", form);
+        assert!(
+            s.run(&["show", form]).status.success(),
+            "{} should resolve",
+            form
+        );
     }
     // AC2: a near-miss id suggests the nearest existing id.
     let o = s.run(&["show", "REQ-0003"]);
@@ -135,15 +218,31 @@ fn req_0094_status_value_case_insensitive() {
     s.init("p");
     add_one(&s);
     assert!(s
-        .run(&["update", "REQ-0001", "--status", "Approved", "--reason", "case-insensitive approve"])
+        .run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            "Approved",
+            "--reason",
+            "case-insensitive approve"
+        ])
         .status
         .success());
     assert!(s
-        .run(&["update", "REQ-0001", "--status", "IMPLEMENTED", "--reason", "case-insensitive implement"])
+        .run(&[
+            "update",
+            "REQ-0001",
+            "--status",
+            "IMPLEMENTED",
+            "--reason",
+            "case-insensitive implement"
+        ])
         .status
         .success());
     assert!(
-        stdout(&s.run(&["show", "REQ-0001"])).to_lowercase().contains("implemented"),
+        stdout(&s.run(&["show", "REQ-0001"]))
+            .to_lowercase()
+            .contains("implemented"),
         "status folds to canonical lowercase"
     );
 }
@@ -167,7 +266,11 @@ fn req_0091_repair_force_resigns_despite_errors() {
     let o = s.run(&["repair", "--confirm-direct-edit", "--force"]);
     assert!(o.status.success(), "repair --force: {}", stderr(&o));
     let out = format!("{}{}", stdout(&o), stderr(&o)).to_lowercase();
-    assert!(out.contains("error") && out.contains("conform"), "warns + points to conform: {}", out);
+    assert!(
+        out.contains("error") && out.contains("conform"),
+        "warns + points to conform: {}",
+        out
+    );
     // AC3: the file now loads and conform reports the surviving error.
     let c = s.run(&["conform"]);
     assert!(stdout(&c).to_lowercase().contains("error") || !c.status.success());
@@ -180,19 +283,40 @@ fn req_0101_lint_audits_quality_dimensions() {
     s.init("p");
     add_one(&s);
     // lint quality findings count ACTIVE requirements; advance out of draft.
-    s.run(&["update", "REQ-0001", "--status", "approved", "--reason", "make active for lint"]);
+    s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "approved",
+        "--reason",
+        "make active for lint",
+    ]);
     // Scan the (markerless) sandbox dir so the source-marker finding populates,
     // rather than the surrounding repo whose source carries REQ markers.
     let dir = s.dir.path().to_str().unwrap().to_string();
     let md = stdout(&s.run(&["lint", "--path", &dir]));
     assert!(md.contains("Quality observations"), "md: {}", md);
-    for needle in ["no source marker", "Rationales under", "acceptance criterion", "no test record"] {
-        assert!(md.contains(needle), "lint markdown missing '{}':\n{}", needle, md);
+    for needle in [
+        "no source marker",
+        "Rationales under",
+        "acceptance criterion",
+        "no test record",
+    ] {
+        assert!(
+            md.contains(needle),
+            "lint markdown missing '{}':\n{}",
+            needle,
+            md
+        );
     }
     let js = s.run(&["lint", "--path", &dir, "--json"]);
     assert!(js.status.success());
     let v: serde_json::Value = serde_json::from_str(&stdout(&js)).expect("lint json");
-    assert!(v["quality"].is_object() && v["conformance"].is_object(), "json shape: {}", stdout(&js));
+    assert!(
+        v["quality"].is_object() && v["conformance"].is_object(),
+        "json shape: {}",
+        stdout(&js)
+    );
 }
 
 /// REQ-0107: lint excludes inspection-only requirements from the
@@ -203,25 +327,57 @@ fn req_0107_lint_excludes_inspection_only_from_no_test() {
     s.init("p");
     add_one(&s); // REQ-0001: ordinary, no test record.
     let o = s.run(&[
-        "add", "-t", "Inspect only requirement here", "-s",
-        "The system shall be inspected only.", "-r", "inspection rationale phrase",
-        "-k", "functional", "-p", "could", "-a", "passes visual inspection",
-        "--tag", "inspection-only",
+        "add",
+        "-t",
+        "Inspect only requirement here",
+        "-s",
+        "The system shall be inspected only.",
+        "-r",
+        "inspection rationale phrase",
+        "-k",
+        "functional",
+        "-p",
+        "could",
+        "-a",
+        "passes visual inspection",
+        "--tag",
+        "inspection-only",
     ]);
     assert!(o.status.success(), "add inspection-only: {}", stderr(&o));
     // The no-test-record finding counts ACTIVE requirements; advance both.
-    s.run(&["update", "REQ-0001", "--status", "approved", "--reason", "make active for lint"]);
-    s.run(&["update", "REQ-0002", "--status", "approved", "--reason", "make active for lint"]);
-    let v: serde_json::Value =
-        serde_json::from_str(&stdout(&s.run(&["lint", "--json"]))).unwrap();
+    s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "approved",
+        "--reason",
+        "make active for lint",
+    ]);
+    s.run(&[
+        "update",
+        "REQ-0002",
+        "--status",
+        "approved",
+        "--reason",
+        "make active for lint",
+    ]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["lint", "--json"]))).unwrap();
     let ntr: Vec<String> = v["quality"]["no_test_record"]
         .as_array()
         .unwrap()
         .iter()
         .map(|x| x.as_str().unwrap().to_string())
         .collect();
-    assert!(ntr.contains(&"REQ-0001".to_string()), "ordinary no-test req listed: {:?}", ntr);
-    assert!(!ntr.contains(&"REQ-0002".to_string()), "inspection-only excluded: {:?}", ntr);
+    assert!(
+        ntr.contains(&"REQ-0001".to_string()),
+        "ordinary no-test req listed: {:?}",
+        ntr
+    );
+    assert!(
+        !ntr.contains(&"REQ-0002".to_string()),
+        "inspection-only excluded: {:?}",
+        ntr
+    );
 }
 
 /// REQ-0095: re-adding a title similar to a recently-obsolete requirement warns
@@ -232,26 +388,63 @@ fn req_0095_warns_on_readd_similar_to_recent_obsolete() {
     s.init("p");
     assert!(s
         .run(&[
-            "add", "-t", "Stop the motor on demand", "-s",
-            "The system shall stop the motor on demand.", "-r",
-            "operator safety constraint", "-k", "functional", "-p", "must", "-a",
+            "add",
+            "-t",
+            "Stop the motor on demand",
+            "-s",
+            "The system shall stop the motor on demand.",
+            "-r",
+            "operator safety constraint",
+            "-k",
+            "functional",
+            "-p",
+            "must",
+            "-a",
             "motor halts within one second",
         ])
         .status
         .success());
-    s.run(&["update", "REQ-0001", "--status", "obsolete", "--reason", "superseded by a newer approach"]);
+    s.run(&[
+        "update",
+        "REQ-0001",
+        "--status",
+        "obsolete",
+        "--reason",
+        "superseded by a newer approach",
+    ]);
     let o = s.run(&[
-        "add", "-t", "Stop the motor on demand", "-s",
-        "The system shall stop the motor immediately on demand.", "-r",
-        "operator safety constraint here", "-k", "functional", "-p", "must", "-a",
+        "add",
+        "-t",
+        "Stop the motor on demand",
+        "-s",
+        "The system shall stop the motor immediately on demand.",
+        "-r",
+        "operator safety constraint here",
+        "-k",
+        "functional",
+        "-p",
+        "must",
+        "-a",
         "motor halts within one second flat",
     ]);
     // AC2: the add is not blocked — a fresh Draft is created.
-    assert!(o.status.success(), "add must not be blocked: {}", stderr(&o));
+    assert!(
+        o.status.success(),
+        "add must not be blocked: {}",
+        stderr(&o)
+    );
     let out = format!("{}{}", stdout(&o), stderr(&o));
     // AC1: the warning names the obsolete id.
-    assert!(out.contains("similar") && out.contains("REQ-0001"), "warn names obsolete id:\n{}", out);
-    assert!(out.contains("Added REQ-0002"), "draft still created:\n{}", out);
+    assert!(
+        out.contains("similar") && out.contains("REQ-0001"),
+        "warn names obsolete id:\n{}",
+        out
+    );
+    assert!(
+        out.contains("Added REQ-0002"),
+        "draft still created:\n{}",
+        out
+    );
 }
 
 /// REQ-0118: a --dry-run invocation never writes project.req — two consecutive
@@ -261,15 +454,27 @@ fn req_0118_dry_run_never_persists() {
     let s = Sandbox::new();
     s.init("p");
     let doc = s.dir.path().join("reqs.md");
-    std::fs::write(&doc, "# Reqs\n\n## The system shall log every error to disk\n\nRationale: auditability.\n").unwrap();
+    std::fs::write(
+        &doc,
+        "# Reqs\n\n## The system shall log every error to disk\n\nRationale: auditability.\n",
+    )
+    .unwrap();
     let before = std::fs::read(s.path()).unwrap();
     for _ in 0..2 {
-        let _ = s.run(&["import", "--format", "markdown", "--dry-run", doc.to_str().unwrap()]);
+        let _ = s.run(&[
+            "import",
+            "--format",
+            "markdown",
+            "--dry-run",
+            doc.to_str().unwrap(),
+        ]);
     }
     let after = std::fs::read(s.path()).unwrap();
     assert_eq!(before, after, "dry-run must not modify project.req");
     assert!(
-        !stdout(&s.run(&["list"])).to_lowercase().contains("log every error"),
+        !stdout(&s.run(&["list"]))
+            .to_lowercase()
+            .contains("log every error"),
         "dry-run must not persist a requirement"
     );
 }
@@ -288,11 +493,17 @@ fn req_0180_ingest_binds_commit_and_rejects_missing() {
         ),
     )
     .unwrap();
-    assert!(run_in(&s, &["test", "ingest", p.to_str().unwrap()]).status.success());
+    assert!(run_in(&s, &["test", "ingest", p.to_str().unwrap()])
+        .status
+        .success());
     let v: serde_json::Value =
         serde_json::from_str(&stdout(&run_in(&s, &["show", "REQ-0001", "--json"]))).unwrap();
     let last = v["tests"].as_array().unwrap().last().unwrap();
-    assert_eq!(last["commit"].as_str().unwrap(), sha, "record bound to the payload commit");
+    assert_eq!(
+        last["commit"].as_str().unwrap(),
+        sha,
+        "record bound to the payload commit"
+    );
     // AC3: a payload with no commit is rejected.
     let p2 = s.dir.path().join("nocommit.json");
     std::fs::write(
@@ -301,7 +512,9 @@ fn req_0180_ingest_binds_commit_and_rejects_missing() {
     )
     .unwrap();
     assert!(
-        !run_in(&s, &["test", "ingest", p2.to_str().unwrap()]).status.success(),
+        !run_in(&s, &["test", "ingest", p2.to_str().unwrap()])
+            .status
+            .success(),
         "a payload missing the commit must be rejected"
     );
 }
@@ -320,13 +533,18 @@ fn req_0183_external_decision_populates_dossier() {
         ),
     )
     .unwrap();
-    assert!(run_in(&s, &["test", "ingest", p.to_str().unwrap()]).status.success());
+    assert!(run_in(&s, &["test", "ingest", p.to_str().unwrap()])
+        .status
+        .success());
     let v: serde_json::Value =
         serde_json::from_str(&stdout(&run_in(&s, &["show", "REQ-0001", "--json"]))).unwrap();
     let ver = &v["verification"];
     assert_eq!(ver["plan"].as_str().unwrap(), "bench plan here");
     assert_eq!(ver["statement"].as_str().unwrap(), "meets the obligation");
-    assert_eq!(ver["analysis"]["summary"].as_str().unwrap(), "reviewed on bench");
+    assert_eq!(
+        ver["analysis"]["summary"].as_str().unwrap(),
+        "reviewed on bench"
+    );
     // AC3: a decision whose commit does not match the anchor must not apply.
     let p2 = s.dir.path().join("d2.json");
     std::fs::write(
@@ -353,7 +571,8 @@ fn req_0190_conform_replaces_validate() {
     let o = s.run(&["validate"]);
     assert!(!o.status.success(), "validate must be gone");
     assert!(
-        stderr(&o).to_lowercase().contains("unrecognized") || stderr(&o).to_lowercase().contains("unexpected"),
+        stderr(&o).to_lowercase().contains("unrecognized")
+            || stderr(&o).to_lowercase().contains("unexpected"),
         "validate should be an unknown subcommand: {}",
         stderr(&o)
     );
@@ -367,7 +586,9 @@ fn req_0196_terminology_reference_available() {
     let body = stdout(&s.run(&["help", "terminology"]));
     let up = body.to_uppercase();
     assert!(
-        up.contains("VERIFICATION") && up.contains("VALIDATION") && body.to_lowercase().contains("conform"),
+        up.contains("VERIFICATION")
+            && up.contains("VALIDATION")
+            && body.to_lowercase().contains("conform"),
         "terminology reference must define the V&V vocabulary:\n{}",
         body
     );
@@ -378,9 +599,38 @@ fn req_0196_terminology_reference_available() {
 fn req_0092_status_tag_scopes_report() {
     let s = Sandbox::new();
     s.init("p");
-    s.run(&["add", "-t", "Alpha thing here", "-s", "The system shall do alpha.", "-r", "alpha rationale here", "-k", "functional", "-a", "alpha works", "--tag", "alpha"]);
-    s.run(&["add", "-t", "Beta thing here", "-s", "The system shall do beta.", "-r", "beta rationale here", "-k", "functional", "-a", "beta works", "--tag", "beta"]);
-    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["status", "--json", "--tag", "alpha"]))).unwrap();
+    s.run(&[
+        "add",
+        "-t",
+        "Alpha thing here",
+        "-s",
+        "The system shall do alpha.",
+        "-r",
+        "alpha rationale here",
+        "-k",
+        "functional",
+        "-a",
+        "alpha works",
+        "--tag",
+        "alpha",
+    ]);
+    s.run(&[
+        "add",
+        "-t",
+        "Beta thing here",
+        "-s",
+        "The system shall do beta.",
+        "-r",
+        "beta rationale here",
+        "-k",
+        "functional",
+        "-a",
+        "beta works",
+        "--tag",
+        "beta",
+    ]);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout(&s.run(&["status", "--json", "--tag", "alpha"]))).unwrap();
     assert_eq!(v["total"].as_i64().unwrap(), 1, "tag must scope to one req");
     assert_eq!(v["filter"]["tags"][0].as_str().unwrap(), "alpha");
 }
@@ -396,7 +646,10 @@ fn req_0022_atomic_write_leaves_no_tmp() {
         .filter_map(|e| e.ok())
         .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
         .collect();
-    assert!(leftover.is_empty(), "no .tmp file should remain after an atomic save");
+    assert!(
+        leftover.is_empty(),
+        "no .tmp file should remain after an atomic save"
+    );
 }
 
 /// REQ-0102: conformance findings name both the cause and the fix.
@@ -406,10 +659,30 @@ fn req_0102_findings_name_cause_and_fix() {
     s.init("p");
     // A compound statement triggers REQ-V-0010, whose message names the cause
     // (compound) and the fix (`req split`).
-    s.run(&["add", "-t", "Compound thing here", "-s", "The system shall do A and shall do B and shall do C.", "-r", "exercise the finding message", "-k", "functional", "-a", "does a and b and c"]);
+    s.run(&[
+        "add",
+        "-t",
+        "Compound thing here",
+        "-s",
+        "The system shall do A and shall do B and shall do C.",
+        "-r",
+        "exercise the finding message",
+        "-k",
+        "functional",
+        "-a",
+        "does a and b and c",
+    ]);
     let out = stdout(&s.run(&["conform"]));
-    assert!(out.contains("REQ-V-0010"), "expected the compound finding:\n{}", out);
-    assert!(out.contains("split"), "finding should name the `req split` fix:\n{}", out);
+    assert!(
+        out.contains("REQ-V-0010"),
+        "expected the compound finding:\n{}",
+        out
+    );
+    assert!(
+        out.contains("split"),
+        "finding should name the `req split` fix:\n{}",
+        out
+    );
 }
 
 /// REQ-0051: a candidate rejected by the conformance check does not burn a REQ ID.
@@ -418,11 +691,39 @@ fn req_0051_failed_add_does_not_burn_id() {
     let s = Sandbox::new();
     s.init("p");
     add_one(&s); // REQ-0001
-    let bad = s.run(&["add", "-t", "X", "-s", "too short", "-r", "x", "-k", "functional", "-a", "a"]);
+    let bad = s.run(&[
+        "add",
+        "-t",
+        "X",
+        "-s",
+        "too short",
+        "-r",
+        "x",
+        "-k",
+        "functional",
+        "-a",
+        "a",
+    ]);
     assert!(!bad.status.success(), "invalid add must be rejected");
-    let ok = s.run(&["add", "-t", "Second valid thing", "-s", "The system shall do the second thing.", "-r", "second rationale here", "-k", "functional", "-a", "second works"]);
+    let ok = s.run(&[
+        "add",
+        "-t",
+        "Second valid thing",
+        "-s",
+        "The system shall do the second thing.",
+        "-r",
+        "second rationale here",
+        "-k",
+        "functional",
+        "-a",
+        "second works",
+    ]);
     assert!(ok.status.success(), "valid add: {}", stderr(&ok));
-    assert!(stdout(&ok).contains("REQ-0002"), "rejected add must not burn the ID:\n{}", stdout(&ok));
+    assert!(
+        stdout(&ok).contains("REQ-0002"),
+        "rejected add must not burn the ID:\n{}",
+        stdout(&ok)
+    );
 }
 
 /// SR-0001: a project.req whose content fails its integrity hash is refused at
@@ -432,12 +733,18 @@ fn sr_0001_integrity_tamper_refused_with_repair_pointer() {
     let s = Sandbox::new();
     s.init("p");
     let p = s.path();
-    let body = std::fs::read_to_string(&p).unwrap().replace("\"name\": \"p\"", "\"name\": \"X\"");
+    let body = std::fs::read_to_string(&p)
+        .unwrap()
+        .replace("\"name\": \"p\"", "\"name\": \"X\"");
     std::fs::write(&p, body).unwrap();
     let o = s.run(&["list"]);
     assert!(!o.status.success(), "a tampered file must refuse to load");
     let e = stderr(&o).to_lowercase();
-    assert!(e.contains("integrity") && e.contains("repair"), "error must flag integrity and point to repair:\n{}", stderr(&o));
+    assert!(
+        e.contains("integrity") && e.contains("repair"),
+        "error must flag integrity and point to repair:\n{}",
+        stderr(&o)
+    );
 }
 
 /// SR-0004: the verification provenance report classifies every Verified item
@@ -447,10 +754,23 @@ fn sr_0001_integrity_tamper_refused_with_repair_pointer() {
 fn sr_0004_provenance_report_classifies_categories() {
     let s = Sandbox::new();
     s.init("p");
-    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["verification", "report", "--json"]))).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout(&s.run(&["verification", "report", "--json"]))).unwrap();
     let counts = &v["counts"];
-    for k in ["genuine", "exempt_backfilled", "exempt_no_dossier", "stale", "unconfirmed", "ungated"] {
-        assert!(counts.get(k).is_some(), "provenance report must report category '{}':\n{}", k, v["counts"]);
+    for k in [
+        "genuine",
+        "exempt_backfilled",
+        "exempt_no_dossier",
+        "stale",
+        "unconfirmed",
+        "ungated",
+    ] {
+        assert!(
+            counts.get(k).is_some(),
+            "provenance report must report category '{}':\n{}",
+            k,
+            v["counts"]
+        );
     }
 }
 
@@ -467,7 +787,8 @@ fn sr_0006_conform_disclaims_vv_and_points_to_status() {
         "conform output must disclaim V&V and point to `req verification status`:\n{}",
         human
     );
-    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["conform", "--json"]))).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout(&s.run(&["conform", "--json"]))).unwrap();
     let note = v["note"].as_str().unwrap_or("");
     assert!(
         note.contains("well-formedness") && note.contains("verification status"),
@@ -486,28 +807,130 @@ fn sr_0002_sil_gate_at_sil4_records_audited_exception() {
     s.enable_safety();
     // Force a leaf to SIL4 so the chain inherits SIL4 deterministically.
     s.run(&["safety", "calibrate", "--set", "C_D/F_B/P_B=W3:4,W2:3,W1:2"]);
-    s.run(&["hazard", "add", "-t", "Severe hazard", "--harm", "death", "-C", "C_D", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
-    s.run(&["sf", "add", "-t", "Protective function", "--mitigates", "HAZ-0001"]);
-    s.run(&["sreq", "add", "-t", "Stop the blade now", "-s", "The system shall stop the blade on demand.", "-r", "operator safety during cleaning", "-a", "blade stops within 200ms", "--realizes", "SF-0001"]);
-    assert!(stdout(&s.run(&["sreq", "show", "SR-0001"])).contains("SIL4"), "SR must inherit SIL4");
+    s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Severe hazard",
+        "--harm",
+        "death",
+        "-C",
+        "C_D",
+        "-F",
+        "F_B",
+        "-P",
+        "P_B",
+        "-W",
+        "W3",
+    ]);
+    s.run(&[
+        "sf",
+        "add",
+        "-t",
+        "Protective function",
+        "--mitigates",
+        "HAZ-0001",
+    ]);
+    s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the blade now",
+        "-s",
+        "The system shall stop the blade on demand.",
+        "-r",
+        "operator safety during cleaning",
+        "-a",
+        "blade stops within 200ms",
+        "--realizes",
+        "SF-0001",
+    ]);
+    assert!(
+        stdout(&s.run(&["sreq", "show", "SR-0001"])).contains("SIL4"),
+        "SR must inherit SIL4"
+    );
     for st in ["approved", "implemented"] {
-        s.run(&["sreq", "update", "SR-0001", "--status", st, "--reason", "advance step"]);
+        s.run(&[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            st,
+            "--reason",
+            "advance step",
+        ]);
     }
     // Genuine dossier so the dossier gate is satisfied (SIL gate is under test).
-    s.run(&["verification", "plan", "SR-0001", "--plan", "review + bench test"]);
-    s.run(&["verification", "analysis", "SR-0001", "--result", "pass", "--findings", "stop logic reviewed"]);
-    s.run(&["verification", "test", "SR-0001", "--result", "pass", "--findings", "bench measured the stop"]);
-    s.run(&["verification", "conclude", "SR-0001", "--statement", "meets the stop obligation"]);
+    s.run(&[
+        "verification",
+        "plan",
+        "SR-0001",
+        "--plan",
+        "review + bench test",
+    ]);
+    s.run(&[
+        "verification",
+        "analysis",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "stop logic reviewed",
+    ]);
+    s.run(&[
+        "verification",
+        "test",
+        "SR-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "bench measured the stop",
+    ]);
+    s.run(&[
+        "verification",
+        "conclude",
+        "SR-0001",
+        "--statement",
+        "meets the stop obligation",
+    ]);
     // Gate blocks inspection-only promotion at SIL4.
-    let blocked = s.run(&["sreq", "verify", "SR-0001", "--by", "inspection", "--promote"]);
-    assert!(!blocked.status.success(), "SIL4 inspection promote must be blocked");
-    assert!(stderr(&blocked).contains("SIL-rigour gate"), "stderr: {}", stderr(&blocked));
+    let blocked = s.run(&[
+        "sreq",
+        "verify",
+        "SR-0001",
+        "--by",
+        "inspection",
+        "--promote",
+    ]);
+    assert!(
+        !blocked.status.success(),
+        "SIL4 inspection promote must be blocked"
+    );
+    assert!(
+        stderr(&blocked).contains("SIL-rigour gate"),
+        "stderr: {}",
+        stderr(&blocked)
+    );
     // --force --reason succeeds AND records the audited exception.
-    let forced = s.run(&["sreq", "verify", "SR-0001", "--by", "inspection", "--promote", "--force", "--reason", "accepted at design review"]);
+    let forced = s.run(&[
+        "sreq",
+        "verify",
+        "SR-0001",
+        "--by",
+        "inspection",
+        "--promote",
+        "--force",
+        "--reason",
+        "accepted at design review",
+    ]);
     assert!(forced.status.success(), "force+reason: {}", stderr(&forced));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["sreq", "show", "SR-0001", "--json"]))).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout(&s.run(&["sreq", "show", "SR-0001", "--json"]))).unwrap();
     let last = v["tests"].as_array().unwrap().last().unwrap();
-    assert_eq!(last["sil_gate_exception"], true, "audited exception must be recorded on the record");
+    assert_eq!(
+        last["sil_gate_exception"], true,
+        "audited exception must be recorded on the record"
+    );
 }
 
 /// SR-0003 (full scope): a reasoned, attributed history entry is appended for a
@@ -518,24 +941,75 @@ fn sr_0003_history_appended_for_hazard_sf_and_sr() {
     let s = Sandbox::new();
     s.init("p");
     s.enable_safety();
-    s.run(&["hazard", "add", "-t", "A hazard", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    s.run(&[
+        "hazard", "add", "-t", "A hazard", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B",
+        "-W", "W3",
+    ]);
     s.run(&["sf", "add", "-t", "A function", "--mitigates", "HAZ-0001"]);
-    s.run(&["sreq", "add", "-t", "Stop the blade now", "-s", "The system shall stop the blade.", "-r", "operator safety here", "-a", "stops", "--realizes", "SF-0001"]);
+    s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the blade now",
+        "-s",
+        "The system shall stop the blade.",
+        "-r",
+        "operator safety here",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
     // Mutate each family with a reason.
-    s.run(&["hazard", "update", "HAZ-0001", "-t", "A hazard renamed", "--reason", "retitle hazard for clarity"]);
-    s.run(&["sf", "update", "SF-0001", "-t", "A function renamed", "--reason", "retitle function for clarity"]);
-    s.run(&["sreq", "update", "SR-0001", "--status", "approved", "--reason", "approve the requirement"]);
-    for (cmd, id) in [("hazard", "HAZ-0001"), ("sf", "SF-0001"), ("sreq", "SR-0001")] {
-        let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&[cmd, "show", id, "--json"]))).unwrap();
+    s.run(&[
+        "hazard",
+        "update",
+        "HAZ-0001",
+        "-t",
+        "A hazard renamed",
+        "--reason",
+        "retitle hazard for clarity",
+    ]);
+    s.run(&[
+        "sf",
+        "update",
+        "SF-0001",
+        "-t",
+        "A function renamed",
+        "--reason",
+        "retitle function for clarity",
+    ]);
+    s.run(&[
+        "sreq",
+        "update",
+        "SR-0001",
+        "--status",
+        "approved",
+        "--reason",
+        "approve the requirement",
+    ]);
+    for (cmd, id) in [
+        ("hazard", "HAZ-0001"),
+        ("sf", "SF-0001"),
+        ("sreq", "SR-0001"),
+    ] {
+        let v: serde_json::Value =
+            serde_json::from_str(&stdout(&s.run(&[cmd, "show", id, "--json"]))).unwrap();
         let hist = v["history"].as_array().unwrap();
-        assert!(hist.len() >= 2, "{} must accumulate history (append-only): {:?}", id, hist);
+        assert!(
+            hist.len() >= 2,
+            "{} must accumulate history (append-only): {:?}",
+            id,
+            hist
+        );
         let last = hist.last().unwrap();
         assert!(
             last["actor"].as_str().filter(|s| !s.is_empty()).is_some()
                 && last["action"].as_str().filter(|s| !s.is_empty()).is_some()
                 && last["reason"].as_str().filter(|s| !s.is_empty()).is_some(),
             "{} latest history entry must carry actor + action + reason: {}",
-            id, last
+            id,
+            last
         );
     }
 }

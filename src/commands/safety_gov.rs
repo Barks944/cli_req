@@ -335,7 +335,13 @@ fn render_sr(
     let mut out: Vec<String> = Vec::new();
     out.push(String::new());
     out.push("━".repeat(74));
-    out.push(format!("  [{}/{}]  {} — {}", idx + 1, total, sr.id, sr.title));
+    out.push(format!(
+        "  [{}/{}]  {} — {}",
+        idx + 1,
+        total,
+        sr.id,
+        sr.title
+    ));
     out.push("━".repeat(74));
     out.push(String::new());
 
@@ -352,18 +358,30 @@ fn render_sr(
         for l in &sf.links {
             if let Some(h) = project.hazards.get(&l.target) {
                 let req = project.required_sil(h).map(|s| s.as_str()).unwrap_or("—");
-                field(&mut out, "HAZARD", &format!("{}  ·  required {}  ·  {}", h.id, req, h.title));
+                field(
+                    &mut out,
+                    "HAZARD",
+                    &format!("{}  ·  required {}  ·  {}", h.id, req, h.title),
+                );
                 field(&mut out, "harm", &h.harm);
             }
         }
         let asil = project.allocated_sil(sf).map(|s| s.as_str()).unwrap_or("—");
-        field(&mut out, "MITIGATED BY", &format!("{}  ·  {}  ·  {}", sf.id, asil, sf.title));
+        field(
+            &mut out,
+            "MITIGATED BY",
+            &format!("{}  ·  {}  ·  {}", sf.id, asil, sf.title),
+        );
         out.push(String::new());
     }
 
     // The safety requirement itself.
     let inh = project.inherited_sil(sr).map(|s| s.as_str()).unwrap_or("—");
-    field(&mut out, "REQUIREMENT", &format!("inherited {}  ·  status {}", inh, sr.status.as_str()));
+    field(
+        &mut out,
+        "REQUIREMENT",
+        &format!("inherited {}  ·  status {}", inh, sr.status.as_str()),
+    );
     field(&mut out, "", &sr.statement);
 
     // REQ-0198: the verification dossier behind the requirement, not just its
@@ -376,7 +394,11 @@ fn render_sr(
                 .verdict
                 .map(|o| o.as_str().to_uppercase())
                 .unwrap_or_else(|| "pending".to_string());
-            let by = if v.actor.is_empty() { "—".to_string() } else { v.actor.clone() };
+            let by = if v.actor.is_empty() {
+                "—".to_string()
+            } else {
+                v.actor.clone()
+            };
             let at = v
                 .concluded
                 .map(|d| d.format("%Y-%m-%d").to_string())
@@ -389,7 +411,10 @@ fn render_sr(
             field(
                 &mut out,
                 "EVIDENCE",
-                &format!("verdict {}  ·  concluded by {} @ {}  ·  {}", verdict, by, commit, at),
+                &format!(
+                    "verdict {}  ·  concluded by {} @ {}  ·  {}",
+                    verdict, by, commit, at
+                ),
             );
             if dossier_stale(v, id, root) {
                 field(
@@ -398,7 +423,11 @@ fn render_sr(
                     "anchored source has changed since conclude — re-verify before relying on this",
                 );
             } else if v.content_hash.is_some() {
-                field(&mut out, "anchor", "fresh — evidence matches the current source");
+                field(
+                    &mut out,
+                    "anchor",
+                    "fresh — evidence matches the current source",
+                );
             }
             match &v.human_confirmation {
                 Some(hc) => field(
@@ -412,15 +441,24 @@ fn render_sr(
                     &format!("not yet co-signed — `req verification confirm {}`", sr.id),
                 ),
             }
+            // REQ-0198: --full reveals the analysis/testing detail and refs.
             if full {
                 if let Some(a) = &v.analysis {
-                    field(&mut out, "analysis", &format!("[{}] {}", a.outcome.as_str(), a.summary));
+                    field(
+                        &mut out,
+                        "analysis",
+                        &format!("[{}] {}", a.outcome.as_str(), a.summary),
+                    );
                     if !a.references.is_empty() {
                         field(&mut out, "", &format!("refs: {}", a.references.join(", ")));
                     }
                 }
                 if let Some(t) = &v.testing {
-                    field(&mut out, "testing", &format!("[{}] {}", t.outcome.as_str(), t.summary));
+                    field(
+                        &mut out,
+                        "testing",
+                        &format!("[{}] {}", t.outcome.as_str(), t.summary),
+                    );
                     if !t.references.is_empty() {
                         field(&mut out, "", &format!("refs: {}", t.references.join(", ")));
                     }
@@ -432,7 +470,8 @@ fn render_sr(
         }
     }
 
-    // The human's call on this requirement.
+    // REQ-0169/0170: the human's call — render the walkthrough acknowledgement
+    // state (acknowledged / objected / stale / awaiting) for this requirement.
     out.push(format!("  {}", "─".repeat(70)));
     match chain_incompleteness(project, id) {
         Some(why) => {
@@ -445,7 +484,9 @@ fn render_sr(
                 a.reviewer,
                 a.at.format("%Y-%m-%d %H:%M UTC")
             )),
-            Some(a) if a.objected => out.push(format!("  ✗  objection on record by {}", a.reviewer)),
+            Some(a) if a.objected => {
+                out.push(format!("  ✗  objection on record by {}", a.reviewer))
+            }
             Some(_) => {
                 out.push("  ⚠  prior acknowledgement is stale".to_string());
                 out.push(format!(

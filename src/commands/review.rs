@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::cli::ReviewArgs;
+use crate::conform;
 use crate::model::Project;
 use crate::storage::{self, resolve_path};
-use crate::conform;
 
 pub fn run(args: ReviewArgs, file: &Option<PathBuf>) -> Result<()> {
     let path = resolve_path(file);

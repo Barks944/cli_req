@@ -7,8 +7,8 @@ use dialoguer::{theme::ColorfulTheme, Input, Select};
 use std::path::PathBuf;
 
 use crate::cli::{
-    AddArgs, CoverageArgs, DeleteArgs, DiffArgs, DoctorArgs, ExportArgs, ExportFormat, ListArgs,
-    ConformArgs, NextArgs, ShowArgs, StaleArgs, StatusArgs, UpdateArgs, VersionArgs,
+    AddArgs, ConformArgs, CoverageArgs, DeleteArgs, DiffArgs, DoctorArgs, ExportArgs, ExportFormat,
+    ListArgs, NextArgs, ShowArgs, StaleArgs, StatusArgs, UpdateArgs, VersionArgs,
 };
 use crate::commands;
 use crate::storage::load_resolved;
