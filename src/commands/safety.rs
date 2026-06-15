@@ -11,10 +11,11 @@ use chrono::Utc;
 use std::path::PathBuf;
 
 use crate::cli::{
-    HazardAddArgs, HazardAdequacyArgs, HazardAssessArgs, HazardCmd, HazardConfirmArgs,
-    HazardListArgs, HazardShowArgs, HazardUpdateArgs, SfAddArgs, SfCmd, SfListArgs, SfMitigateArgs,
-    SfShowArgs, SfUpdateArgs, SreqAddArgs, SreqCmd, SreqListArgs, SreqRealizeArgs, SreqShowArgs,
-    SreqUpdateArgs, SreqVerifyArgs, TraceArgs,
+    HazAdqConcludeArgs, HazAdqCoverArgs, HazAdqPlanArgs, HazardAddArgs, HazardAdequacyCmd,
+    HazardAssessArgs, HazardCmd, HazardConfirmArgs, HazardListArgs, HazardShowArgs,
+    HazardUpdateArgs, SfAddArgs, SfCmd, SfListArgs, SfMitigateArgs, SfShowArgs, SfUpdateArgs,
+    SreqAddArgs, SreqCmd, SreqListArgs, SreqRealizeArgs, SreqShowArgs, SreqUpdateArgs,
+    SreqVerifyArgs, TraceArgs,
 };
 use crate::model::{
     EvidenceKind, Hazard, HazardStatus, Link, LinkKind, Project, SafetyFunction,
@@ -120,7 +121,7 @@ pub fn run_hazard(cmd: HazardCmd, file: &Option<PathBuf>) -> Result<()> {
         }
         HazardCmd::Adequacy(a) => {
             super::safety_gov::ensure_enabled(file)?;
-            hazard_adequacy(a, file)
+            run_hazard_adequacy(a, file)
         }
         HazardCmd::Confirm(a) => {
             super::safety_gov::ensure_enabled(file)?;
@@ -131,27 +132,103 @@ pub fn run_hazard(cmd: HazardCmd, file: &Option<PathBuf>) -> Result<()> {
     }
 }
 
-// SF-0007 / SR-0008: the hazard adequacy gate — a hazard reaches Verified only
-// via a recorded, human-co-signed residual-risk argument.
-// REQ-0202: record the mitigation-adequacy / residual-risk argument for a
-// hazard. req records and forces the reasoning; it does not perform the HARA
-// or pronounce the risk acceptable. An agent may record the argument; a human
-// co-signs it via `req hazard confirm`.
-fn hazard_adequacy(args: HazardAdequacyArgs, file: &Option<PathBuf>) -> Result<()> {
+fn run_hazard_adequacy(cmd: HazardAdequacyCmd, file: &Option<PathBuf>) -> Result<()> {
+    match cmd {
+        HazardAdequacyCmd::Plan(a) => hazard_adequacy_plan(a, file),
+        HazardAdequacyCmd::Cover(a) => hazard_adequacy_cover(a, file),
+        HazardAdequacyCmd::Conclude(a) => hazard_adequacy_conclude(a, file),
+    }
+}
+
+// SF-0007 / SR-0008 / REQ-0204: the hard chain gate behind a hazard's adequacy.
+// Returns the chain anchor over the mitigating safety functions when every live
+// one is BOTH covered by a walk-through note AND itself Verified; otherwise an
+// error naming the offenders. This is what forces "adequately mitigated by the
+// VERIFIED safety functions" to be literally true before the hazard can conclude
+// or be co-signed.
+fn hazard_adequacy_gate(
+    project: &Project,
+    haz_id: &str,
+    coverage: &[crate::model::CoverageNote],
+) -> Result<String> {
+    use std::collections::HashSet;
+    let sfs = project.mitigating_sfs(haz_id);
+    if sfs.is_empty() {
+        return Err(anyhow!(
+            "{} has no live mitigating safety function — nothing to argue adequacy over. Link one \
+             with `req sf mitigate SF-NNNN {}`.",
+            haz_id,
+            haz_id
+        ));
+    }
+    let covered: HashSet<&str> = coverage.iter().map(|c| c.target.as_str()).collect();
+    let mut uncovered = Vec::new();
+    let mut unverified = Vec::new();
+    let mut tokens = Vec::new();
+    for sf in &sfs {
+        if !covered.contains(sf.id.as_str()) {
+            uncovered.push(sf.id.clone());
+        }
+        let verified = matches!(sf.status, SafetyFunctionStatus::Verified);
+        if !verified {
+            unverified.push(format!("{} ({})", sf.id, sf.status.as_str()));
+        }
+        let ch = sf
+            .verification
+            .as_ref()
+            .and_then(|v| v.content_hash.as_deref());
+        tokens.push(crate::model::chain_token(&sf.id, verified, ch));
+    }
+    if !uncovered.is_empty() {
+        return Err(anyhow!(
+            "{} cannot conclude adequacy — these mitigating safety functions have no walk-through \
+             note: {}. Record one with `req hazard adequacy cover {} --sf SF-NNNN --note \"...\"`.",
+            haz_id,
+            uncovered.join(", "),
+            haz_id
+        ));
+    }
+    if !unverified.is_empty() {
+        return Err(anyhow!(
+            "{} cannot be argued adequately mitigated by VERIFIED safety functions — these are not \
+             Verified: {}. Verify them first (their dossier + human co-sign) so the chain is sound \
+             bottom-up.",
+            haz_id,
+            unverified.join(", ")
+        ));
+    }
+    Ok(crate::model::chain_anchor(&tokens))
+}
+
+// REQ-0204: stage 1 — open (or re-open) the staged adequacy dossier.
+fn hazard_adequacy_plan(args: HazAdqPlanArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_haz(&project, &args.id)?;
-    if args.statement.trim().is_empty() {
-        return Err(anyhow!("--statement must not be empty"));
+    if args.plan.trim().is_empty() {
+        return Err(anyhow!("--plan must not be empty"));
     }
     let now = Utc::now();
     let commit = crate::commands::test_cmd::current_head_sha_opt().unwrap_or_default();
     {
         let h = project.hazards.get_mut(&id).unwrap();
-        // Recording (or revising) the argument clears any prior human co-sign:
-        // a changed adequacy argument must be co-signed afresh.
+        if let Some(a) = &h.adequacy {
+            if a.verdict.is_some() && !args.reopen {
+                return Err(anyhow!(
+                    "{} already has a concluded adequacy dossier — pass --reopen to re-argue it \
+                     (clears the prior verdict and co-sign).",
+                    id
+                ));
+            }
+        }
+        // Opening (or re-opening) starts a fresh walk-through and clears any
+        // prior conclusion / human co-sign.
         h.adequacy = Some(crate::model::AdequacyArgument {
-            statement: args.statement.clone(),
-            credited_external_measures: args.external.clone(),
+            plan: args.plan.clone(),
+            coverage: Vec::new(),
+            statement: String::new(),
+            credited_external_measures: None,
+            verdict: None,
+            chain_anchor: None,
             actor: super::current_actor(),
             at: now,
             commit,
@@ -159,7 +236,11 @@ fn hazard_adequacy(args: HazardAdequacyArgs, file: &Option<PathBuf>) -> Result<(
         });
         h.updated = now;
         h.history.push(super::history(
-            "mitigation-adequacy argument recorded (awaiting human co-sign)",
+            if args.reopen {
+                "adequacy dossier re-opened (plan recorded)"
+            } else {
+                "adequacy dossier opened (plan recorded)"
+            },
             None,
         ));
     }
@@ -168,7 +249,123 @@ fn hazard_adequacy(args: HazardAdequacyArgs, file: &Option<PathBuf>) -> Result<(
     if args.json {
         println!("{}", serde_json::to_string_pretty(&project.hazards[&id])?);
     } else {
-        println!("Recorded mitigation-adequacy argument for {}.", id);
+        println!("Opened adequacy dossier for {}.", id);
+        let sfs = project.mitigating_sfs(&id);
+        println!(
+            "Walk through each mitigating safety function ({}): `req hazard adequacy cover {} --sf SF-NNNN --note \"...\"`",
+            sfs.iter().map(|s| s.id.as_str()).collect::<Vec<_>>().join(", "),
+            id
+        );
+    }
+    Ok(())
+}
+
+// REQ-0204: stage 2 — record why one mitigating SF covers the hazard.
+fn hazard_adequacy_cover(args: HazAdqCoverArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let id = resolve_haz(&project, &args.id)?;
+    let sf_id = resolve_sf(&project, &args.sf)?;
+    if args.note.trim().is_empty() {
+        return Err(anyhow!("--note must not be empty"));
+    }
+    // The SF must actually be a live mitigation of this hazard.
+    if !project.mitigating_sfs(&id).iter().any(|s| s.id == sf_id) {
+        return Err(anyhow!(
+            "{} does not live-mitigate {} — only a mitigating safety function can be covered here.",
+            sf_id,
+            id
+        ));
+    }
+    let now = Utc::now();
+    let actor = super::current_actor();
+    {
+        let h = project.hazards.get_mut(&id).unwrap();
+        let adq = h.adequacy.as_mut().ok_or_else(|| {
+            anyhow!(
+                "{} has no open adequacy dossier — run `req hazard adequacy plan {} --plan \"...\"` first.",
+                id, id
+            )
+        })?;
+        if adq.verdict.is_some() {
+            return Err(anyhow!(
+                "{}'s adequacy dossier is already concluded — re-open it with `req hazard adequacy plan {} --reopen` to revise.",
+                id, id
+            ));
+        }
+        // Replace any prior note for this SF (re-covering revises it).
+        adq.coverage.retain(|c| c.target != sf_id);
+        adq.coverage.push(crate::model::CoverageNote {
+            target: sf_id.clone(),
+            note: args.note.clone(),
+            at: now,
+            actor,
+        });
+        h.updated = now;
+        h.history
+            .push(super::history(format!("adequacy coverage recorded for {}", sf_id), None));
+    }
+    project.updated = now;
+    storage::save(&path, &project)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&project.hazards[&id])?);
+    } else {
+        println!("Recorded adequacy coverage of {} for {}.", sf_id, id);
+    }
+    Ok(())
+}
+
+// REQ-0204: stage 3 — conclude. Hard-gated: every live mitigating SF must be
+// covered AND Verified. Records the residual-risk statement, derives the
+// verdict, and anchors the chain. The hazard stays Mitigated until a human
+// co-signs (`req hazard confirm`).
+fn hazard_adequacy_conclude(args: HazAdqConcludeArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let id = resolve_haz(&project, &args.id)?;
+    if args.statement.trim().is_empty() {
+        return Err(anyhow!("--statement (the residual-risk argument) must not be empty"));
+    }
+    // Read-only gate before any mutation.
+    let coverage = project
+        .hazards
+        .get(&id)
+        .and_then(|h| h.adequacy.as_ref())
+        .map(|a| a.coverage.clone())
+        .ok_or_else(|| {
+            anyhow!(
+                "{} has no open adequacy dossier — run `req hazard adequacy plan {} --plan \"...\"` first.",
+                id, id
+            )
+        })?;
+    let anchor = hazard_adequacy_gate(&project, &id, &coverage)?;
+    let now = Utc::now();
+    let commit = crate::commands::test_cmd::current_head_sha_opt().unwrap_or_default();
+    {
+        let h = project.hazards.get_mut(&id).unwrap();
+        let adq = h.adequacy.as_mut().unwrap();
+        adq.statement = args.statement.clone();
+        adq.credited_external_measures = args.external.clone();
+        adq.verdict = Some(crate::model::AdequacyVerdict::Adequate);
+        adq.chain_anchor = Some(anchor);
+        adq.commit = commit;
+        adq.at = now;
+        // Conclusion clears any stale prior co-sign — a re-argued dossier needs
+        // a fresh human confirmation.
+        adq.human_confirmation = None;
+        h.updated = now;
+        h.history.push(super::history(
+            "adequacy dossier concluded (adequate) — awaiting human co-sign",
+            None,
+        ));
+    }
+    project.updated = now;
+    storage::save(&path, &project)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&project.hazards[&id])?);
+    } else {
+        println!(
+            "Concluded adequacy for {} — verdict ADEQUATE (every mitigating SF covered and Verified).",
+            id
+        );
         println!(
             "Next: a human runs `req hazard confirm {}` to co-sign it and promote to Verified.",
             id
@@ -177,15 +374,12 @@ fn hazard_adequacy(args: HazardAdequacyArgs, file: &Option<PathBuf>) -> Result<(
     Ok(())
 }
 
-// REQ-0202: a human co-signs the recorded adequacy argument and promotes a
-// Mitigated hazard to Verified. Refuses an agent actor so an agent cannot
-// co-sign on a person's behalf — the same independence principle the safety
-// requirement / safety function co-sign enforces.
+// REQ-0202 / REQ-0204: a human co-signs the concluded adequacy dossier and
+// promotes a Mitigated hazard to Verified. Refuses an agent actor; re-checks the
+// hard chain gate at co-sign time so a chain that drifted since conclude cannot
+// be silently signed off.
 fn hazard_confirm(args: HazardConfirmArgs, file: &Option<PathBuf>) -> Result<()> {
-    if matches!(
-        super::current_actor_kind(),
-        crate::model::ActorKind::Agent
-    ) {
+    if matches!(super::current_actor_kind(), crate::model::ActorKind::Agent) {
         return Err(anyhow!(
             "co-signing a hazard's adequacy argument must be done by a human, but \
              REQ_ACTOR_KIND=agent. A person must run `req hazard confirm`."
@@ -193,21 +387,34 @@ fn hazard_confirm(args: HazardConfirmArgs, file: &Option<PathBuf>) -> Result<()>
     }
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_haz(&project, &args.id)?;
+    // Read-only preconditions + gate re-check.
+    {
+        let adq = project
+            .hazards
+            .get(&id)
+            .and_then(|h| h.adequacy.as_ref())
+            .ok_or_else(|| {
+                anyhow!(
+                    "{} has no adequacy dossier to co-sign — run `req hazard adequacy plan {} --plan \"...\"` first.",
+                    id, id
+                )
+            })?;
+        if !matches!(adq.verdict, Some(crate::model::AdequacyVerdict::Adequate)) {
+            return Err(anyhow!(
+                "{} has no concluded ADEQUATE verdict to co-sign — run `req hazard adequacy conclude {} --statement \"...\"` first.",
+                id, id
+            ));
+        }
+        let coverage = adq.coverage.clone();
+        // Re-apply the hard gate: the chain must still be sound at co-sign time.
+        hazard_adequacy_gate(&project, &id, &coverage)?;
+    }
     let now = Utc::now();
     {
         let h = project.hazards.get_mut(&id).unwrap();
-        if h.adequacy.is_none() {
-            return Err(anyhow!(
-                "{} has no recorded adequacy argument to co-sign — record it first with \
-                 `req hazard adequacy {} --statement \"...\"`.",
-                id,
-                id
-            ));
-        }
         if !matches!(h.status, HazardStatus::Mitigated | HazardStatus::Verified) {
             return Err(anyhow!(
-                "{} is {} — only a Mitigated hazard can be promoted to Verified. Ensure a live \
-                 safety function mitigates it first.",
+                "{} is {} — only a Mitigated hazard can be promoted to Verified.",
                 id,
                 h.status.as_str()
             ));
@@ -215,7 +422,7 @@ fn hazard_confirm(args: HazardConfirmArgs, file: &Option<PathBuf>) -> Result<()>
         let adequacy = h.adequacy.as_mut().unwrap();
         adequacy.human_confirmation = Some(crate::model::VerificationActivity {
             summary: if args.note.is_empty() {
-                "human co-sign of the mitigation-adequacy argument".to_string()
+                "human co-sign of the mitigation-adequacy dossier".to_string()
             } else {
                 args.note.clone()
             },
@@ -227,7 +434,7 @@ fn hazard_confirm(args: HazardConfirmArgs, file: &Option<PathBuf>) -> Result<()>
         h.status = HazardStatus::Verified;
         h.updated = now;
         h.history.push(super::history(
-            "mitigation-adequacy argument co-signed by human — promoted to Verified",
+            "adequacy dossier co-signed by human — promoted to Verified",
             None,
         ));
     }
@@ -236,7 +443,7 @@ fn hazard_confirm(args: HazardConfirmArgs, file: &Option<PathBuf>) -> Result<()>
     if args.json {
         println!("{}", serde_json::to_string_pretty(&project.hazards[&id])?);
     } else {
-        println!("Co-signed adequacy argument for {} — promoted to Verified.", id);
+        println!("Co-signed adequacy dossier for {} — promoted to Verified.", id);
     }
     Ok(())
 }
@@ -400,22 +607,31 @@ fn hazard_show(args: HazardShowArgs, file: &Option<PathBuf>) -> Result<()> {
     if !h.tags.is_empty() {
         println!("  tags:        {}", h.tags.join(", "));
     }
-    // REQ-0202: the mitigation-adequacy / residual-risk argument standing.
+    // REQ-0204: the staged mitigation-adequacy dossier standing.
     match &h.adequacy {
         None => println!(
-            "  adequacy:    (none — `req hazard adequacy {} --statement \"...\"` to record why \
-             residual risk is acceptable)",
+            "  adequacy:    (none — `req hazard adequacy plan {} --plan \"...\"` to open the \
+             mitigation-adequacy dossier)",
             h.id
         ),
         Some(a) => {
-            let cosign = if a.human_confirmation.is_some() {
-                "human co-signed"
-            } else {
-                "awaiting human co-sign"
+            let standing = match (a.verdict, a.human_confirmation.is_some()) {
+                (Some(v), true) => format!("{} (human co-signed)", v.as_str()),
+                (Some(v), false) => format!("{} (awaiting human co-sign)", v.as_str()),
+                (None, _) => "in progress (not concluded)".to_string(),
             };
-            println!("  adequacy:    {} ({})", a.statement, cosign);
+            println!("  adequacy:    {}", standing);
+            if !a.plan.is_empty() {
+                println!("    plan:      {}", a.plan);
+            }
+            for c in &a.coverage {
+                println!("    covers {}: {}", c.target, c.note);
+            }
+            if !a.statement.is_empty() {
+                println!("    residual:  {}", a.statement);
+            }
             if let Some(ext) = &a.credited_external_measures {
-                println!("  ext. credit: {}", ext);
+                println!("    ext.credit: {}", ext);
             }
         }
     }

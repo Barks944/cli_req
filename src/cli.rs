@@ -254,6 +254,11 @@ pub enum VerificationCmd {
     /// Stage 3 — record verification by testing: findings and a pass/fail
     /// outcome, citing recorded test evidence where it exists.
     Test(VerificationActivityArgs),
+    // REQ-0204: marker kept off the --help summary (see REQ-0151).
+    /// Record why one realizing safety requirement implements a safety function
+    /// (SF-NNNN only) — the forced adequacy walk-through. A safety function
+    /// concludes only when every live realizing SR is covered here and Verified.
+    Cover(VerificationCoverArgs),
     /// Stage 4 — record the verification statement, derive the verdict, and
     /// optionally promote to Verified.
     Conclude(VerificationConcludeArgs),
@@ -364,6 +369,22 @@ pub struct VerificationConfirmArgs {
 pub struct VerificationShowArgs {
     /// REQ-NNNN or SR-NNNN id.
     pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// REQ-0204: arguments for `req verification cover` (safety-function adequacy
+/// walk-through).
+#[derive(Args, Debug)]
+pub struct VerificationCoverArgs {
+    /// The safety function (SF-NNNN) whose dossier is being walked.
+    pub id: String,
+    /// The realizing safety requirement (SR-NNNN) this note addresses.
+    #[arg(long)]
+    pub child: String,
+    /// Why this safety requirement implements the safety function.
+    #[arg(long)]
+    pub note: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -547,23 +568,61 @@ pub enum HazardCmd {
     Assess(HazardAssessArgs),
     /// Update title/description/context/harm/status with a reason.
     Update(HazardUpdateArgs),
-    // REQ-0202: record + co-sign a hazard's mitigation-adequacy argument.
-    /// Record the mitigation-adequacy / residual-risk argument: why the linked
-    /// mitigations together reduce the residual risk to an acceptable level.
-    /// This is recorded reasoning, not a validation claim — a human must
-    /// `req hazard confirm` it before the hazard reaches Verified.
-    Adequacy(HazardAdequacyArgs),
-    /// Human co-sign of the recorded adequacy argument; promotes a Mitigated
+    // REQ-0204: the staged hazard mitigation-adequacy dossier (plan -> cover
+    /// each mitigating SF -> conclude). Forces a walk-through of why the hazard
+    /// is adequately mitigated by its VERIFIED safety functions, and is
+    /// hard-gated on every mitigating SF being Verified.
+    #[command(subcommand)]
+    Adequacy(HazardAdequacyCmd),
+    /// Human co-sign of the concluded adequacy dossier; promotes a Mitigated
     /// hazard to Verified. Refuses REQ_ACTOR_KIND=agent.
     Confirm(HazardConfirmArgs),
 }
 
-// REQ-0202: arguments for the hazard mitigation-adequacy record + co-sign.
+/// REQ-0204: the staged hazard adequacy dossier.
+#[derive(Subcommand, Debug)]
+pub enum HazardAdequacyCmd {
+    /// Stage 1 — open (or re-open) the dossier with how adequacy will be argued.
+    Plan(HazAdqPlanArgs),
+    /// Stage 2 — record why one mitigating safety function covers the hazard
+    /// (repeat once per live mitigating SF; this is the forced walk-through).
+    Cover(HazAdqCoverArgs),
+    /// Stage 3 — conclude: hard-gated on every live mitigating SF being covered
+    /// and Verified; records the residual-risk statement and derives the verdict.
+    Conclude(HazAdqConcludeArgs),
+}
 
 #[derive(Args, Debug)]
-pub struct HazardAdequacyArgs {
+pub struct HazAdqPlanArgs {
     pub id: String,
-    /// Why the residual risk, after all linked mitigations, is acceptable.
+    /// How the adequacy of the mitigation set will be argued.
+    #[arg(long)]
+    pub plan: String,
+    /// Re-open a concluded dossier (clears the prior verdict and co-sign).
+    #[arg(long)]
+    pub reopen: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazAdqCoverArgs {
+    pub id: String,
+    /// The mitigating safety function this note addresses.
+    #[arg(long)]
+    pub sf: String,
+    /// Why this safety function (via its verified safety requirements) covers
+    /// the hazard's failure mode.
+    #[arg(long)]
+    pub note: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazAdqConcludeArgs {
+    pub id: String,
+    /// Why the residual risk, after all the (verified) mitigations, is acceptable.
     #[arg(long)]
     pub statement: String,
     /// Risk-reduction credited OUTSIDE the modelled safety functions (the

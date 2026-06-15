@@ -115,6 +115,7 @@ pub fn run(cmd: VerificationCmd, file: &Option<PathBuf>) -> Result<()> {
         VerificationCmd::Plan(a) => plan(a, file),
         VerificationCmd::Analysis(a) => activity(a, file, Stage::Analysis),
         VerificationCmd::Test(a) => activity(a, file, Stage::Testing),
+        VerificationCmd::Cover(a) => cover(a, file),
         VerificationCmd::Conclude(a) => conclude(a, file),
         VerificationCmd::Confirm(a) => confirm(a, file),
         VerificationCmd::Show(a) => show(a, file),
@@ -423,6 +424,130 @@ pub fn op_activity(
     Ok(id)
 }
 
+/// REQ-0204: record a coverage note on a SAFETY FUNCTION's dossier — the
+/// agent's argument for why one realizing safety requirement implements it. This
+/// is the forced walk-through: a safety function cannot conclude until every
+/// live realizing SR has a note here (and is itself Verified). SF-only.
+pub fn op_cover(
+    project: &mut Project,
+    raw_sf: &str,
+    child_raw: &str,
+    note: &str,
+) -> Result<(String, String)> {
+    let (sf_id, fam) = resolve(project, raw_sf)?;
+    if !matches!(fam, Family::Sf) {
+        return Err(anyhow!(
+            "coverage notes apply to safety functions (SF-NNNN); {} is not one. For a hazard, use \
+             `req hazard adequacy cover`.",
+            sf_id
+        ));
+    }
+    let child = normalize_sr(child_raw);
+    if !project.safety_requirements.contains_key(&child) {
+        return Err(anyhow!("no such safety requirement: {}", child_raw));
+    }
+    if !project.realizing_srs(&sf_id).iter().any(|s| s.id == child) {
+        return Err(anyhow!(
+            "{} does not live-realize {} — only a realizing safety requirement can be covered here.",
+            child,
+            sf_id
+        ));
+    }
+    if note.trim().is_empty() {
+        return Err(anyhow!("--note must not be empty"));
+    }
+    let now = Utc::now();
+    let actor = super::current_actor();
+    {
+        let sf = project.safety_functions.get_mut(&sf_id).unwrap();
+        let v = sf.verification.as_mut().ok_or_else(|| {
+            anyhow!(
+                "{} has no open verification dossier — run `req verification plan {} ...` first.",
+                sf_id,
+                sf_id
+            )
+        })?;
+        if v.is_concluded() {
+            return Err(anyhow!(
+                "{}'s dossier is already concluded — re-open it with `req verification plan {} --reopen --reason \"...\"` to revise.",
+                sf_id, sf_id
+            ));
+        }
+        v.coverage.retain(|c| c.target != child);
+        v.coverage.push(crate::model::CoverageNote {
+            target: child.clone(),
+            note: note.to_string(),
+            at: now,
+            actor,
+        });
+        sf.updated = now;
+        sf.history.push(super::history(
+            format!("dossier coverage recorded for {}", child),
+            None,
+        ));
+    }
+    project.updated = now;
+    Ok((sf_id, child))
+}
+
+/// REQ-0204: the hard chain gate behind a safety function's dossier. Every live
+/// realizing safety requirement must be addressed by a coverage note AND itself
+/// be Verified. Returns the chain anchor over the realizing SRs on success;
+/// otherwise an error naming the uncovered / unverified ones.
+fn sf_adequacy_gate(
+    project: &Project,
+    sf_id: &str,
+    coverage: &[crate::model::CoverageNote],
+) -> Result<String> {
+    use std::collections::HashSet;
+    let srs = project.realizing_srs(sf_id);
+    if srs.is_empty() {
+        return Err(anyhow!(
+            "{} has no live realizing safety requirement — it cannot be argued adequately \
+             implemented. Add one with `req sreq add --realizes {} ...`.",
+            sf_id,
+            sf_id
+        ));
+    }
+    let covered: HashSet<&str> = coverage.iter().map(|c| c.target.as_str()).collect();
+    let mut uncovered = Vec::new();
+    let mut unverified = Vec::new();
+    let mut tokens = Vec::new();
+    for sr in &srs {
+        if !covered.contains(sr.id.as_str()) {
+            uncovered.push(sr.id.clone());
+        }
+        let verified = matches!(sr.status, Status::Verified);
+        if !verified {
+            unverified.push(format!("{} ({})", sr.id, sr.status.as_str()));
+        }
+        let ch = sr
+            .verification
+            .as_ref()
+            .and_then(|v| v.content_hash.as_deref());
+        tokens.push(crate::model::chain_token(&sr.id, verified, ch));
+    }
+    if !uncovered.is_empty() {
+        return Err(anyhow!(
+            "{} cannot conclude — these realizing safety requirements have no walk-through note: \
+             {}. Record one with `req verification cover {} --child SR-NNNN --note \"...\"`.",
+            sf_id,
+            uncovered.join(", "),
+            sf_id
+        ));
+    }
+    if !unverified.is_empty() {
+        return Err(anyhow!(
+            "{} cannot be argued adequately implemented by VERIFIED safety requirements — these are \
+             not Verified: {}. Verify them first (their dossier + human co-sign) so the chain is \
+             sound bottom-up.",
+            sf_id,
+            unverified.join(", ")
+        ));
+    }
+    Ok(crate::model::chain_anchor(&tokens))
+}
+
 /// Stage 4 — conclude: derive the verdict, record the statement, and
 /// optionally promote (gated). `source_root` is where linked files are
 /// hashed for the staleness anchor.
@@ -455,6 +580,20 @@ pub fn op_conclude(
             ));
         }
         v.derive_verdict().unwrap_or(TestOutcome::Fail)
+    };
+    // REQ-0204: a safety function's dossier additionally requires the adequacy
+    // walk-through — every realizing SR covered and Verified — before it can
+    // conclude. This is the hard chain gate that makes "achieves its safe state"
+    // rest on its VERIFIED realizing requirements, bottom-up.
+    let sf_chain_anchor = if matches!(fam, Family::Sf) {
+        let coverage = project.safety_functions[&id]
+            .verification
+            .as_ref()
+            .map(|v| v.coverage.clone())
+            .unwrap_or_default();
+        Some(sf_adequacy_gate(project, &id, &coverage)?)
+    } else {
+        None
     };
     if promote {
         if matches!(verdict, TestOutcome::Fail) {
@@ -530,6 +669,8 @@ pub fn op_conclude(
             v.concluded_commit = Some(commit.clone());
             v.content_hash = content_hash.clone();
             v.linked_files = linked_files.clone();
+            // REQ-0204: anchor the realizing-SR chain on a safety function.
+            v.chain_anchor = sf_chain_anchor.clone();
         }
         if do_promote {
             // REQ-0187/REQ-0201: an ordinary requirement is promoted to Verified
@@ -831,6 +972,22 @@ fn activity(args: VerificationActivityArgs, file: &Option<PathBuf>, stage: Stage
     Ok(())
 }
 
+fn cover(args: crate::cli::VerificationCoverArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let (sf_id, child) = op_cover(&mut project, &args.id, &args.child, &args.note)?;
+    storage::save(&path, &project)?;
+    if args.json {
+        emit_json(&project, &sf_id, Family::Sf)?;
+    } else {
+        println!("Recorded coverage of {} for {}.", child, sf_id);
+        println!(
+            "When every realizing SR is covered and Verified: `req verification conclude {} --statement \"...\" --promote`",
+            sf_id
+        );
+    }
+    Ok(())
+}
+
 fn conclude(args: VerificationConcludeArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let out = op_conclude(
@@ -912,6 +1069,15 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
         // to Verified, so re-apply the status-ladder preflight (no SIL-evidence
         // gate — an SF has no test-evidence model).
         promote_preflight(project, &id, fam, false)?;
+        // REQ-0204: re-run the adequacy chain gate at co-sign time so a chain
+        // that drifted since conclude (a realizing SR de-verified or changed)
+        // cannot be silently co-signed to Verified.
+        let coverage = project.safety_functions[&id]
+            .verification
+            .as_ref()
+            .map(|v| v.coverage.clone())
+            .unwrap_or_default();
+        sf_adequacy_gate(project, &id, &coverage)?;
     }
     let now = Utc::now();
     let actor = super::current_actor();
