@@ -343,3 +343,84 @@ fn req_0183_external_decision_populates_dossier() {
         "a decision with a non-matching commit must not overwrite the dossier"
     );
 }
+
+/// REQ-0190: the well-formedness command is `req conform`; `req validate` is gone.
+#[test]
+fn req_0190_conform_replaces_validate() {
+    let s = Sandbox::new();
+    s.init("p");
+    assert!(s.run(&["conform"]).status.success(), "conform should run");
+    let o = s.run(&["validate"]);
+    assert!(!o.status.success(), "validate must be gone");
+    assert!(
+        stderr(&o).to_lowercase().contains("unrecognized") || stderr(&o).to_lowercase().contains("unexpected"),
+        "validate should be an unknown subcommand: {}",
+        stderr(&o)
+    );
+}
+
+/// REQ-0196: the IEC 61508 terminology reference is available via `req help`.
+#[test]
+fn req_0196_terminology_reference_available() {
+    let s = Sandbox::new();
+    s.init("p");
+    let body = stdout(&s.run(&["help", "terminology"]));
+    let up = body.to_uppercase();
+    assert!(
+        up.contains("VERIFICATION") && up.contains("VALIDATION") && body.to_lowercase().contains("conform"),
+        "terminology reference must define the V&V vocabulary:\n{}",
+        body
+    );
+}
+
+/// REQ-0092: `req status --tag` scopes the report to a milestone slice.
+#[test]
+fn req_0092_status_tag_scopes_report() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.run(&["add", "-t", "Alpha thing here", "-s", "The system shall do alpha.", "-r", "alpha rationale here", "-k", "functional", "-a", "alpha works", "--tag", "alpha"]);
+    s.run(&["add", "-t", "Beta thing here", "-s", "The system shall do beta.", "-r", "beta rationale here", "-k", "functional", "-a", "beta works", "--tag", "beta"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["status", "--json", "--tag", "alpha"]))).unwrap();
+    assert_eq!(v["total"].as_i64().unwrap(), 1, "tag must scope to one req");
+    assert_eq!(v["filter"]["tags"][0].as_str().unwrap(), "alpha");
+}
+
+/// REQ-0022: atomic temp-and-rename leaves no partial/.tmp file after a save.
+#[test]
+fn req_0022_atomic_write_leaves_no_tmp() {
+    let s = Sandbox::new();
+    s.init("p");
+    add_one(&s);
+    let leftover: Vec<_> = std::fs::read_dir(s.dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+        .collect();
+    assert!(leftover.is_empty(), "no .tmp file should remain after an atomic save");
+}
+
+/// REQ-0102: conformance findings name both the cause and the fix.
+#[test]
+fn req_0102_findings_name_cause_and_fix() {
+    let s = Sandbox::new();
+    s.init("p");
+    // A compound statement triggers REQ-V-0010, whose message names the cause
+    // (compound) and the fix (`req split`).
+    s.run(&["add", "-t", "Compound thing here", "-s", "The system shall do A and shall do B and shall do C.", "-r", "exercise the finding message", "-k", "functional", "-a", "does a and b and c"]);
+    let out = stdout(&s.run(&["conform"]));
+    assert!(out.contains("REQ-V-0010"), "expected the compound finding:\n{}", out);
+    assert!(out.contains("split"), "finding should name the `req split` fix:\n{}", out);
+}
+
+/// REQ-0051: a candidate rejected by the conformance check does not burn a REQ ID.
+#[test]
+fn req_0051_failed_add_does_not_burn_id() {
+    let s = Sandbox::new();
+    s.init("p");
+    add_one(&s); // REQ-0001
+    let bad = s.run(&["add", "-t", "X", "-s", "too short", "-r", "x", "-k", "functional", "-a", "a"]);
+    assert!(!bad.status.success(), "invalid add must be rejected");
+    let ok = s.run(&["add", "-t", "Second valid thing", "-s", "The system shall do the second thing.", "-r", "second rationale here", "-k", "functional", "-a", "second works"]);
+    assert!(ok.status.success(), "valid add: {}", stderr(&ok));
+    assert!(stdout(&ok).contains("REQ-0002"), "rejected add must not burn the ID:\n{}", stdout(&ok));
+}
