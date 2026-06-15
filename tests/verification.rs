@@ -963,3 +963,70 @@ fn req_0191_verification_status_alias_and_status_pointer() {
         status
     );
 }
+
+/// REQ-0200: `reverify --by-tests` re-anchors a stale ordinary requirement
+/// whose tests pass, recording the test run as the evidence — no agent review.
+#[test]
+fn req_0200_reverify_by_tests_reanchors_stale_passing() {
+    use std::process::Command;
+    let s = Sandbox::new();
+    s.init("p");
+    let dir = s.dir.path();
+    let pf = s.path();
+    let pf_s = pf.to_str().unwrap().to_string();
+    // Run req with cwd = sandbox so the source root "." resolves to the sandbox.
+    let run = |args: &[&str]| {
+        let mut full: Vec<String> = vec!["--file".into(), pf_s.clone()];
+        full.extend(args.iter().map(|a| a.to_string()));
+        Command::new(env!("CARGO_BIN_EXE_req"))
+            .current_dir(dir)
+            .args(&full)
+            .env_remove("REQ_FILE")
+            .output()
+            .expect("invoke req")
+    };
+    // A source file carrying the REQ-0001 marker, so the dossier anchors on it.
+    let impl_path = dir.join("impl.rs");
+    std::fs::write(&impl_path, "// REQ-0001: stop on demand\nfn stop() {}\n").unwrap();
+    assert!(run(&[
+        "add", "--title", "Stop on demand", "--statement",
+        "The system shall stop the process on operator demand.", "--rationale",
+        "operator safety", "--accept", "stops on demand", "-k", "functional", "-p", "must",
+    ])
+    .status
+    .success());
+    run(&["update", "REQ-0001", "--status", "implemented", "--reason", "implemented for reverify test", "--force"]);
+    run(&["verification", "plan", "REQ-0001", "--plan", "review + test"]);
+    run(&["verification", "analysis", "REQ-0001", "--result", "pass", "--findings", "reviewed impl.rs"]);
+    run(&["verification", "test", "REQ-0001", "--result", "pass", "--findings", "tested"]);
+    let c = run(&["verification", "conclude", "REQ-0001", "--statement", "met", "--promote"]);
+    assert!(c.status.success(), "conclude: {}", String::from_utf8_lossy(&c.stderr));
+
+    // Drift the linked file → the dossier goes stale.
+    std::fs::write(&impl_path, "// REQ-0001: stop on demand\nfn stop() { /* changed */ }\n").unwrap();
+    // A captured cargo-test log with a passing req_0001 test.
+    std::fs::write(dir.join("log.txt"), "test req_0001_stops ... ok\n").unwrap();
+
+    let out = run(&["verification", "reverify", "--by-tests", "--from-file", "log.txt", "--json"]);
+    assert!(out.status.success(), "reverify: {}", String::from_utf8_lossy(&out.stderr));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("reverify json");
+    let reanchored: Vec<String> = v["reanchored"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        reanchored.contains(&"REQ-0001".to_string()),
+        "REQ-0001 should be re-anchored from its passing test:\n{}",
+        stdout(&out)
+    );
+    // A second reverify finds nothing stale (the anchor is fresh again).
+    let again = run(&["verification", "reverify", "--by-tests", "--from-file", "log.txt", "--json"]);
+    let v2: serde_json::Value = serde_json::from_str(&stdout(&again)).unwrap();
+    assert!(
+        v2["reanchored"].as_array().unwrap().is_empty(),
+        "nothing should remain stale after re-anchor:\n{}",
+        stdout(&again)
+    );
+}

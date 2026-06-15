@@ -97,6 +97,8 @@ impl Command {
             Command::Verification(VerificationCmd::Backfill(a)) => a.json,
             // REQ-0142: provenance report honours --json like the rest.
             Command::Verification(VerificationCmd::Report(a)) => a.json,
+            // REQ-0200: reverify honours --json too.
+            Command::Verification(VerificationCmd::Reverify(a)) => a.json,
             _ => false,
         }
     }
@@ -279,6 +281,11 @@ pub enum VerificationCmd {
     /// Re-normalize staleness anchors that a hash-format change invalidated,
     /// only where the source is provably unchanged; drifted items stay stale.
     RefreshAnchors(VerificationRefreshArgs),
+    // REQ-0200: marker kept off the --help line (see REQ-0151).
+    /// Re-anchor stale ordinary requirements whose automated tests pass at HEAD,
+    /// recording the passing test run as the evidence (safety reqs reported, not
+    /// touched). Efficient honest alternative to re-reviewing behaviour-preserving drift.
+    Reverify(VerificationReverifyArgs),
 }
 
 #[derive(Args, Debug)]
@@ -381,6 +388,30 @@ pub struct VerificationRefreshArgs {
     #[arg(long, default_value = ".")]
     pub path: PathBuf,
     /// Report what would change without writing.
+    #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct VerificationReverifyArgs {
+    /// Re-anchor each stale ordinary requirement whose req_NNNN_* tests pass.
+    #[arg(long)]
+    pub by_tests: bool,
+    /// Test command to run. Defaults to `cargo test --release`.
+    #[arg(long, default_value = "cargo test --release")]
+    pub cmd: String,
+    /// Parse cargo-test-style output from this file instead of running a command.
+    #[arg(long)]
+    pub from_file: Option<PathBuf>,
+    /// Optional test-name → REQ-ID(s) JSON map for non-cargo ecosystems.
+    #[arg(long = "map")]
+    pub map_file: Option<PathBuf>,
+    /// Source root used to hash linked files for the re-anchor.
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Show what would be re-anchored without writing.
     #[arg(long)]
     pub dry_run: bool,
     #[arg(long)]

@@ -563,32 +563,38 @@ static TEST_LINE: Lazy<Regex> = Lazy::new(|| {
 });
 
 #[derive(Debug, Default)]
-struct ReqResult {
-    passed: Vec<String>,
-    failed: Vec<String>,
-    ignored: Vec<String>,
+pub(crate) struct ReqResult {
+    pub(crate) passed: Vec<String>,
+    pub(crate) failed: Vec<String>,
+    pub(crate) ignored: Vec<String>,
 }
 
-fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
-    let (path, mut project, _lock) = load_for_mutation(file)?;
-
+/// REQ-0200: run (or ingest via `from_file`) the test command and parse its
+/// output into a per-requirement pass/fail/ignored map. Shared by `req test
+/// run` and `req verification reverify --by-tests` so both read results the
+/// same way. Returns the map and whether the command exited successfully.
+pub(crate) fn collect_results(
+    cmd: &str,
+    from_file: Option<&std::path::Path>,
+    map_file: Option<&std::path::Path>,
+) -> Result<(BTreeMap<String, ReqResult>, bool)> {
     // Either parse a pre-captured log file (--from-file) or run the test
     // command and parse its combined stdout+stderr. The file path bypasses
     // shell quoting entirely, which matters for tests on Windows where
     // splitting --cmd on whitespace drops cmd.exe's /C argument boundaries.
-    let (combined, exec_success) = if let Some(p) = &args.from_file {
+    let (combined, exec_success) = if let Some(p) = from_file {
         let body = std::fs::read_to_string(p)
             .with_context(|| format!("read --from-file {}", p.display()))?;
         (body, true)
     } else {
-        let parts: Vec<&str> = args.cmd.split_whitespace().collect();
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
         if parts.is_empty() {
             return Err(anyhow!("empty test command"));
         }
         let out = Command::new(parts[0])
             .args(&parts[1..])
             .output()
-            .with_context(|| format!("invoke {}", args.cmd))?;
+            .with_context(|| format!("invoke {}", cmd))?;
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
         (format!("{}\n{}", stdout, stderr), out.status.success())
@@ -612,7 +618,7 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
     // generic verdict regex over the same combined output. This is
     // the Node/Python/etc. path: tests don't follow `req_NNNN_*` so
     // the mapping is explicit. Format: `{ "<test name>": ["REQ-NNNN", ...] }`.
-    if let Some(map_path) = &args.map_file {
+    if let Some(map_path) = map_file {
         let body = std::fs::read_to_string(map_path)
             .with_context(|| format!("read --map {}", map_path.display()))?;
         let map: BTreeMap<String, Vec<String>> = serde_json::from_str(&body)
@@ -652,6 +658,18 @@ fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
             }
         }
     }
+
+    Ok((by_req, exec_success))
+}
+
+fn run_suite(args: TestRunArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+
+    let (by_req, exec_success) = collect_results(
+        &args.cmd,
+        args.from_file.as_deref(),
+        args.map_file.as_deref(),
+    )?;
 
     if by_req.is_empty() {
         let msg = "no test names matched the `req_NNNN_*` convention";

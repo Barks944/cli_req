@@ -47,7 +47,8 @@ pub fn promotion_blocked_message(id: &str) -> String {
 use crate::cli::{
     TestResultArg, VerificationActivityArgs, VerificationBackfillArgs, VerificationCmd,
     VerificationConcludeArgs, VerificationConfirmArgs, VerificationPlanArgs,
-    VerificationRefreshArgs, VerificationReportArgs, VerificationShowArgs,
+    VerificationRefreshArgs, VerificationReportArgs, VerificationReverifyArgs,
+    VerificationShowArgs,
 };
 use crate::commands::test_cmd::{auto_linked_files, current_head_sha_opt, hash_files, short};
 use crate::model::{
@@ -118,6 +119,7 @@ pub fn run(cmd: VerificationCmd, file: &Option<PathBuf>) -> Result<()> {
         VerificationCmd::Status(a) => report(a, file),
         // REQ-0153: re-normalize staleness anchors that are provably unchanged.
         VerificationCmd::RefreshAnchors(a) => refresh_anchors(a, file),
+        VerificationCmd::Reverify(a) => reverify(a, file),
     }
 }
 
@@ -1011,6 +1013,180 @@ fn refresh_anchors(args: VerificationRefreshArgs, file: &Option<PathBuf>) -> Res
             report.safety_pending.len()
         );
         for id in &report.safety_pending {
+            println!("  {id}");
+        }
+    }
+    Ok(())
+}
+
+/// REQ-0200: is this dossier stale against the current source? (genuine,
+/// anchored, and the anchored content changed). Exempt/anchorless dossiers
+/// are not "stale" in this sense.
+fn dossier_is_stale(v: Option<&Verification>, id: &str, root: &Path) -> bool {
+    let Some(v) = v else { return false };
+    if v.exempt {
+        return false;
+    }
+    let Some(stored) = v.content_hash.as_deref() else {
+        return false;
+    };
+    matches!(
+        crate::commands::test_cmd::staleness_by_content(stored, v.linked_files.as_ref(), id, root),
+        crate::commands::test_cmd::Staleness::Stale { .. }
+    )
+}
+
+// REQ-0200: re-anchor stale ordinary requirements whose automated tests pass.
+// A passing acceptance test at HEAD is objective evidence the requirement is
+// still met, so it re-anchors the dossier cheaply and honestly without a model
+// re-review. Safety requirements are never touched here (reported only); items
+// with no matching test or any failing test are left stale and reported.
+fn reverify(args: VerificationReverifyArgs, file: &Option<PathBuf>) -> Result<()> {
+    if !args.by_tests {
+        return Err(anyhow!(
+            "reverify currently supports only --by-tests; pass --by-tests"
+        ));
+    }
+    // Collect test results once (run the suite or ingest a captured log).
+    let (results, _ok) = crate::commands::test_cmd::collect_results(
+        &args.cmd,
+        args.from_file.as_deref(),
+        args.map_file.as_deref(),
+    )?;
+
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let root = args.path.clone();
+    let commit = current_head_sha_opt().unwrap_or_default();
+
+    // Candidate ordinary requirements: Verified + stale.
+    let mut ordinary: Vec<String> = project
+        .requirements
+        .iter()
+        .filter(|(_, r)| matches!(r.status, Status::Verified))
+        .filter(|(id, r)| dossier_is_stale(r.verification.as_ref(), id, &root))
+        .map(|(id, _)| id.clone())
+        .collect();
+    ordinary.sort();
+
+    // Stale safety requirements are reported only (REQ-0200: never re-anchored
+    // here — they need the SIL-adequate evidence + human co-sign path).
+    let mut sr_skipped: Vec<String> = project
+        .safety_requirements
+        .iter()
+        .filter(|(id, sr)| dossier_is_stale(sr.verification.as_ref(), id, &root))
+        .map(|(id, _)| id.clone())
+        .collect();
+    sr_skipped.sort();
+
+    let mut reanchored: Vec<String> = Vec::new();
+    let mut no_tests: Vec<String> = Vec::new();
+    let mut failing: Vec<String> = Vec::new();
+
+    for id in &ordinary {
+        match results.get(id) {
+            None => no_tests.push(id.clone()),
+            Some(r) if r.passed.is_empty() => no_tests.push(id.clone()),
+            Some(r) if !r.failed.is_empty() => failing.push(id.clone()),
+            Some(r) => {
+                if args.dry_run {
+                    reanchored.push(id.clone());
+                    continue;
+                }
+                // Re-anchor: reopen → analysis(pass) → testing(pass) → conclude.
+                let names = r.passed.join(", ");
+                op_plan(
+                    &mut project,
+                    id,
+                    "Re-anchor a behaviour-preserving drift: re-confirm the requirement against current source via its passing acceptance tests.",
+                    true,
+                    Some("REQ-0200 reverify --by-tests: anchored source drifted, behaviour unchanged"),
+                )?;
+                op_activity(
+                    &mut project,
+                    id,
+                    Stage::Analysis,
+                    "Behaviour unchanged since the prior genuine verification; re-confirmed by the requirement's passing acceptance tests at HEAD (evidence is the test run, not a fresh code review).",
+                    TestOutcome::Pass,
+                    &[],
+                )?;
+                op_activity(
+                    &mut project,
+                    id,
+                    Stage::Testing,
+                    &format!("cargo test: {} pass / 0 fail — {}", r.passed.len(), names),
+                    TestOutcome::Pass,
+                    &r.passed,
+                )?;
+                op_conclude(
+                    &mut project,
+                    id,
+                    &format!(
+                        "Re-anchored at {} on passing automated tests ({}); evidence is the test run at the current commit, not a fresh code review.",
+                        short(&commit),
+                        names
+                    ),
+                    true,
+                    false,
+                    None,
+                    &root,
+                )?;
+                reanchored.push(id.clone());
+            }
+        }
+    }
+
+    if !reanchored.is_empty() && !args.dry_run {
+        project.updated = Utc::now();
+        storage::save(&path, &project)?;
+    }
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "reanchored": reanchored,
+                "no_tests": no_tests,
+                "failing": failing,
+                "safety_skipped": sr_skipped,
+                "dry_run": args.dry_run,
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!(
+        "{} stale ordinary requirement(s) {} from passing tests.",
+        reanchored.len(),
+        if args.dry_run {
+            "would be re-anchored"
+        } else {
+            "re-anchored to genuine"
+        }
+    );
+    if !no_tests.is_empty() {
+        println!(
+            "\n{} left stale — no matching passing test (need analysis path or a test):",
+            no_tests.len()
+        );
+        for id in &no_tests {
+            println!("  {id}");
+        }
+    }
+    if !failing.is_empty() {
+        println!(
+            "\n{} left stale — a test is FAILING (investigate, do not accept):",
+            failing.len()
+        );
+        for id in &failing {
+            println!("  {id}");
+        }
+    }
+    if !sr_skipped.is_empty() {
+        println!(
+            "\n{} stale safety requirement(s) NOT touched (need SIL evidence + human co-sign):",
+            sr_skipped.len()
+        );
+        for id in &sr_skipped {
             println!("  {id}");
         }
     }
