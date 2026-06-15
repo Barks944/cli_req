@@ -475,3 +475,67 @@ fn sr_0006_conform_disclaims_vv_and_points_to_status() {
         note
     );
 }
+
+/// SR-0002 (full scope): the SIL-rigour gate blocks inspection-only promotion
+/// at SIL4 (not just SIL3), and an audited --force --reason exception is
+/// recorded on the resulting test record.
+#[test]
+fn sr_0002_sil_gate_at_sil4_records_audited_exception() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    // Force a leaf to SIL4 so the chain inherits SIL4 deterministically.
+    s.run(&["safety", "calibrate", "--set", "C_D/F_B/P_B=W3:4,W2:3,W1:2"]);
+    s.run(&["hazard", "add", "-t", "Severe hazard", "--harm", "death", "-C", "C_D", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    s.run(&["sf", "add", "-t", "Protective function", "--mitigates", "HAZ-0001"]);
+    s.run(&["sreq", "add", "-t", "Stop the blade now", "-s", "The system shall stop the blade on demand.", "-r", "operator safety during cleaning", "-a", "blade stops within 200ms", "--realizes", "SF-0001"]);
+    assert!(stdout(&s.run(&["sreq", "show", "SR-0001"])).contains("SIL4"), "SR must inherit SIL4");
+    for st in ["approved", "implemented"] {
+        s.run(&["sreq", "update", "SR-0001", "--status", st, "--reason", "advance step"]);
+    }
+    // Genuine dossier so the dossier gate is satisfied (SIL gate is under test).
+    s.run(&["verification", "plan", "SR-0001", "--plan", "review + bench test"]);
+    s.run(&["verification", "analysis", "SR-0001", "--result", "pass", "--findings", "stop logic reviewed"]);
+    s.run(&["verification", "test", "SR-0001", "--result", "pass", "--findings", "bench measured the stop"]);
+    s.run(&["verification", "conclude", "SR-0001", "--statement", "meets the stop obligation"]);
+    // Gate blocks inspection-only promotion at SIL4.
+    let blocked = s.run(&["sreq", "verify", "SR-0001", "--by", "inspection", "--promote"]);
+    assert!(!blocked.status.success(), "SIL4 inspection promote must be blocked");
+    assert!(stderr(&blocked).contains("SIL-rigour gate"), "stderr: {}", stderr(&blocked));
+    // --force --reason succeeds AND records the audited exception.
+    let forced = s.run(&["sreq", "verify", "SR-0001", "--by", "inspection", "--promote", "--force", "--reason", "accepted at design review"]);
+    assert!(forced.status.success(), "force+reason: {}", stderr(&forced));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&["sreq", "show", "SR-0001", "--json"]))).unwrap();
+    let last = v["tests"].as_array().unwrap().last().unwrap();
+    assert_eq!(last["sil_gate_exception"], true, "audited exception must be recorded on the record");
+}
+
+/// SR-0003 (full scope): a reasoned, attributed history entry is appended for a
+/// mutation of EACH safety family — hazard, safety function, AND safety
+/// requirement — not just the safety requirement.
+#[test]
+fn sr_0003_history_appended_for_hazard_sf_and_sr() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    s.run(&["hazard", "add", "-t", "A hazard", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W", "W3"]);
+    s.run(&["sf", "add", "-t", "A function", "--mitigates", "HAZ-0001"]);
+    s.run(&["sreq", "add", "-t", "Stop the blade now", "-s", "The system shall stop the blade.", "-r", "operator safety here", "-a", "stops", "--realizes", "SF-0001"]);
+    // Mutate each family with a reason.
+    s.run(&["hazard", "update", "HAZ-0001", "-t", "A hazard renamed", "--reason", "retitle hazard for clarity"]);
+    s.run(&["sf", "update", "SF-0001", "-t", "A function renamed", "--reason", "retitle function for clarity"]);
+    s.run(&["sreq", "update", "SR-0001", "--status", "approved", "--reason", "approve the requirement"]);
+    for (cmd, id) in [("hazard", "HAZ-0001"), ("sf", "SF-0001"), ("sreq", "SR-0001")] {
+        let v: serde_json::Value = serde_json::from_str(&stdout(&s.run(&[cmd, "show", id, "--json"]))).unwrap();
+        let hist = v["history"].as_array().unwrap();
+        assert!(hist.len() >= 2, "{} must accumulate history (append-only): {:?}", id, hist);
+        let last = hist.last().unwrap();
+        assert!(
+            last["actor"].as_str().filter(|s| !s.is_empty()).is_some()
+                && last["action"].as_str().filter(|s| !s.is_empty()).is_some()
+                && last["reason"].as_str().filter(|s| !s.is_empty()).is_some(),
+            "{} latest history entry must carry actor + action + reason: {}",
+            id, last
+        );
+    }
+}
