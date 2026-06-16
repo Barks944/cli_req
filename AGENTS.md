@@ -455,6 +455,25 @@ RULES THAT MATTER (the short list)
   * Status only goes forward one step at a time; backwards needs
     `--force --reason`. Same for skips.
 
+FUNCTIONAL SAFETY (only if this project does safety-related work)
+
+  If the project manages hazards and safety requirements (IEC 61508),
+  there is a whole workflow and `req help safety` is written for you.
+  The short version:
+
+    req hazard list / sf list / sreq list   review the safety artifacts
+    req trace HAZ-0001                       the end-to-end chain + verdict
+
+  Two things you must know:
+  * The features are HUMAN-GATED. They stay OFF until a person runs
+    `req safety accept` (which commits an acceptance file). You CANNOT
+    accept the disclaimer or recalibrate risk — `req safety` is not on
+    the MCP surface and refuses an agent actor. Once a human has
+    enabled it, you author hazards / SF / SR like any other artifact.
+  * You never type a SIL — it is DERIVED from the risk parameters, then
+    gated on verification rigour. Don't fight the gate; provide real
+    (ideally `sr_NNNN_*` test-run) evidence.
+
 NEW SESSION? RUN THIS FIRST.
 
   req brief
