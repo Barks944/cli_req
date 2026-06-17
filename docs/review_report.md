@@ -33,3 +33,21 @@ None of these cite the actual gate (`sf_update` / `op_confirm` / REQ-V-0039/0040
 **Verdict:** Substantively MET and safe to co-sign on the evidence; **recommend** strengthening the analysis/testing narrative (cite the gate code + name the tests) before co-sign so the evidence travels in the dossier, not just in this external check. Not a blocker.
 
 **Resolution (2026-06-17):** dossier re-opened and re-recorded with substantive content — analysis now cites the three enforcement points (`sf_update`, `op_confirm` agent-refusal, conform REQ-V-0039/0040) and references the source files; testing names the three `req_0201_*` acceptance tests; the statement spells out the gate. Re-concluded Pass, still awaiting human co-sign, `req conform` clean. The minor finding is closed — the evidence now lives in the dossier.
+
+---
+
+## SR-0008 — Gate a hazard's Verified status on a co-signed adequacy argument
+*Reviewed 2026-06-17 · status: awaiting human co-sign · inherited SIL3*
+
+**Statement:** "req shall refuse to mark a hazard Verified without a human-co-signed mitigation-adequacy argument."
+
+**Behaviour — CONFIRMED (independently).** All three acceptance criteria hold:
+1. *Direct `hazard update --status verified` refused* — `src/commands/safety.rs:704` (directs to the adequacy route).
+2. *`hazard confirm` requires a recorded adequacy argument + a human actor* — `src/commands/safety.rs:384` ("co-signing a hazard's adequacy argument must be done by a human"); requires a concluded-Adequate dossier before promoting.
+3. *conform flags REQ-V-0043* — 2 references in `src/conform.rs`.
+
+Test re-run live: `cargo test --test safety_dossier req_0202` → `req_0202_hazard_verified_requires_cosigned_adequacy` **1 passed, 0 failed**. Provenance genuine (concluded Pass, composition evidence, anchored).
+
+**Finding (MINOR, same as SR-0007) — thin re-anchor boilerplate**, now **RESOLVED in this pass**: analysis re-recorded to cite `hazard_update` / `hazard_confirm` (agent-refusal) / conform REQ-V-0043 with source refs; testing names the `req_0202` test. Re-concluded Pass, awaiting human co-sign, conform clean.
+
+**Verdict:** MET; dossier strengthened to carry its own evidence. Safe to co-sign.
