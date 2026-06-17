@@ -199,5 +199,16 @@ Analysis substantive (history append on every mutation + `req audit` signed-comm
 
 ---
 
+## SF-0004 — Verification provenance distinguishes genuine from non-genuine claims
+*Reviewed 2026-06-17 · **concluded**, awaiting SF co-sign · audit-confirm only (not re-opened)*
+
+**The one safety function signable right now.** Its sole realizing requirement SR-0004 is **Verified + human co-signed**, so its dossier concluded (verdict PASS) and the sign-off basis reads "1/1 Verified ⇒ ready for human co-sign." Statement is substantive and accurate; coverage note is correct (no over-claim — SR-0004 really is verified). Claim independently confirmed (provenance.rs `classify`, `req_0142` + `sr_0004` tests — verified in the SR-0004 audit).
+
+**Minor (not actioned, deliberately):** the testing stage is generic ("the provenance tests"); naming the tests would require re-opening, which clears the conclusion. Not worth it for a concluded, signable dossier — left as-is.
+
+**Verdict:** CONFIRMED sound and **ready for human co-sign now** (`req verification confirm SF-0004`). No change made.
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.

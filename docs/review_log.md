@@ -29,8 +29,10 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 - **SF-0003** — 2026-06-17 — dossier audited (conclude-blocked until SR-0003 co-signed). IMPROVED: testing named (req_0011 append-only; audit trail via `req audit`, by inspection); coverage note CORRECTED. conform clean.
 
+- **SF-0004** — 2026-06-17 — AUDIT-CONFIRM (concluded, awaiting SF co-sign; not re-opened). Sound: SR-0004 Verified+co-signed, dossier concluded Pass, sign-off basis "ready for co-sign", coverage accurate. The ONE SF signable now. Minor (not actioned): testing generic, naming it would clear the conclusion. No change.
+
 ## Queue (not yet reviewed)
-- SF-0004..0008 (safety-function verification dossiers — correct the coverage-note over-claim on each)
+- SF-0005..0008 (safety-function verification dossiers — correct the coverage-note over-claim on each)
 - HAZ-0001..0004 (hazard adequacy dossiers)
 - SR-0004, SR-0005 (already Verified — spot-check the genuine dossier)
 - SF-0001..0008 (safety-function verification dossiers)
@@ -38,6 +40,6 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 ## Notes
 - Same pattern likely affects the other re-anchored SRs (SR-0001/0002/0003/0006/0008/0009) — their narratives were written by the same re-anchor loop. Will confirm per-SR.
-- Next iteration: SF-0004 (provenance) — its realizing SR-0004 is VERIFIED, so SF-0004 was concluded earlier (awaiting human co-sign). Audit the concluded dossier; DO NOT re-open (it's not co-signed but concluding-again is fine if needed — prefer leaving it). Name tests; correct coverage note if it over-claims.
-- Active finding to apply per-SF: coverage notes say realizing SRs are "verified ... human co-sign" but they're awaiting-cosign — correct each note (SF-0001/0002/0003 ✓). NOTE SF-0004's SR-0004 IS verified, so its coverage note may be accurate.
+- Next iteration: SF-0005 (V&V terminology) — realized by SR-0005 (Verified) AND SR-0006 (awaiting-cosign), so it's conclude-blocked on SR-0006. In-progress dossier: audit/improve, name tests, correct the SR-0006 coverage over-claim (SR-0005's note is accurate). Do not conclude.
+- Active finding: in-progress SF coverage notes over-claim awaiting-cosign SRs as co-signed — corrected SF-0001/0002/0003 ✓; SF-0004 accurate (SR-0004 verified). SF-0005 has a mix (SR-0005 ok, SR-0006 needs fixing).
 - Recurring finding CLOSED for the awaiting-cosign SRs: all 7 had thin re-anchor narratives, now strengthened (SR-0001/0002/0003/0006/0007/0008/0009 ✓).
