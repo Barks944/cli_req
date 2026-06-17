@@ -51,3 +51,20 @@ Test re-run live: `cargo test --test safety_dossier req_0202` → `req_0202_haza
 **Finding (MINOR, same as SR-0007) — thin re-anchor boilerplate**, now **RESOLVED in this pass**: analysis re-recorded to cite `hazard_update` / `hazard_confirm` (agent-refusal) / conform REQ-V-0043 with source refs; testing names the `req_0202` test. Re-concluded Pass, awaiting human co-sign, conform clean.
 
 **Verdict:** MET; dossier strengthened to carry its own evidence. Safe to co-sign.
+
+---
+
+## SR-0009 — Stamp the achieved-integrity boundary on safety views
+*Reviewed 2026-06-17 · status: awaiting human co-sign · inherited SIL3*
+
+**Statement:** "req shall display the achieved-integrity boundary notice on every safety-function and safety-requirement view."
+
+**Behaviour — CONFIRMED (independently).** Both acceptance criteria hold:
+1. *`req sf show` prints the notice* — `ACHIEVED_INTEGRITY_STAMP` (`src/commands/safety.rs:33`) printed as the `scope:` line at `safety.rs:1124`; live `req sf show SF-0008` emits it.
+2. *`req sreq show` prints the notice* — same constant printed at `safety.rs:1465`; live `req sreq show SR-0009` emits it.
+
+Test re-run live: `req_0203_achieved_integrity_stamp_on_sf_and_sr_views` **1 passed**. One shared constant feeds both views, so the two stay consistent.
+
+**Finding (MINOR, same as SR-0007/0008) — thin boilerplate, RESOLVED this pass:** analysis re-recorded to name the `ACHIEVED_INTEGRITY_STAMP` constant + both print sites + the live confirmation; testing names `req_0203`. Re-concluded Pass, awaiting co-sign, conform clean.
+
+**Verdict:** MET; dossier carries its own evidence. Safe to co-sign. *(All three REQ-0204/0205/0206-era safety requirements — SR-0007/0008/0009 — now audited and strengthened.)*
