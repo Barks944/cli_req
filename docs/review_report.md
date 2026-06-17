@@ -159,5 +159,18 @@ Tests re-run live, all pass: `req_0003_integrity_blocks_load_after_semantic_tamp
 
 ---
 
+## SR-0005 — V&V vocabulary reserved for the evidence workflow and used per the standards
+*Reviewed 2026-06-17 · status: **Verified** (human co-signed) · spot-check only — not modified*
+
+**Spot-check (read-only).** Standing: `provenance: genuine`, verdict `PASS`, **co-signed by Tom**.
+- Claim CONFIRMED: `src/cli.rs` has **no `Validate` command** (grep count 0 — the well-formedness check is `req conform`); `req help terminology` exists as the single-source V&V mapping. Cited tests pass live: `req_0190_conform_replaces_validate`, `req_0196_terminology_reference_available`.
+- Dossier already substantive (cites cli.rs / conform_cmd.rs / help_text.rs and names the tests). The dossier itself honestly flags that one acceptance criterion (AC2 exact wording) rests partly on inspection — good, transparent practice.
+
+**Caveats (MINOR, pre-existing):** REQ-V-0037 independence (authored + co-signed by Tom, as with SR-0004), and the statement is compound (REQ-V-0010, like SR-0006). Advisory.
+
+**Verdict:** Verified standing CONFIRMED; dossier genuine and substantive; no change made. *(All 9 safety requirements now reviewed: 7 awaiting-cosign strengthened, 2 Verified spot-checked.)*
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
