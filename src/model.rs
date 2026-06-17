@@ -366,6 +366,60 @@ impl Project {
             .filter_map(|sf| self.allocated_sil(sf))
             .max_by_key(|s| s.rank())
     }
+
+    /// REQ-0204: the live (non-obsolete) safety requirements that realize a
+    /// safety function — its children for the adequacy walk-through. Sorted by
+    /// id for a stable chain anchor.
+    pub fn realizing_srs(&self, sf_id: &str) -> Vec<&SafetyRequirement> {
+        let mut v: Vec<&SafetyRequirement> = self
+            .safety_requirements
+            .values()
+            .filter(|sr| !matches!(sr.status, Status::Obsolete))
+            .filter(|sr| {
+                sr.links
+                    .iter()
+                    .any(|l| l.kind == LinkKind::Realizes && l.target == sf_id)
+            })
+            .collect();
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+        v
+    }
+
+    /// REQ-0204: the live (non-obsolete) safety functions that mitigate a hazard
+    /// — its children for the adequacy walk-through. Sorted by id.
+    pub fn mitigating_sfs(&self, haz_id: &str) -> Vec<&SafetyFunction> {
+        let mut v: Vec<&SafetyFunction> = self
+            .safety_functions
+            .values()
+            .filter(|sf| !matches!(sf.status, SafetyFunctionStatus::Obsolete))
+            .filter(|sf| {
+                sf.links
+                    .iter()
+                    .any(|l| l.kind == LinkKind::Mitigates && l.target == haz_id)
+            })
+            .collect();
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+        v
+    }
+}
+
+/// REQ-0204: a stable token describing one child artifact's verification
+/// standing, used to build a parent's chain anchor. Combines the id, whether it
+/// is Verified, and its verification content-hash prefix — so the anchor
+/// changes when a child drops out of Verified OR is re-verified against changed
+/// source. `verified`/`hash` are read from the child by the caller.
+pub fn chain_token(id: &str, verified: bool, content_hash: Option<&str>) -> String {
+    let h = content_hash
+        .map(|h| &h[..h.len().min(12)])
+        .unwrap_or("-");
+    format!("{}:{}:{}", id, if verified { "v" } else { "u" }, h)
+}
+
+/// REQ-0204: assemble a chain anchor from sorted child tokens. Stored on the
+/// parent's dossier at conclude and recompared at conform; a mismatch means the
+/// mitigation/realization chain changed and the adequacy argument is stale.
+pub fn chain_anchor(tokens: &[String]) -> String {
+    tokens.join("|")
 }
 
 /// Serde default + skip helper for the per-family id counters.
@@ -584,6 +638,21 @@ pub struct Verification {
     /// dossiers written before this field existed (migrated by `req migrate`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exemption_kind: Option<ExemptionKind>,
+    /// REQ-0204: the adequacy walk-through — one note per child artifact this
+    /// item is realized by. Used by a SAFETY FUNCTION to record *why* each
+    /// realizing safety requirement implements it; a safety function's dossier
+    /// concludes only when every live realizing SR is both covered here and
+    /// itself Verified (the hard chain gate). Empty for ordinary requirements
+    /// and safety requirements, whose evidence is code + tests, not children.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coverage: Vec<CoverageNote>,
+    /// REQ-0204: a hash of the realizing-SR chain state (their ids + each one's
+    /// verification anchor) at conclude. Set on a SAFETY FUNCTION dossier so the
+    /// adequacy argument goes stale when a realizing SR is added/removed or
+    /// re-verified — impact analysis at the safety-function level. None on
+    /// ordinary requirements and safety requirements.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_anchor: Option<String>,
 }
 
 /// REQ-0162: the two audited ways an item may be Verified without a genuine
@@ -618,6 +687,8 @@ impl Verification {
             linked_files: None,
             human_confirmation: None,
             exemption_kind: None,
+            coverage: Vec::new(),
+            chain_anchor: None,
         }
     }
 
@@ -1289,9 +1360,100 @@ pub struct Hazard {
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub history: Vec<HistoryEntry>,
+    /// REQ-0202: the recorded mitigation-adequacy / residual-risk argument.
+    /// `req` does not perform the HARA or pronounce risk "acceptable" — it
+    /// records and forces the reasoning, and requires a human co-sign before
+    /// a hazard may reach Verified. None until an argument is recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adequacy: Option<AdequacyArgument>,
     /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// REQ-0204: one entry in an adequacy walk-through — the agent's recorded
+/// argument for WHY a specific child artifact contributes to the parent being
+/// adequately covered. For a safety function the child is a realizing safety
+/// requirement; for a hazard it is a mitigating safety function. Forcing one
+/// note per live child stops the agent waving at the set, and turns the former
+/// bare `mitigates`/`realizes` edge into a recorded contribution (closes §3B-11).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverageNote {
+    /// The child artifact addressed (SR-NNNN for an SF, SF-NNNN for a hazard).
+    pub target: String,
+    /// Why this child contributes to the parent being adequately covered.
+    pub note: String,
+    pub at: DateTime<Utc>,
+    pub actor: String,
+}
+
+/// REQ-0204: the derived verdict of an adequacy walk-through. `Adequate` is only
+/// reachable when every live child is addressed by a coverage note AND is itself
+/// Verified — the hard gate. `Inadequate` records a concluded-but-failed
+/// argument (a child is unverified, or the set is incompletely covered).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AdequacyVerdict {
+    Adequate,
+    Inadequate,
+}
+
+impl AdequacyVerdict {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AdequacyVerdict::Adequate => "adequate",
+            AdequacyVerdict::Inadequate => "inadequate",
+        }
+    }
+}
+
+// SF-0007 / SR-0008: the hazard mitigation-adequacy / residual-risk record.
+/// REQ-0202 / REQ-0204: a hazard's mitigation-adequacy dossier. The
+/// validation-flavoured analogue of the verification dossier: a staged
+/// walk-through (`plan` → per-SF `coverage` notes → `statement` residual-risk
+/// argument → derived `verdict`) that captures *why* the mitigating safety
+/// functions together reduce residual risk to a level the project accepts — the
+/// judgement the derived `allocated_sil >= required_sil` comparison explicitly
+/// is NOT. The verdict is `Adequate` only when every live mitigating SF is both
+/// addressed by a coverage note and itself Verified (the hard chain gate). An
+/// agent records the argument; a human co-signs it (`req hazard confirm`, which
+/// refuses REQ_ACTOR_KIND=agent) before the hazard is Verified. Never prints
+/// "validated".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdequacyArgument {
+    /// REQ-0204: how the adequacy of the mitigation set will be argued. Empty on
+    /// legacy records written before the dossier was staged.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub plan: String,
+    /// REQ-0204: one walk-through entry per live mitigating safety function.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coverage: Vec<CoverageNote>,
+    /// Why the residual risk, after all linked mitigations, is acceptable.
+    pub statement: String,
+    /// Risk-reduction measures credited OUTSIDE the safety functions modelled
+    /// here — the independent protection layers the W (avoidance) axis
+    /// implicitly assumes. Recording them stops the credit being invisible
+    /// (a common 61508 audit finding). None when nothing external is credited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credited_external_measures: Option<String>,
+    /// REQ-0204: the derived adequacy verdict, set at conclude. None until
+    /// concluded (or on a legacy record).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<AdequacyVerdict>,
+    /// REQ-0204: a hash of the mitigating-SF chain state (their ids + each one's
+    /// verification anchor) at conclude. The argument goes stale when a
+    /// mitigation is added/removed or a mitigating SF is re-verified, forcing a
+    /// fresh adequacy walk-through and human co-sign — impact analysis at the
+    /// hazard level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_anchor: Option<String>,
+    pub actor: String,
+    pub at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub commit: String,
+    /// A human's co-sign of the adequacy argument. None until a human confirms;
+    /// an agent cannot record it. Required before a hazard reaches Verified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human_confirmation: Option<VerificationActivity>,
 }
 
 impl Hazard {
@@ -1349,6 +1511,14 @@ pub struct SafetyFunction {
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub history: Vec<HistoryEntry>,
+    /// REQ-0201: the staged verification dossier — the same struct a safety
+    /// requirement carries. A safety function reaches Verified only through a
+    /// concluded passing dossier plus a human co-sign, never a typed status:
+    /// the dossier records *why/how* the function achieves its `safe_state`.
+    /// Absent until a verification is opened; serialised only when present so
+    /// projects that never use it keep a byte-identical file (and hash).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<Verification>,
     /// REQ-0140: forward-compatibility catch-all — see `Project::extra`.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,

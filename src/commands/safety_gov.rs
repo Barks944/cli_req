@@ -364,6 +364,27 @@ fn render_sr(
                     &format!("{}  ·  required {}  ·  {}", h.id, req, h.title),
                 );
                 field(&mut out, "harm", &h.harm);
+                // REQ-0204: the hazard's mitigation-adequacy standing (and, in
+                // --full, the per-SF walk-through behind it).
+                if let Some(a) = &h.adequacy {
+                    let st = match (a.verdict, a.human_confirmation.is_some()) {
+                        (Some(vd), true) => format!("{} · co-signed", vd.as_str()),
+                        (Some(vd), false) => format!("{} · awaiting co-sign", vd.as_str()),
+                        (None, _) => "in progress".to_string(),
+                    };
+                    field(&mut out, "adequacy", &st);
+                    if full {
+                        for c in &a.coverage {
+                            field(&mut out, "", &format!("covers {}: {}", c.target, c.note));
+                        }
+                    }
+                }
+                // REQ-0206: the hazard's derived sign-off basis — whether its
+                // mitigating SFs (and their SRs) are all Verified, so the
+                // reviewer co-signing the hazard sees the chain spine here.
+                for line in crate::commands::safety::hazard_signoff_lines(project, h) {
+                    out.push(format!("  {}", line.trim_start()));
+                }
             }
         }
         let asil = project.allocated_sil(sf).map(|s| s.as_str()).unwrap_or("—");
@@ -372,6 +393,20 @@ fn render_sr(
             "MITIGATED BY",
             &format!("{}  ·  {}  ·  {}", sf.id, asil, sf.title),
         );
+        // REQ-0204: the safety function's adequacy walk-through — why each
+        // realizing SR implements it (expanded in --full).
+        if full {
+            if let Some(sfv) = &sf.verification {
+                for c in &sfv.coverage {
+                    field(&mut out, "", &format!("{} covers via {}: {}", sf.id, c.target, c.note));
+                }
+            }
+        }
+        // REQ-0206: the safety function's derived sign-off basis — whether its
+        // realizing SRs are all Verified, for the reviewer co-signing the SF.
+        for line in crate::commands::safety::sf_signoff_lines(project, sf) {
+            out.push(format!("  {}", line.trim_start()));
+        }
         out.push(String::new());
     }
 
