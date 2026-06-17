@@ -105,3 +105,21 @@ Test re-run live: `req_0011_safety_mutation_records_reasoned_append_only_history
 **Finding (MINOR) — thin boilerplate narrative, RESOLVED this pass** (re-recorded with the 18 push sites, the attribution detail, and the named append-only test).
 
 **Verdict:** MET; dossier carries its own evidence. Safe to co-sign.
+
+---
+
+## SR-0002 — Gate Verified on SIL-adequate evidence
+*Reviewed 2026-06-17 · status: awaiting human co-sign · inherited SIL3*
+
+**Statement:** "req shall reject promoting a SIL 3 or SIL 4 safety requirement to Verified on inspection-only evidence unless an audited exception is recorded."
+
+**Behaviour — CONFIRMED (independently).** All three acceptance criteria hold:
+1. *SIL3 inspection-only `--promote` without `--force` exits non-zero* — `promote_preflight` (`src/commands/verification.rs:783`): "SIL-rigour gate … needs automated or composition test evidence"; same gate guards `sreq_verify`.
+2. *Same at SIL4 / b band* — the gate keys off `sil.rank() >= Sil::Sil3.rank()` (`verification.rs:657,783`), so it covers SIL4 and b.
+3. *Audited `--force` exception recorded, doesn't waive the dossier* — `sil_gate_exception=true` written on the TestRecord (`verification.rs:653`); `src/conform.rs` REQ-V-0031 surfaces it as a warning forever (error if not audited); the genuine-dossier requirement (REQ-0143) still applies.
+
+Tests re-run live, all pass: `req_0135_sil_gate_blocks_inspection_and_force_needs_reason` (tests/safety.rs), `req_0139_conclude_promote_respects_sil_gate` (tests/verification.rs), `sr_0002_sil_gate_at_sil4_records_audited_exception` (tests/coverage_gap.rs). This is the **best-tested** of the older SRs — it has a dedicated `sr_0002_*` acceptance test.
+
+**Finding (MINOR) — thin boilerplate narrative, RESOLVED this pass** (re-recorded with the gate location, the `sil_gate_exception` mechanism, conform REQ-V-0031, and the three named tests).
+
+**Verdict:** MET; dossier carries its own evidence. Safe to co-sign.
