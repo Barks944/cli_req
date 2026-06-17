@@ -13,13 +13,15 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 - **SR-0006** — 2026-06-17 — behaviour CONFIRMED (CONFORM_DISCLAIMER on success/failure/--json, points to `req verification status`, `coverage_gap.rs:474` + live check, automated+composition evidence); thin narrative **RESOLVED** in-pass. Additional finding (NOT actioned): SR-0006's own statement is compound (REQ-V-0010) — recommend a split; left for a human (changes the requirement, not the dossier).
 
+- **SR-0003** — 2026-06-17 — behaviour CONFIRMED (18 `super::history` append sites in safety.rs, attributed with actor_kind, live HAZ-0001 has 9 append-only entries, `req_0011` append-only test passes); thin narrative **RESOLVED** in-pass. Awaiting human co-sign.
+
 ## Queue (not yet reviewed)
-- SR-0001, SR-0002, SR-0003 (older safety requirements, awaiting co-sign)
+- SR-0001, SR-0002 (older safety requirements, awaiting co-sign)
 - SR-0004, SR-0005 (already Verified — spot-check the genuine dossier)
 - SF-0001..0008 (safety-function verification dossiers)
 - HAZ-0001..0004 (hazard adequacy dossiers)
 
 ## Notes
 - Same pattern likely affects the other re-anchored SRs (SR-0001/0002/0003/0006/0008/0009) — their narratives were written by the same re-anchor loop. Will confirm per-SR.
-- Next iteration: SR-0003 (append-only reasoned history for safety mutations) — verify against `super::history` / history append in `safety.rs` + `req audit`.
-- Recurring finding: the re-anchored older SRs (SR-0001/0002/0003) likely share the thin-boilerplate narrative; strengthen each as reviewed.
+- Next iteration: SR-0002 (gate Verified on SIL-adequate evidence) — verify against the SIL-rigour gate (`promote_preflight` / `sreq_verify`) + REQ-V-0031 + the SIL-gate test.
+- Recurring finding: the re-anchored older SRs share the thin-boilerplate narrative; strengthen each as reviewed (SR-0003 ✓, SR-0006 ✓ done).

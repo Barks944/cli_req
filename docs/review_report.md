@@ -88,3 +88,20 @@ Test: `tests/coverage_gap.rs:474` asserts the `--json note` carries the disclaim
 **Finding (MINOR, NOT actioned — needs a human decision) — the SR's own statement is compound.** It trips REQ-V-0010 ("shall **not present** … **and shall direct** …") — two obligations in one requirement. The tool's own rule would have it split into two atomic SRs (e.g. "shall not present a well-formedness result as V&V status" + "shall direct the user to the V&V-status command"). I did **not** split it: that changes the requirement itself, which is outside the dossier-improvement remit and is a human call. Recorded here as a recommendation. *(Same compound smell affects SR-0005 and several ordinary reqs — REQ-0187/0188/0189/0191.)*
 
 **Verdict:** MET; dossier strengthened. Safe to co-sign as-is; consider splitting the statement in a follow-up.
+
+---
+
+## SR-0003 — Record append-only reasoned history for safety mutations
+*Reviewed 2026-06-17 · status: awaiting human co-sign · inherited SIL3*
+
+**Statement:** "req shall append a reasoned, attributed history entry to every mutation of a hazard, safety function, or safety requirement."
+
+**Behaviour — CONFIRMED (independently).**
+- *History appended on every mutation path* — 18 `super::history(...)` push sites across `src/commands/safety.rs` (hazard add/assess/update/adequacy/confirm, sf add/update/mitigate, sreq add/update/realize/verify). `super::history` stamps actor + actor_kind (+ on-behalf-of); irregular changes additionally require `--reason`.
+- *Append-only & attributed* — live: `HAZ-0001` carries **9** history entries, each with `actor_kind` (e.g. `created` by Human). The append-only property is the one SF-0003 relies on.
+
+Test re-run live: `req_0011_safety_mutation_records_reasoned_append_only_history` (`tests/safety.rs:792`) asserts each status change **adds** an entry without replacing prior history — **1 passed**.
+
+**Finding (MINOR) — thin boilerplate narrative, RESOLVED this pass** (re-recorded with the 18 push sites, the attribution detail, and the named append-only test).
+
+**Verdict:** MET; dossier carries its own evidence. Safe to co-sign.
