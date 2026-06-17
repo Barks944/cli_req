@@ -35,8 +35,10 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 - **SF-0006** — 2026-06-17 — dossier audited (conclude-blocked on SR-0007). IMPROVED: testing named (req_0201 + req_0204 SF-gate tests, re-run live); SR-0007 coverage CORRECTED. conform clean.
 
+- **SF-0007** — 2026-06-17 — dossier audited (conclude-blocked on SR-0008). IMPROVED: testing named (req_0202 + req_0204); SR-0008 coverage CORRECTED. conform clean.
+
 ## Queue (not yet reviewed)
-- SF-0007, SF-0008 (REQ-0204 controls — correct coverage over-claim, name tests)
+- SF-0008 (REQ-0204 control — correct coverage over-claim, name tests)
 - HAZ-0001..0004 (hazard adequacy dossiers)
 - SR-0004, SR-0005 (already Verified — spot-check the genuine dossier)
 - SF-0001..0008 (safety-function verification dossiers)
@@ -44,6 +46,6 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 ## Notes
 - Same pattern likely affects the other re-anchored SRs (SR-0001/0002/0003/0006/0008/0009) — their narratives were written by the same re-anchor loop. Will confirm per-SR.
-- Next iteration: SF-0007 (hazard-adequacy-gate control, REQ-0204; realized by SR-0008 awaiting). Audit + name tests (req_0202/req_0204) + correct SR-0008 coverage.
-- Active finding: SF coverage over-claims corrected on SF-0001/0002/0003/0005/0006 ✓; SF-0004 accurate; SF-0007/0008 still to fix.
+- Next iteration: SF-0008 (achieved-integrity-stamp control, REQ-0204; realized by SR-0009 awaiting). Audit + name req_0203 + correct SR-0009 coverage. LAST SF; then HAZ-0001..0004 adequacy dossiers, then write the top-of-report summary and stop looping.
+- Active finding: SF coverage over-claims corrected on SF-0001/0002/0003/0005/0006/0007 ✓; SF-0004 accurate; SF-0008 last to fix.
 - Recurring finding CLOSED for the awaiting-cosign SRs: all 7 had thin re-anchor narratives, now strengthened (SR-0001/0002/0003/0006/0007/0008/0009 ✓).

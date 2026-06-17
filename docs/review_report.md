@@ -224,5 +224,12 @@ Analysis substantive (Family::Sf gate, sf_update, conform REQ-V-0039/0040). Impr
 
 ---
 
+## SF-0007 — A hazard's Verified status is gated on a co-signed adequacy argument
+*Reviewed 2026-06-17 · in-progress (conclude-blocked until SR-0008 is co-signed) · REQ-0204 control*
+
+Analysis substantive (`hazard_adequacy_*`, conform REQ-V-0043). Improvements: **testing named** `req_0202_hazard_verified_requires_cosigned_adequacy` and `req_0204_hazard_adequacy_walks_and_gates_the_chain` (re-run live, pass); **SR-0008 coverage corrected** to "awaiting human co-sign". No conclude.
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
