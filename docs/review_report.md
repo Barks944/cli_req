@@ -217,5 +217,12 @@ Analysis substantive (verify/validate→conform rename + conform disclaimer). Im
 
 ---
 
+## SF-0006 — A safety function's Verified status is gated on a genuine co-signed dossier
+*Reviewed 2026-06-17 · in-progress (conclude-blocked until SR-0007 is co-signed) · REQ-0204 control*
+
+Analysis substantive (Family::Sf gate, sf_update, conform REQ-V-0039/0040). Improvements: **testing named** `req_0201_sf_reaches_verified_only_via_dossier_and_human_cosign`, `req_0201_direct_sf_verified_is_blocked`, `req_0204_sf_conclude_blocked_until_realizing_sr_verified` (re-run live, pass); **SR-0007 coverage corrected** to "awaiting human co-sign". Sign-off basis correct (blocked on SR-0007). No conclude.
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
