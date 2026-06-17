@@ -68,3 +68,23 @@ Test re-run live: `req_0203_achieved_integrity_stamp_on_sf_and_sr_views` **1 pas
 **Finding (MINOR, same as SR-0007/0008) — thin boilerplate, RESOLVED this pass:** analysis re-recorded to name the `ACHIEVED_INTEGRITY_STAMP` constant + both print sites + the live confirmation; testing names `req_0203`. Re-concluded Pass, awaiting co-sign, conform clean.
 
 **Verdict:** MET; dossier carries its own evidence. Safe to co-sign. *(All three REQ-0204/0205/0206-era safety requirements — SR-0007/0008/0009 — now audited and strengthened.)*
+
+---
+
+## SR-0006 — A consistency check must not present as, and must point to, true V&V status
+*Reviewed 2026-06-17 · status: awaiting human co-sign · inherited SIL3*
+
+**Statement:** "A model well-formedness or consistency check shall not present its result as verification or validation status, and shall direct the user to the command that reports the true V&V status of every requirement."
+
+**Behaviour — CONFIRMED (independently).** All three acceptance criteria hold:
+1. *Success & failure output disclaims V&V* — `CONFORM_DISCLAIMER` (`src/commands/conform_cmd.rs:166`: "This checks model well-formedness … not verification/validation status") printed on the success path (`:142`) and failure path (`:156`).
+2. *Output references the V&V command* — the same disclaimer directs to `req verification status`, and it's also carried in the `--json` `note` (`:125`). Confirmed live: `req conform --json` `note` contains the disclaimer.
+3. *That command reports every requirement's standing accurately* — `req verification status` (src/commands/status.rs) enumerates every requirement and safety requirement (cross-checked against REQ-0188/0191 earlier in this branch's history).
+
+Test: `tests/coverage_gap.rs:474` asserts the `--json note` carries the disclaimer. Evidence records include an **automated** run + composition (stronger than the other SRs, which are composition-only).
+
+**Finding (MINOR) — thin boilerplate narrative, RESOLVED this pass** (re-recorded to cite the constant + all three print sites + the test).
+
+**Finding (MINOR, NOT actioned — needs a human decision) — the SR's own statement is compound.** It trips REQ-V-0010 ("shall **not present** … **and shall direct** …") — two obligations in one requirement. The tool's own rule would have it split into two atomic SRs (e.g. "shall not present a well-formedness result as V&V status" + "shall direct the user to the V&V-status command"). I did **not** split it: that changes the requirement itself, which is outside the dossier-improvement remit and is a human call. Recorded here as a recommendation. *(Same compound smell affects SR-0005 and several ordinary reqs — REQ-0187/0188/0189/0191.)*
+
+**Verdict:** MET; dossier strengthened. Safe to co-sign as-is; consider splitting the statement in a follow-up.
