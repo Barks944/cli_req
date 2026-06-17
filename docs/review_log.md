@@ -39,14 +39,15 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 - **SF-0008** — 2026-06-17 — dossier audited (conclude-blocked on SR-0009). Testing named req_0203; SR-0009 coverage CORRECTED. conform clean. **— SF layer complete (all 8).**
 
+- **HAZ-0001..0004** — 2026-06-17 — all four adequacy dossiers audited together. Coverage notes honest (describe SF contribution, don't claim verified); plans state the goal ("verified SFs"), gate+basis enforce/show the truth. No change; correctly blocked bottom-up. **— ALL 21 ARTIFACTS REVIEWED. Loop complete.**
+
 ## Queue (not yet reviewed)
-- HAZ-0001..0004 (hazard adequacy dossiers)
+- (none — review complete)
 - SR-0004, SR-0005 (already Verified — spot-check the genuine dossier)
 - SF-0001..0008 (safety-function verification dossiers)
 - HAZ-0001..0004 (hazard adequacy dossiers)
 
 ## Notes
 - Same pattern likely affects the other re-anchored SRs (SR-0001/0002/0003/0006/0008/0009) — their narratives were written by the same re-anchor loop. Will confirm per-SR.
-- Next iteration: HAZ-0001 adequacy dossier — audit the plan + per-SF coverage notes; correct any SF over-claim (its SFs SF-0001/0002/0003 are NOT verified, so "covered" notes are fine but must not imply the SFs are verified); name evidence; do not conclude. Then HAZ-0002/0003/0004, then summary + stop.
-- SF coverage over-claims: ALL corrected (SF-0001/0002/0003/0005/0006/0007/0008 ✓; SF-0004 was accurate). SF layer done.
+- REVIEW COMPLETE (2026-06-17): all 21 artifacts (9 SR, 8 SF, 4 HAZ) double-checked; summary written at the top of review_report.md; loop ended. Nothing queued.
 - Recurring finding CLOSED for the awaiting-cosign SRs: all 7 had thin re-anchor narratives, now strengthened (SR-0001/0002/0003/0006/0007/0008/0009 ✓).

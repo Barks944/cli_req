@@ -10,6 +10,39 @@ behaviour is genuinely met and (b) the dossier *itself* documents it adequately.
 
 ---
 
+## Summary (review complete — 2026-06-17)
+
+**Scope:** all 21 safety artifacts double-checked — 9 safety requirements, 8 safety
+functions, 4 hazard adequacy dossiers. `req conform` clean throughout (0 errors);
+**199/199 verified items genuine, 0 stale**.
+
+**Outcome — every behaviour independently confirmed.** Each acceptance criterion
+was checked against the actual source (file:line) and the cited tests re-run live;
+no claim failed. The safety machinery is real and the chain is sound.
+
+**Changes made (dossier quality only — no behaviour, no co-signs):**
+- 7 awaiting-cosign SRs (SR-0001/0002/0003/0006/0007/0008/0009): thin re-anchor
+  boilerplate replaced with substantive analysis (enforcement code refs) + named
+  tests. Each re-concluded Pass, still awaiting human co-sign.
+- 7 SF verification dossiers (SF-0001/0002/0003/0005/0006/0007/0008): tests named,
+  and the bulk-authored coverage notes **corrected** — they wrongly described
+  awaiting-cosign SRs as "verified … human co-sign"; now "awaiting human co-sign".
+- 2 Verified SRs (SR-0004/0005) and 1 concluded SF (SF-0004): spot-checked /
+  audit-confirmed, **not modified** (co-sign preserved).
+- 4 hazard adequacy dossiers: confirmed honest, no change.
+
+**Outstanding for the human (not actionable by an agent):**
+1. **Co-sign the chain bottom-up** — 7 SRs await `req verification confirm`;
+   **SF-0004 is the one item signable right now**. Then SFs, then hazards.
+2. **SR-0006 statement is compound** (REQ-V-0010) — recommend splitting into two
+   atomic SRs. A requirement change, left to you.
+3. **Independence (REQ-V-0037)** — SR-0004/SR-0005 were authored *and* co-signed
+   by Tom; the standard wants a different competent reviewer.
+
+Per-artifact detail follows.
+
+---
+
 ## SR-0007 — Gate a safety function's Verified status on a co-signed dossier
 *Reviewed 2026-06-17 · status: awaiting human co-sign · inherited SIL3*
 
@@ -235,6 +268,21 @@ Analysis substantive (`hazard_adequacy_*`, conform REQ-V-0043). Improvements: **
 *Reviewed 2026-06-17 · in-progress (conclude-blocked until SR-0009 is co-signed) · REQ-0204 control*
 
 Analysis substantive (stamp printed in sf_show + sreq_show); testing named `req_0203_achieved_integrity_stamp_on_sf_and_sr_views` (re-run live, pass). **SR-0009 coverage corrected** to "awaiting human co-sign". No conclude. *(SF layer complete: SF-0001..0008 all audited; SF-0004 the one signable now.)*
+
+---
+
+## HAZ-0001..0004 — mitigation-adequacy dossiers
+*Reviewed 2026-06-17 · all in-progress (each conclude-blocked until its mitigating SFs are Verified)*
+
+Audited all four hazard adequacy dossiers together. Each carries a plan and a per-mitigating-SF coverage note:
+- **HAZ-0001** (req mis-manages an SR) ← SF-0001/0002/0003 — covers integrity-hash, SIL-evidence gate, append-only history.
+- **HAZ-0002** (non-genuine Verified label) ← SF-0004/0006/0007 — covers provenance detection + the SF/hazard prevention gates.
+- **HAZ-0003** (ambiguous V&V terminology) ← SF-0005.
+- **HAZ-0004** (trace misread as achieved integrity) ← SF-0008.
+
+**Finding: coverage notes are honest** — unlike the SF→SR notes, the hazard→SF notes describe each SF's *contribution* and do **not** assert the SF is already verified, so no correction was needed. The only nuance is the plan wording ("…by its *verified* safety functions"), which states the argument's *goal*; the hard gate and the derived sign-off basis both enforce/show that the SFs are not yet Verified (each basis correctly reads "NOT yet signable — SF-… not Verified"). No change made; no conclude (correctly blocked bottom-up).
+
+**Verdict:** all four adequacy dossiers sound and honest; correctly **not signable** until their SF chains are co-signed. No mutation.
 
 ---
 
