@@ -27,8 +27,10 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 - **SF-0002** — 2026-06-17 — dossier audited (in-progress, conclude-blocked until SR-0002 co-signed). Analysis substantive (SIL-rigour gate). IMPROVED: testing named (req_0135/req_0139/sr_0002 SIL-gate tests); coverage note CORRECTED (over-claim → awaiting). conform clean.
 
+- **SF-0003** — 2026-06-17 — dossier audited (conclude-blocked until SR-0003 co-signed). IMPROVED: testing named (req_0011 append-only; audit trail via `req audit`, by inspection); coverage note CORRECTED. conform clean.
+
 ## Queue (not yet reviewed)
-- SF-0003..0008 (safety-function verification dossiers — correct the coverage-note over-claim on each)
+- SF-0004..0008 (safety-function verification dossiers — correct the coverage-note over-claim on each)
 - HAZ-0001..0004 (hazard adequacy dossiers)
 - SR-0004, SR-0005 (already Verified — spot-check the genuine dossier)
 - SF-0001..0008 (safety-function verification dossiers)
@@ -36,6 +38,6 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 ## Notes
 - Same pattern likely affects the other re-anchored SRs (SR-0001/0002/0003/0006/0008/0009) — their narratives were written by the same re-anchor loop. Will confirm per-SR.
-- Next iteration: SF-0003 (append-only history + signed-commit audit trail) — audit dossier vs the history-append code; name tests; correct the SR-0003 coverage-note over-claim.
-- Active finding to apply per-SF: coverage notes say realizing SRs are "verified ... human co-sign" but they're awaiting-cosign — correct each note's wording (SF-0001 ✓, SF-0002 ✓ done).
+- Next iteration: SF-0004 (provenance) — its realizing SR-0004 is VERIFIED, so SF-0004 was concluded earlier (awaiting human co-sign). Audit the concluded dossier; DO NOT re-open (it's not co-signed but concluding-again is fine if needed — prefer leaving it). Name tests; correct coverage note if it over-claims.
+- Active finding to apply per-SF: coverage notes say realizing SRs are "verified ... human co-sign" but they're awaiting-cosign — correct each note (SF-0001/0002/0003 ✓). NOTE SF-0004's SR-0004 IS verified, so its coverage note may be accurate.
 - Recurring finding CLOSED for the awaiting-cosign SRs: all 7 had thin re-anchor narratives, now strengthened (SR-0001/0002/0003/0006/0007/0008/0009 ✓).

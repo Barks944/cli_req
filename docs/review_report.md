@@ -192,5 +192,12 @@ Analysis substantive (cites the SIL-rigour gate: `promote_preflight` + conform R
 
 ---
 
+## SF-0003 — Append-only history and signed-commit audit trail
+*Reviewed 2026-06-17 · in-progress (conclude-blocked until SR-0003 is co-signed)*
+
+Analysis substantive (history append on every mutation + `req audit` signed-commit trail). Improvements: **testing named** `req_0011_safety_mutation_records_reasoned_append_only_history` (append-only, confirmed live), with the signed-commit-trail leg attributed to `req audit` (src/commands/audit.rs) by code review (honestly noted as inspection); **coverage note corrected** to "awaiting human co-sign". Sign-off basis: NOT signable until SR-0003 co-signed. No conclude attempted.
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
