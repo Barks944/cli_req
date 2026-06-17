@@ -18,6 +18,7 @@ pub mod integration;
 pub mod link;
 pub mod lint;
 pub mod list;
+pub mod merge;
 pub mod migrate;
 pub mod next;
 pub mod precheck;

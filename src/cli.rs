@@ -174,6 +174,12 @@ pub enum Command {
     Hooks(HooksArgs),
     /// Resolve requirement-ID collisions after merging from another branch.
     Renumber(RenumberArgs),
+    // REQ-0207: three-way merge driver for project.req, used by git via the
+    // `req-merge` driver. Marker kept off the --help line (see REQ-0151).
+    /// Three-way merge driver for project.req (used by git). Auto-merges
+    /// non-conflicting changes from both sides; exits non-zero, preserving
+    /// both, on any unresolvable divergence.
+    Merge(MergeArgs),
     /// Cross-reference REQ-IDs against the source tree; report orphans and ghosts.
     Coverage(CoverageArgs),
     /// Walk the git history of the .req file and report commit/signer per change.
@@ -1287,6 +1293,29 @@ pub struct RenumberArgs {
     /// Show what would change without writing.
     #[arg(long)]
     pub dry_run: bool,
+}
+
+// REQ-0207: arguments mirror what git's merge driver substitutes. The driver
+// is registered as `req merge --base %O --ours %A --theirs %B`; %A is both our
+// input and the file git reads the result back from, so `--output` defaults to
+// `--ours`. `--marker-size` (%L) is accepted for git compatibility but unused.
+#[derive(Args, Debug)]
+pub struct MergeArgs {
+    /// Common ancestor version (git's %O).
+    #[arg(long)]
+    pub base: PathBuf,
+    /// Our version; also the file git reads the merged result back from (%A).
+    #[arg(long)]
+    pub ours: PathBuf,
+    /// Their version (%B).
+    #[arg(long)]
+    pub theirs: PathBuf,
+    /// Where to write the merged result. Defaults to `--ours` (git's contract).
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+    /// Conflict-marker size git requested (%L). Accepted for compatibility.
+    #[arg(long)]
+    pub marker_size: Option<usize>,
 }
 
 #[derive(Args, Debug)]
