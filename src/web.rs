@@ -376,11 +376,7 @@ fn signoff_card(lines: Vec<String>) -> String {
     if lines.is_empty() {
         return String::new();
     }
-    let body: String = lines
-        .iter()
-        .map(|l| h(l))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let body: String = lines.iter().map(|l| h(l)).collect::<Vec<_>>().join("\n");
     format!(
         "<div class=\"card\"><h2>Sign-off basis</h2>\
          <pre style=\"white-space:pre-wrap;margin:0;font-family:inherit;\">{}</pre></div>",
@@ -487,7 +483,12 @@ fn breadcrumbs(project: &Project, id: &str) -> String {
             lines.push(format!("{} &rsaquo; {}", root, h(&up)));
         }
         for hz in hazs {
-            lines.push(format!("{} &rsaquo; {} &rsaquo; {}", root, alink(&hz), h(&up)));
+            lines.push(format!(
+                "{} &rsaquo; {} &rsaquo; {}",
+                root,
+                alink(&hz),
+                h(&up)
+            ));
         }
     } else if up.starts_with("SR") {
         let sfs: Vec<String> = project
@@ -507,7 +508,12 @@ fn breadcrumbs(project: &Project, id: &str) -> String {
         for sfid in sfs {
             let hazs = mitigated_by(&sfid);
             if hazs.is_empty() {
-                lines.push(format!("{} &rsaquo; {} &rsaquo; {}", root, alink(&sfid), h(&up)));
+                lines.push(format!(
+                    "{} &rsaquo; {} &rsaquo; {}",
+                    root,
+                    alink(&sfid),
+                    h(&up)
+                ));
             }
             for hz in hazs {
                 lines.push(format!(
@@ -723,6 +729,11 @@ fn render_hazard(project: &Project, raw: &str) -> Option<String> {
         chain.push_str("<li class=\"meta\">no mitigating safety function</li>");
     }
     let (sk, st) = haz_standing(hz);
+    let adequacy = format!(
+        "{}{}",
+        adequacy_html(hz, project),
+        signoff_card(crate::commands::safety::hazard_signoff_lines(project, hz))
+    );
     Some(format!(
         "{crumbs}\
          <h1>{id} <small>{title}</small></h1>\
@@ -749,11 +760,7 @@ fn render_hazard(project: &Project, raw: &str) -> Option<String> {
             ),
             _ => String::new(),
         },
-        adequacy = format!(
-            "{}{}",
-            adequacy_html(hz, project),
-            signoff_card(crate::commands::safety::hazard_signoff_lines(project, hz))
-        ),
+        adequacy = adequacy,
         chain = chain,
     ))
 }
@@ -773,9 +780,21 @@ fn render_sf(project: &Project, raw: &str) -> Option<String> {
     let srs: Vec<String> = project
         .realizing_srs(&id)
         .iter()
-        .map(|sr| format!("<li>{} {} — {}</li>", alink(&sr.id), sr_badge(sr), h(&sr.title)))
+        .map(|sr| {
+            format!(
+                "<li>{} {} — {}</li>",
+                alink(&sr.id),
+                sr_badge(sr),
+                h(&sr.title)
+            )
+        })
         .collect();
     let (sk, st) = sf_standing(sf);
+    let dossier = format!(
+        "{}{}",
+        dossier_html(sf.verification.as_ref(), project),
+        signoff_card(crate::commands::safety::sf_signoff_lines(project, sf))
+    );
     Some(format!(
         "{crumbs}\
          <h1>{id} <small>{title}</small></h1>\
@@ -797,11 +816,7 @@ fn render_sf(project: &Project, raw: &str) -> Option<String> {
         } else {
             format!("<h2>Safe state</h2><p>{}</p>", h(&sf.safe_state))
         },
-        dossier = format!(
-            "{}{}",
-            dossier_html(sf.verification.as_ref(), project),
-            signoff_card(crate::commands::safety::sf_signoff_lines(project, sf))
-        ),
+        dossier = dossier,
         haz = if haz.is_empty() {
             "<li class=\"meta\">none</li>".into()
         } else {

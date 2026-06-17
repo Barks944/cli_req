@@ -84,7 +84,7 @@ pub fn run(args: MergeArgs) -> Result<()> {
     let output = args.output.clone().unwrap_or_else(|| args.ours.clone());
 
     if conflicts.is_empty() {
-        // SR-0010: clean merge — every artifact from either side is preserved
+        // REQ-0207 / SR-0010: clean merge — every artifact from either side is preserved
         // (additions/edits to distinct items, deletions relative to the base).
         let project: Project = serde_json::from_value(
             merged_ours.ok_or_else(|| anyhow!("merge produced no document"))?,
@@ -92,7 +92,10 @@ pub fn run(args: MergeArgs) -> Result<()> {
         .context("deserialize merged project")?;
         crate::storage::save(&output, &project).context("write merged project")?;
         let renamed_note = if renamed > 0 {
-            format!(" ({} colliding addition(s) on their side renumbered)", renamed)
+            format!(
+                " ({} colliding addition(s) on their side renumbered)",
+                renamed
+            )
         } else {
             String::new()
         };
@@ -222,6 +225,9 @@ fn merge_object(
         keys.extend(b.keys());
     }
 
+    // REQ-0207 / SR-0010: the keyed object merge — every artifact id / field present on
+    // either side is carried through unless deleted relative to the base, so no
+    // side is dropped.
     let mut out = Map::new();
     let at_root = path.is_empty();
     for k in keys {
@@ -246,11 +252,8 @@ fn merge_object(
         // edits — the correct merge is the union of entries (the shared base
         // prefix is common to both), not a conflict.
         if k == "history" {
-            if let Some(v) = merge_history(
-                base.and_then(|b| b.get(k)),
-                ours.get(k),
-                theirs.get(k),
-            ) {
+            if let Some(v) = merge_history(base.and_then(|b| b.get(k)), ours.get(k), theirs.get(k))
+            {
                 out.insert(k.clone(), v);
                 continue;
             }
@@ -287,7 +290,9 @@ fn max_counter(
     key: &str,
 ) -> Value {
     let get = |m: Option<&Map<String, Value>>| {
-        m.and_then(|m| m.get(key)).and_then(|v| v.as_u64()).unwrap_or(1)
+        m.and_then(|m| m.get(key))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1)
     };
     let n = get(Some(ours)).max(get(Some(theirs))).max(get(base));
     Value::Number(n.into())
@@ -295,7 +300,12 @@ fn max_counter(
 
 /// `updated` takes the later timestamp; `created` the earlier. ISO-8601
 /// timestamps sort lexically, so string comparison is order-correct.
-fn pick_extreme(ours: &Map<String, Value>, theirs: &Map<String, Value>, key: &str, latest: bool) -> Value {
+fn pick_extreme(
+    ours: &Map<String, Value>,
+    theirs: &Map<String, Value>,
+    key: &str,
+    latest: bool,
+) -> Value {
     let o = ours.get(key).cloned().unwrap_or(Value::Null);
     let t = theirs.get(key).cloned().unwrap_or(Value::Null);
     let (os, ts) = (o.as_str().unwrap_or(""), t.as_str().unwrap_or(""));
@@ -311,7 +321,14 @@ fn pick_extreme(ours: &Map<String, Value>, theirs: &Map<String, Value>, key: &st
 /// side (the shared base prefix is common to both), de-duplicated by value and
 /// ordered by the entry's `at` timestamp. Returns `None` if either side isn't
 /// an array, so the caller falls back to the generic three-way rule.
-fn merge_history(base: Option<&Value>, ours: Option<&Value>, theirs: Option<&Value>) -> Option<Value> {
+// REQ-0207 / SR-0010: unioning (rather than conflicting on) two appended
+// histories is part of the no-silent-loss merge contract — neither side's
+// reasoned-history entries are dropped.
+fn merge_history(
+    base: Option<&Value>,
+    ours: Option<&Value>,
+    theirs: Option<&Value>,
+) -> Option<Value> {
     let o = ours.and_then(|v| v.as_array())?;
     let t = theirs.and_then(|v| v.as_array())?;
     let _ = base; // base entries are a prefix of both sides, so already covered
@@ -327,7 +344,7 @@ fn merge_history(base: Option<&Value>, ours: Option<&Value>, theirs: Option<&Val
             .unwrap_or("")
             .to_string()
     };
-    out.sort_by(|a, b| at_of(a).cmp(&at_of(b)));
+    out.sort_by_key(&at_of);
     Some(Value::Array(out))
 }
 
@@ -341,7 +358,7 @@ fn describe(path: &str, ours: Option<&Value>, theirs: Option<&Value>) -> String 
     format!("{} — {}", at, kind)
 }
 
-// --- ID-collision reconciliation (SR-0010) -------------------------------
+// --- ID-collision reconciliation (REQ-0207 / SR-0010) --------------------
 //
 // The minimal surface any artifact family needs to be renumbered: a collision
 // key (created + title), an ID to rewrite, link targets to follow, and a
@@ -370,7 +387,10 @@ macro_rules! impl_merge_artifact {
             }
             fn note_renamed(&mut self, old: &str) {
                 self.history.push(super::history(
-                    format!("renumbered from {} (merge collision with the other side)", old),
+                    format!(
+                        "renumbered from {} (merge collision with the other side)",
+                        old
+                    ),
                     None,
                 ));
             }
@@ -392,15 +412,48 @@ impl_merge_artifact!(SafetyRequirement);
 /// number of artifacts renumbered.
 fn deconflict_added_ids(base: &Project, ours: &Project, theirs: &mut Project) -> usize {
     let mut next_req = base.next_id.max(ours.next_id).max(theirs.next_id);
-    let mut next_haz = base.next_haz_id.max(ours.next_haz_id).max(theirs.next_haz_id);
+    let mut next_haz = base
+        .next_haz_id
+        .max(ours.next_haz_id)
+        .max(theirs.next_haz_id);
     let mut next_sf = base.next_sf_id.max(ours.next_sf_id).max(theirs.next_sf_id);
     let mut next_sr = base.next_sr_id.max(ours.next_sr_id).max(theirs.next_sr_id);
 
+    // REQ-0207 / SR-0010: renumber collisions on THEIRS (keeping both artifacts), drawing
+    // fresh ids from the max of all three sides' counters.
     let mut renames: Vec<(String, String)> = Vec::new();
-    plan_collisions(&base.requirements, &ours.requirements, &theirs.requirements, "REQ", &mut next_req, &mut renames);
-    plan_collisions(&base.hazards, &ours.hazards, &theirs.hazards, "HAZ", &mut next_haz, &mut renames);
-    plan_collisions(&base.safety_functions, &ours.safety_functions, &theirs.safety_functions, "SF", &mut next_sf, &mut renames);
-    plan_collisions(&base.safety_requirements, &ours.safety_requirements, &theirs.safety_requirements, "SR", &mut next_sr, &mut renames);
+    plan_collisions(
+        &base.requirements,
+        &ours.requirements,
+        &theirs.requirements,
+        "REQ",
+        &mut next_req,
+        &mut renames,
+    );
+    plan_collisions(
+        &base.hazards,
+        &ours.hazards,
+        &theirs.hazards,
+        "HAZ",
+        &mut next_haz,
+        &mut renames,
+    );
+    plan_collisions(
+        &base.safety_functions,
+        &ours.safety_functions,
+        &theirs.safety_functions,
+        "SF",
+        &mut next_sf,
+        &mut renames,
+    );
+    plan_collisions(
+        &base.safety_requirements,
+        &ours.safety_requirements,
+        &theirs.safety_requirements,
+        "SR",
+        &mut next_sr,
+        &mut renames,
+    );
 
     if renames.is_empty() {
         return 0;
@@ -441,9 +494,10 @@ fn plan_collisions<T: MergeArtifact>(
         let (Some(t), Some(o)) = (theirs.get(id), ours.get(id)) else {
             continue; // only their side added it → no collision
         };
-        // Both sides added something at this ID. If they are the same artifact
-        // (identical creation + title) the value merge dedups it; only a
-        // genuinely different artifact needs renumbering.
+        // REQ-0207 / SR-0010: both sides added something at this ID. If they are the same
+        // artifact (identical creation + title) the value merge dedups it; only
+        // a genuinely different artifact needs renumbering — and even then both
+        // are kept.
         if t.created() != o.created() || t.title() != o.title() {
             let new_id = format!("{}-{:04}", prefix, *next);
             *next += 1;

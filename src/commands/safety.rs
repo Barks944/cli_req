@@ -301,8 +301,10 @@ fn hazard_adequacy_cover(args: HazAdqCoverArgs, file: &Option<PathBuf>) -> Resul
             actor,
         });
         h.updated = now;
-        h.history
-            .push(super::history(format!("adequacy coverage recorded for {}", sf_id), None));
+        h.history.push(super::history(
+            format!("adequacy coverage recorded for {}", sf_id),
+            None,
+        ));
     }
     project.updated = now;
     storage::save(&path, &project)?;
@@ -322,7 +324,9 @@ fn hazard_adequacy_conclude(args: HazAdqConcludeArgs, file: &Option<PathBuf>) ->
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let id = resolve_haz(&project, &args.id)?;
     if args.statement.trim().is_empty() {
-        return Err(anyhow!("--statement (the residual-risk argument) must not be empty"));
+        return Err(anyhow!(
+            "--statement (the residual-risk argument) must not be empty"
+        ));
     }
     // Read-only gate before any mutation.
     let coverage = project
@@ -443,7 +447,10 @@ fn hazard_confirm(args: HazardConfirmArgs, file: &Option<PathBuf>) -> Result<()>
     if args.json {
         println!("{}", serde_json::to_string_pretty(&project.hazards[&id])?);
     } else {
-        println!("Co-signed adequacy dossier for {} — promoted to Verified.", id);
+        println!(
+            "Co-signed adequacy dossier for {} — promoted to Verified.",
+            id
+        );
     }
     Ok(())
 }
@@ -754,7 +761,10 @@ pub fn sf_signoff_lines(project: &Project, sf: &SafetyFunction) -> Vec<String> {
     let srs = project.realizing_srs(&sf.id);
     let mut out = Vec::new();
     if srs.is_empty() {
-        out.push("  sign-off basis: no realizing safety requirement — nothing to implement the function".into());
+        out.push(
+            "  sign-off basis: no realizing safety requirement — nothing to implement the function"
+                .into(),
+        );
         return out;
     }
     let total = srs.len();

@@ -738,11 +738,17 @@ fn promote_preflight(project: &Project, id: &str, fam: Family, force: bool) -> R
     let (label, ladder_ok) = match fam {
         Family::Req => {
             let s = project.requirements[id].status;
-            (s.as_str(), matches!(s, Status::Implemented | Status::Verified))
+            (
+                s.as_str(),
+                matches!(s, Status::Implemented | Status::Verified),
+            )
         }
         Family::Sr => {
             let s = project.safety_requirements[id].status;
-            (s.as_str(), matches!(s, Status::Implemented | Status::Verified))
+            (
+                s.as_str(),
+                matches!(s, Status::Implemented | Status::Verified),
+            )
         }
         Family::Sf => {
             // REQ-0201: a safety function has no separate "implement" step: the
@@ -817,7 +823,9 @@ pub fn op_backfill(
             return Err(anyhow!(
                 "{} is a {} — safety artifacts cannot be exempted. Verify it genuinely with \
                  `req verification plan {} ...` → analysis → test → conclude --promote.",
-                id, kind, id
+                id,
+                kind,
+                id
             ));
         }
         targets.push((id, fam));

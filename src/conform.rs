@@ -950,7 +950,9 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     (
                         sf.id.clone(),
                         matches!(sf.status, SafetyFunctionStatus::Verified),
-                        sf.verification.as_ref().and_then(|v| v.content_hash.clone()),
+                        sf.verification
+                            .as_ref()
+                            .and_then(|v| v.content_hash.clone()),
                     )
                 })
                 .collect();
@@ -1016,9 +1018,8 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
         // REQ-0201: a safety function gets the same dossier discipline a safety
         // requirement does. Closes the review's central asymmetry: a Verified
         // SF used to be an unbacked typed label.
-        let genuine =
-            crate::commands::verification::classify(sf.verification.as_ref(), None, id)
-                .is_genuine();
+        let genuine = crate::commands::verification::classify(sf.verification.as_ref(), None, id)
+            .is_genuine();
         // REQ-V-0042: a genuine dossier sitting at Implemented awaiting a human
         // co-sign is a non-blocking advisory (the co-sign is the act that
         // promotes it to Verified), mirroring REQ-V-0038 for safety requirements.
@@ -1095,7 +1096,9 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     (
                         sr.id.clone(),
                         matches!(sr.status, Status::Verified),
-                        sr.verification.as_ref().and_then(|v| v.content_hash.clone()),
+                        sr.verification
+                            .as_ref()
+                            .and_then(|v| v.content_hash.clone()),
                     )
                 })
                 .collect();
@@ -1104,7 +1107,10 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                 .as_ref()
                 .map(|v| v.coverage.iter().map(|c| c.target.clone()).collect())
                 .unwrap_or_default();
-            let anchor = sf.verification.as_ref().and_then(|v| v.chain_anchor.as_deref());
+            let anchor = sf
+                .verification
+                .as_ref()
+                .and_then(|v| v.chain_anchor.as_deref());
             if let Some(reason) = adequacy_chain_broken(&children, &covered, anchor) {
                 push(
                     id,

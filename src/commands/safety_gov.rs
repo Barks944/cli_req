@@ -398,7 +398,11 @@ fn render_sr(
         if full {
             if let Some(sfv) = &sf.verification {
                 for c in &sfv.coverage {
-                    field(&mut out, "", &format!("{} covers via {}: {}", sf.id, c.target, c.note));
+                    field(
+                        &mut out,
+                        "",
+                        &format!("{} covers via {}: {}", sf.id, c.target, c.note),
+                    );
                 }
             }
         }

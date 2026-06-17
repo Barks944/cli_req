@@ -409,9 +409,7 @@ impl Project {
 /// changes when a child drops out of Verified OR is re-verified against changed
 /// source. `verified`/`hash` are read from the child by the caller.
 pub fn chain_token(id: &str, verified: bool, content_hash: Option<&str>) -> String {
-    let h = content_hash
-        .map(|h| &h[..h.len().min(12)])
-        .unwrap_or("-");
+    let h = content_hash.map(|h| &h[..h.len().min(12)]).unwrap_or("-");
     format!("{}:{}:{}", id, if verified { "v" } else { "u" }, h)
 }
 

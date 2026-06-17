@@ -29,8 +29,20 @@ fn seed_chain(s: &Sandbox) {
     s.enable_safety();
     assert!(s
         .run(&[
-            "hazard", "add", "-t", "Runaway", "--harm", "operator crushed", "-C", "C_C", "-F",
-            "F_B", "-P", "P_B", "-W", "W3",
+            "hazard",
+            "add",
+            "-t",
+            "Runaway",
+            "--harm",
+            "operator crushed",
+            "-C",
+            "C_C",
+            "-F",
+            "F_B",
+            "-P",
+            "P_B",
+            "-W",
+            "W3",
         ])
         .status
         .success());
@@ -51,9 +63,17 @@ fn seed_chain(s: &Sandbox) {
     // dossier now walks them — so the chain needs at least one realizing SR.
     assert!(s
         .run(&[
-            "sreq", "add", "-t", "Halt on demand", "-s",
-            "The system shall halt all motion within 200 milliseconds of a demand.", "-r",
-            "runaway motion injures the operator", "-a", "halts within 200ms", "--realizes",
+            "sreq",
+            "add",
+            "-t",
+            "Halt on demand",
+            "-s",
+            "The system shall halt all motion within 200 milliseconds of a demand.",
+            "-r",
+            "runaway motion injures the operator",
+            "-a",
+            "halts within 200ms",
+            "--realizes",
             "SF-0001",
         ])
         .status
@@ -62,15 +82,37 @@ fn seed_chain(s: &Sandbox) {
 
 fn dossier(s: &Sandbox, id: &str) {
     assert!(s
-        .run(&["verification", "plan", id, "--plan", "verify it reaches the safe state"])
+        .run(&[
+            "verification",
+            "plan",
+            id,
+            "--plan",
+            "verify it reaches the safe state"
+        ])
         .status
         .success());
     assert!(s
-        .run(&["verification", "analysis", id, "--findings", "code review ok", "--result", "pass"])
+        .run(&[
+            "verification",
+            "analysis",
+            id,
+            "--findings",
+            "code review ok",
+            "--result",
+            "pass"
+        ])
         .status
         .success());
     assert!(s
-        .run(&["verification", "test", id, "--findings", "bench test ok", "--result", "pass"])
+        .run(&[
+            "verification",
+            "test",
+            id,
+            "--findings",
+            "bench test ok",
+            "--result",
+            "pass"
+        ])
         .status
         .success());
 }
@@ -80,24 +122,94 @@ fn dossier(s: &Sandbox, id: &str) {
 /// adequacy chain gate can pass.
 fn verify_realizing_sr(s: &Sandbox) {
     assert!(s
-        .run(&["sreq", "update", "SR-0001", "--status", "implemented", "--force", "--reason", "implemented for the test"])
+        .run(&[
+            "sreq",
+            "update",
+            "SR-0001",
+            "--status",
+            "implemented",
+            "--force",
+            "--reason",
+            "implemented for the test"
+        ])
         .status
         .success());
     assert!(s
-        .run(&["sreq", "verify", "SR-0001", "--by", "composition", "--cites", "SF-0001", "--notes", "covered by automated tests"])
+        .run(&[
+            "sreq",
+            "verify",
+            "SR-0001",
+            "--by",
+            "composition",
+            "--cites",
+            "SF-0001",
+            "--notes",
+            "covered by automated tests"
+        ])
         .status
         .success());
-    assert!(s.run(&["verification", "plan", "SR-0001", "--plan", "verify the halt"]).status.success());
-    assert!(s.run(&["verification", "analysis", "SR-0001", "--findings", "review ok", "--result", "pass"]).status.success());
-    assert!(s.run(&["verification", "test", "SR-0001", "--findings", "tests pass", "--result", "pass"]).status.success());
-    assert!(s.run(&["verification", "conclude", "SR-0001", "--statement", "halt verified", "--promote"]).status.success());
-    assert!(run_as(s, "human", &["verification", "confirm", "SR-0001"]).status.success());
+    assert!(s
+        .run(&[
+            "verification",
+            "plan",
+            "SR-0001",
+            "--plan",
+            "verify the halt"
+        ])
+        .status
+        .success());
+    assert!(s
+        .run(&[
+            "verification",
+            "analysis",
+            "SR-0001",
+            "--findings",
+            "review ok",
+            "--result",
+            "pass"
+        ])
+        .status
+        .success());
+    assert!(s
+        .run(&[
+            "verification",
+            "test",
+            "SR-0001",
+            "--findings",
+            "tests pass",
+            "--result",
+            "pass"
+        ])
+        .status
+        .success());
+    assert!(s
+        .run(&[
+            "verification",
+            "conclude",
+            "SR-0001",
+            "--statement",
+            "halt verified",
+            "--promote"
+        ])
+        .status
+        .success());
+    assert!(run_as(s, "human", &["verification", "confirm", "SR-0001"])
+        .status
+        .success());
 }
 
 /// REQ-0204: record the SF→SR walk-through note so the dossier can conclude.
 fn cover_sf(s: &Sandbox) {
     assert!(s
-        .run(&["verification", "cover", "SF-0001", "--child", "SR-0001", "--note", "SR-0001 implements the safe-state halt"])
+        .run(&[
+            "verification",
+            "cover",
+            "SF-0001",
+            "--child",
+            "SR-0001",
+            "--note",
+            "SR-0001 implements the safe-state halt"
+        ])
         .status
         .success());
 }
@@ -117,7 +229,10 @@ fn req_0201_direct_sf_verified_is_blocked() {
     );
     // Implemented is likewise earned, not typed.
     let out = s.run(&["sf", "update", "SF-0001", "--status", "implemented"]);
-    assert!(!out.status.success(), "direct SF implemented must be refused");
+    assert!(
+        !out.status.success(),
+        "direct SF implemented must be refused"
+    );
 }
 
 // REQ-0201: the dossier carries the safety function to Implemented (awaiting
@@ -198,22 +313,65 @@ fn req_0202_hazard_verified_requires_cosigned_adequacy() {
     verify_realizing_sr(&s);
     dossier(&s, "SF-0001");
     cover_sf(&s);
-    assert!(s.run(&["verification", "conclude", "SF-0001", "--statement", "achieves its safe state", "--promote"]).status.success());
-    assert!(run_as(&s, "human", &["verification", "confirm", "SF-0001"]).status.success());
+    assert!(s
+        .run(&[
+            "verification",
+            "conclude",
+            "SF-0001",
+            "--statement",
+            "achieves its safe state",
+            "--promote"
+        ])
+        .status
+        .success());
+    assert!(run_as(&s, "human", &["verification", "confirm", "SF-0001"])
+        .status
+        .success());
 
     // Direct verified is blocked.
     let out = s.run(&["hazard", "update", "HAZ-0001", "--status", "verified"]);
-    assert!(!out.status.success(), "direct hazard verified must be refused");
+    assert!(
+        !out.status.success(),
+        "direct hazard verified must be refused"
+    );
     assert!(stderr(&out).contains("adequacy"));
 
     // Walk the staged adequacy dossier (an agent may do this).
-    assert!(s.run(&["hazard", "adequacy", "plan", "HAZ-0001", "--plan", "argue residual risk"]).status.success());
     assert!(s
-        .run(&["hazard", "adequacy", "cover", "HAZ-0001", "--sf", "SF-0001", "--note", "the E-stop covers runaway via verified SR-0001"])
+        .run(&[
+            "hazard",
+            "adequacy",
+            "plan",
+            "HAZ-0001",
+            "--plan",
+            "argue residual risk"
+        ])
         .status
         .success());
     assert!(s
-        .run(&["hazard", "adequacy", "conclude", "HAZ-0001", "--statement", "residual risk is acceptable", "--external", "independent interlock guard"])
+        .run(&[
+            "hazard",
+            "adequacy",
+            "cover",
+            "HAZ-0001",
+            "--sf",
+            "SF-0001",
+            "--note",
+            "the E-stop covers runaway via verified SR-0001"
+        ])
+        .status
+        .success());
+    assert!(s
+        .run(&[
+            "hazard",
+            "adequacy",
+            "conclude",
+            "HAZ-0001",
+            "--statement",
+            "residual risk is acceptable",
+            "--external",
+            "independent interlock guard"
+        ])
         .status
         .success());
     // Still not Verified — awaiting the human co-sign.
@@ -241,8 +399,18 @@ fn req_0203_achieved_integrity_stamp_on_sf_and_sr_views() {
     seed_chain(&s);
     assert!(s
         .run(&[
-            "sreq", "add", "-t", "Stop", "-s", "The system shall stop on demand.", "-r",
-            "because runaway", "-a", "stops within 200ms", "--realizes", "SF-0001",
+            "sreq",
+            "add",
+            "-t",
+            "Stop",
+            "-s",
+            "The system shall stop on demand.",
+            "-r",
+            "because runaway",
+            "-a",
+            "stops within 200ms",
+            "--realizes",
+            "SF-0001",
         ])
         .status
         .success());
