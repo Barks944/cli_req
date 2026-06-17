@@ -231,5 +231,12 @@ Analysis substantive (`hazard_adequacy_*`, conform REQ-V-0043). Improvements: **
 
 ---
 
+## SF-0008 — The achieved-integrity boundary is stated on every safety view
+*Reviewed 2026-06-17 · in-progress (conclude-blocked until SR-0009 is co-signed) · REQ-0204 control*
+
+Analysis substantive (stamp printed in sf_show + sreq_show); testing named `req_0203_achieved_integrity_stamp_on_sf_and_sr_views` (re-run live, pass). **SR-0009 coverage corrected** to "awaiting human co-sign". No conclude. *(SF layer complete: SF-0001..0008 all audited; SF-0004 the one signable now.)*
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
