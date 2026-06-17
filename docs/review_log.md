@@ -17,13 +17,17 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 - **SR-0002** — 2026-06-17 — behaviour CONFIRMED (SIL-rigour gate in promote_preflight/sreq_verify, sil_gate_exception flag, conform REQ-V-0031; three SIL-gate tests pass live incl. the dedicated `sr_0002_sil_gate_at_sil4`); thin narrative **RESOLVED** in-pass. Best-tested of the older SRs. Awaiting human co-sign.
 
+- **SR-0001** — 2026-06-17 — behaviour CONFIRMED (load-time canonical-hash refusal in storage.rs with `req repair` pointer; req_0003 tamper + whitespace-ignore tests + `sr_0001` test pass live); thin narrative **RESOLVED** in-pass. Awaiting human co-sign. **— all 7 awaiting-cosign SRs now done.**
+
 ## Queue (not yet reviewed)
-- SR-0001 (older safety requirement, awaiting co-sign)
+- SR-0004, SR-0005 (already Verified — spot-check the genuine dossier, no re-conclude)
+- SF-0001..0008 (safety-function verification dossiers)
+- HAZ-0001..0004 (hazard adequacy dossiers)
 - SR-0004, SR-0005 (already Verified — spot-check the genuine dossier)
 - SF-0001..0008 (safety-function verification dossiers)
 - HAZ-0001..0004 (hazard adequacy dossiers)
 
 ## Notes
 - Same pattern likely affects the other re-anchored SRs (SR-0001/0002/0003/0006/0008/0009) — their narratives were written by the same re-anchor loop. Will confirm per-SR.
-- Next iteration: SR-0001 (refuse to load a spec failing its integrity hash) — verify against the load-time hash check in `storage.rs` + the integrity test. Last awaiting-cosign SR; after it, spot-check the already-Verified SR-0004/0005, then the SF and hazard dossiers.
-- Recurring finding: the re-anchored older SRs share the thin-boilerplate narrative; strengthening each as reviewed (SR-0002 ✓, SR-0003 ✓, SR-0006 ✓ done).
+- Next iteration: SR-0004 (provenance report) — already Verified + human co-signed, so SPOT-CHECK only (confirm the genuine dossier holds; do NOT re-open/re-conclude a Verified item).
+- Recurring finding CLOSED for the awaiting-cosign SRs: all 7 had thin re-anchor narratives, now strengthened (SR-0001/0002/0003/0006/0007/0008/0009 ✓).

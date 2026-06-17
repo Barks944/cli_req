@@ -123,3 +123,25 @@ Tests re-run live, all pass: `req_0135_sil_gate_blocks_inspection_and_force_need
 **Finding (MINOR) — thin boilerplate narrative, RESOLVED this pass** (re-recorded with the gate location, the `sil_gate_exception` mechanism, conform REQ-V-0031, and the three named tests).
 
 **Verdict:** MET; dossier carries its own evidence. Safe to co-sign.
+
+---
+
+## SR-0001 — Refuse to load a spec whose content fails its integrity hash
+*Reviewed 2026-06-17 · status: awaiting human co-sign · inherited SIL3*
+
+**Statement:** "req shall refuse to load a project.req whose canonical payload does not match its stored integrity hash."
+
+**Behaviour — CONFIRMED (independently).**
+- *Load-time refusal + repair pointer* — `src/storage.rs` computes the canonical SHA-256 over the payload at load and refuses on mismatch, pointing the user at `req repair --confirm-direct-edit` (`storage.rs:89`).
+- *Canonical (whitespace-insensitive)* — the hash is over the canonical payload, so reformatting/whitespace doesn't trip it; only a semantic edit does.
+
+Tests re-run live, all pass: `req_0003_integrity_blocks_load_after_semantic_tamper` (semantic hand-edit refused), `req_0003_integrity_ignores_whitespace_only_change` (whitespace-only still loads), `sr_0001_integrity_tamper_refused_with_repair_pointer` (refusal points at `req repair`). Dedicated `sr_0001_*` acceptance test present.
+
+**Finding (MINOR) — thin boilerplate narrative, RESOLVED this pass** (re-recorded with the load-time check, the `req repair` pointer, the canonical-payload nuance, and the three named tests).
+
+**Verdict:** MET; dossier carries its own evidence. Safe to co-sign.
+
+---
+
+### Milestone — all 7 awaiting-cosign safety requirements audited
+SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
