@@ -210,5 +210,12 @@ Analysis substantive (history append on every mutation + `req audit` signed-comm
 
 ---
 
+## SF-0005 — V&V terminology and status reporting are unambiguous and standards-aligned
+*Reviewed 2026-06-17 · in-progress (conclude-blocked until SR-0006 is co-signed; SR-0005 already Verified)*
+
+Analysis substantive (verify/validate→conform rename + conform disclaimer). Improvements: **testing named** (`req_0190_conform_replaces_validate`, `req_0196_terminology_reference_available`, and the conform-disclaimer assertion in coverage_gap.rs — all confirmed live); **SR-0006 coverage note corrected** to "awaiting human co-sign". **SR-0005's note left as-is — it is accurate** (SR-0005 genuinely Verified + co-signed): a good check that the correction is targeted, not blanket. Sign-off basis correctly shows the one blocker (SR-0006). No conclude attempted.
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
