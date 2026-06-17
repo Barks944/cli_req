@@ -23,8 +23,10 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 - **SR-0005** — 2026-06-17 — SPOT-CHECK (Verified, co-signed by Tom; not modified). Standing CONFIRMED genuine; claim verified (no Validate command in cli.rs, `req help terminology` exists, req_0190 + req_0196 pass live); dossier substantive (honestly flags AC2-by-inspection). Caveats: REQ-V-0037 independence + compound statement (REQ-V-0010). **— all 9 SRs now reviewed.**
 
+- **SF-0001** — 2026-06-17 — dossier audited (in-progress, conclude-blocked until SR-0001 co-signed). Analysis substantive (storage.rs canonical-hash refusal). IMPROVED: testing stage now names req_0003 + sr_0001 tests; coverage note CORRECTED (had over-claimed SR-0001 as co-signed — it's awaiting). New finding: SF coverage notes generally over-state child status; sign-off basis (derived) is accurate. Correct as reached.
+
 ## Queue (not yet reviewed)
-- SF-0001..0008 (safety-function verification dossiers)
+- SF-0002..0008 (safety-function verification dossiers — correct the coverage-note over-claim on each)
 - HAZ-0001..0004 (hazard adequacy dossiers)
 - SR-0004, SR-0005 (already Verified — spot-check the genuine dossier)
 - SF-0001..0008 (safety-function verification dossiers)
@@ -32,6 +34,6 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 ## Notes
 - Same pattern likely affects the other re-anchored SRs (SR-0001/0002/0003/0006/0008/0009) — their narratives were written by the same re-anchor loop. Will confirm per-SR.
-- Next iteration: SF-0001 (integrity hash detects silent corruption) — verify its verification dossier (the dossiers I produced earlier) against storage.rs + that its realizing SR-0001 is covered; SF dossiers are in-progress (conclude-blocked until SRs co-signed), so audit the plan/analysis/test/coverage content, don't try to conclude.
-- Observation: SR-0004/0005 (Verified) kept substantive dossiers; the boilerplate was confined to the bulk-re-anchored awaiting-cosign SRs — now all strengthened. The SF dossiers I authored this session should already be substantive — verify, don't assume.
+- Next iteration: SF-0002 (validator blocks inadequately-evidenced claim) — audit dossier vs the SIL-gate code; name tests; correct the coverage-note over-claim for SR-0002.
+- Active finding to apply per-SF: coverage notes say realizing SRs are "verified ... human co-sign" but they're awaiting-cosign — correct each note's wording (SF-0001 ✓ done).
 - Recurring finding CLOSED for the awaiting-cosign SRs: all 7 had thin re-anchor narratives, now strengthened (SR-0001/0002/0003/0006/0007/0008/0009 ✓).

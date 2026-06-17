@@ -172,5 +172,18 @@ Tests re-run live, all pass: `req_0003_integrity_blocks_load_after_semantic_tamp
 
 ---
 
+## SF-0001 — Integrity hash detects silent corruption of the spec
+*Reviewed 2026-06-17 · safety-function verification dossier · in-progress (conclude-blocked until SR-0001 is co-signed)*
+
+**Dossier content audited.** The analysis is substantive (cites `src/storage.rs` canonical SHA-256 load-time refusal = the safe state). Improvements made this pass:
+- **Testing stage named the specific tests** (was "the integrity-hash load tests"): now `req_0003_integrity_blocks_load_after_semantic_tamper`, `req_0003_integrity_ignores_whitespace_only_change`, `sr_0001_integrity_tamper_refused_with_repair_pointer` — all re-run live, pass.
+- **Coverage note corrected for accuracy.** The note I authored earlier said SR-0001 is "verified through its own dossier and human co-sign" — but **SR-0001 is awaiting co-sign, not yet co-signed**. Re-worded to "SR-0001's own dossier is genuine and awaiting human co-sign."
+
+**Finding (MINOR, applies across the SF dossiers) — coverage notes over-state child status.** The SF coverage notes authored in the bulk "produce dossiers" step uniformly say each realizing SR is "verified through its own dossier and human co-sign." That is **not yet true** — those SRs are at *awaiting-cosign*. The sign-off basis (derived, accurate: "0/1 Verified — NOT yet signable") is the source of truth and is unaffected, but the free-text coverage notes read more confidently than the chain warrants. The loop will correct each SF's note as it reaches it.
+
+**Verdict:** dossier sound and now more precise; correctly **not signable** until SR-0001 is co-signed (gate working as intended). No conclude attempted.
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
