@@ -185,5 +185,12 @@ Tests re-run live, all pass: `req_0003_integrity_blocks_load_after_semantic_tamp
 
 ---
 
+## SF-0002 — Validator blocks an inadequately-evidenced safety claim
+*Reviewed 2026-06-17 · safety-function verification dossier · in-progress (conclude-blocked until SR-0002 is co-signed)*
+
+Analysis substantive (cites the SIL-rigour gate: `promote_preflight` + conform REQ-V-0031). Improvements this pass: **testing stage named** the SIL-gate tests (`req_0135_sil_gate_blocks_inspection_and_force_needs_reason`, `req_0139_conclude_promote_respects_sil_gate`, `sr_0002_sil_gate_at_sil4_records_audited_exception` — all confirmed live in the SR-0002 audit); **coverage note corrected** from "verified … human co-sign" to "awaiting human co-sign". Sign-off basis correctly shows NOT signable (SR-0002 not yet Verified). No conclude attempted.
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
