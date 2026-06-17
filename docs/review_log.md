@@ -19,8 +19,10 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 - **SR-0001** — 2026-06-17 — behaviour CONFIRMED (load-time canonical-hash refusal in storage.rs with `req repair` pointer; req_0003 tamper + whitespace-ignore tests + `sr_0001` test pass live); thin narrative **RESOLVED** in-pass. Awaiting human co-sign. **— all 7 awaiting-cosign SRs now done.**
 
+- **SR-0004** — 2026-06-17 — SPOT-CHECK (Verified, co-signed by Tom; not modified). Standing CONFIRMED genuine/fresh; claim verified (provenance.rs classify/report, req_0142 + sr_0004 tests pass live); dossier already substantive (escaped the boilerplate). Caveat: REQ-V-0037 independence (authored+co-signed by Tom). No change made.
+
 ## Queue (not yet reviewed)
-- SR-0004, SR-0005 (already Verified — spot-check the genuine dossier, no re-conclude)
+- SR-0005 (already Verified — spot-check the genuine dossier, no re-conclude)
 - SF-0001..0008 (safety-function verification dossiers)
 - HAZ-0001..0004 (hazard adequacy dossiers)
 - SR-0004, SR-0005 (already Verified — spot-check the genuine dossier)
@@ -29,5 +31,6 @@ reviewed, the outcome, and what's next. The detailed findings live in
 
 ## Notes
 - Same pattern likely affects the other re-anchored SRs (SR-0001/0002/0003/0006/0008/0009) — their narratives were written by the same re-anchor loop. Will confirm per-SR.
-- Next iteration: SR-0004 (provenance report) — already Verified + human co-signed, so SPOT-CHECK only (confirm the genuine dossier holds; do NOT re-open/re-conclude a Verified item).
+- Next iteration: SR-0005 (V&V vocabulary reserved) — already Verified + co-signed, SPOT-CHECK only (no re-open). Then the SF verification dossiers (SF-0001..0008) and hazard adequacy dossiers (HAZ-0001..0004).
+- Observation: SR-0004/0005 (Verified) kept substantive dossiers; the boilerplate was confined to the bulk-re-anchored awaiting-cosign SRs — now all strengthened.
 - Recurring finding CLOSED for the awaiting-cosign SRs: all 7 had thin re-anchor narratives, now strengthened (SR-0001/0002/0003/0006/0007/0008/0009 ✓).

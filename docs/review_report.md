@@ -143,5 +143,21 @@ Tests re-run live, all pass: `req_0003_integrity_blocks_load_after_semantic_tamp
 
 ---
 
+## SR-0004 — Report verification provenance of every Verified requirement
+*Reviewed 2026-06-17 · status: **Verified** (human co-signed) · spot-check only — not modified*
+
+**Statement:** "req shall report the verification provenance of every Verified requirement."
+
+**Spot-check (read-only — a Verified item is not re-opened, to preserve its co-sign).**
+- Standing: `provenance: genuine`, verdict `PASS`, **human-co-signed by Tom**, anchor fresh.
+- Claim CONFIRMED: `src/commands/provenance.rs` `classify` (`:65`), `provenance_report` (`:171`), `sr_standing` (`:121`) classify every Verified item (genuine / exempt:backfilled / exempt:no-dossier / stale / unconfirmed / ungated) and the report emits per-item rows + counts. Tests pass live: `req_0142_report_marks_genuine_dossier`, `sr_0004_provenance_report_classifies_categories`.
+- **Dossier quality: already substantive** (unlike the awaiting-cosign SRs). Its analysis names the classifier + categories and its testing names the tests with automated evidence. It escaped the re-anchor boilerplate because its anchored source (`provenance.rs`) was never edited on this branch — a useful contrast that confirms the boilerplate came specifically from the bulk re-anchor cycles, not from genuine verification.
+
+**Caveat (MINOR, pre-existing) — independence:** SR-0004 trips REQ-V-0037 (authored *and* co-signed by the same actor, Tom). IEC 61508 wants independence of assessment; ideally a different competent reviewer co-signs. Same caveat applies to SR-0005. Advisory, not a blocker.
+
+**Verdict:** Verified standing CONFIRMED; dossier genuine and substantive; no change made.
+
+---
+
 ### Milestone — all 7 awaiting-cosign safety requirements audited
 SR-0001/0002/0003/0006/0007/0008/0009 each independently confirmed against source + live tests, and each had its thin re-anchor narrative strengthened to carry its own evidence. `req conform` clean throughout. All remain at **awaiting-cosign** (no agent co-sign). One human-decision item outstanding: SR-0006's compound statement (recommended split). Next: spot-check the already-Verified SR-0004 / SR-0005, then the SF verification dossiers and the hazard adequacy dossiers.
