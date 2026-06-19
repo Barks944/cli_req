@@ -8,6 +8,36 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.5.0-rc.7] — 2026-06-18
+
+Integration of the 61508 hazard/safety-function review fixes onto the rc.6 line,
+plus a real semantic merge driver for `project.req`. The whole IEC 61508 chain
+was re-verified and human co-signed bottom-up — 10 safety requirements, 9 safety
+functions, and 4 hazards all Verified; `req conform` reports 0 errors.
+
+### Added
+- **Semantic `req merge` 3-way driver (REQ-0207 / SF-0009 / SR-0010):** replaces
+  the broken `req renumber --base %O || true` merge driver that could silently
+  drop one side's requirements on a merge (issue #6). `req merge --base %O
+  --ours %A --theirs %B` unions non-conflicting changes from both sides,
+  renumbers colliding IDs (keeping both), re-signs the integrity hash, and exits
+  non-zero with both versions preserved on a genuine conflict — it never silently
+  drops a side. `req hooks` registers it without `|| true`; `req doctor` flags
+  any legacy/unsafe driver.
+- **SF verification dossiers and hazard mitigation-adequacy arguments
+  (REQ-0201 / REQ-0202 / REQ-0203):** safety functions and hazards now earn
+  Verified through a co-signed dossier, closing the review's lopsided-rigour gap.
+- **Recursive adequacy walk-through, hard-gated on the verified chain
+  (REQ-0204):** sign-off is forced bottom-up (SR → SF → hazard).
+- **Safety-review tooling across CLI and `req serve` (REQ-0205)** and a derived
+  **sign-off basis for safety functions and hazards (REQ-0206).**
+
+### Fixed
+- **Merge driver silently dropped requirements (issue #6):** root-caused and
+  fixed by the `req merge` driver above; `req help version-control` /
+  `req help integration` corrected to describe it (they previously described the
+  dead `req renumber` driver).
+
 ## [0.5.0-rc.6] — 2026-06-15
 
 Next-level features: the IEC 61508 safety-governance layer, a human-facing
