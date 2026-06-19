@@ -223,14 +223,7 @@ fn preflight(project: &Project, payload: &ResultPayload) -> Result<()> {
         // REQ-0183: a decision may only attach to a dossier anchored at the
         // same commit (or one with no conclusion yet).
         if r.decision.is_some() {
-            let existing = match fam {
-                crate::commands::verification::Family::Req => {
-                    project.requirements[&id].verification.as_ref()
-                }
-                crate::commands::verification::Family::Sr => {
-                    project.safety_requirements[&id].verification.as_ref()
-                }
-            };
+            let existing = crate::commands::verification::dossier(project, &id, fam);
             if let Some(v) = existing {
                 if let Some(cc) = &v.concluded_commit {
                     if cc != &payload.commit {

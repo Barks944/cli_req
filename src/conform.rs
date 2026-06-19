@@ -154,6 +154,34 @@ pub const RULES: &[(&str, &str)] = &[
         "REQ-V-0038",
         "safety requirement has a genuine dossier and awaits a human co-sign to reach Verified (advisory)",
     ),
+    (
+        "REQ-V-0039",
+        "safety function is Verified but lacks a genuine verification dossier (exemptions are not allowed for safety functions)",
+    ),
+    (
+        "REQ-V-0040",
+        "safety function is Verified on an agent's dossier but lacks a human confirmation of the verification result (run `req verification confirm`)",
+    ),
+    (
+        "REQ-V-0041",
+        "safety function is Verified but its verified source has drifted (stale) — re-verify and have a human re-confirm",
+    ),
+    (
+        "REQ-V-0042",
+        "safety function has a genuine dossier and awaits a human co-sign to reach Verified (advisory)",
+    ),
+    (
+        "REQ-V-0043",
+        "Verified hazard lacks a human-co-signed mitigation-adequacy / residual-risk argument",
+    ),
+    (
+        "REQ-V-0044",
+        "Verified safety function's adequacy chain is broken — a realizing safety requirement is uncovered, not Verified, or the chain drifted since the walk-through",
+    ),
+    (
+        "REQ-V-0045",
+        "Verified hazard's adequacy chain is broken — a mitigating safety function is uncovered, not Verified, or the chain drifted since the walk-through",
+    ),
 ];
 
 static HEDGE_WORDS: &[&str] = &[
@@ -764,6 +792,47 @@ pub fn conform_project(p: &Project) -> Vec<(String, Vec<Finding>)> {
     out
 }
 
+/// REQ-0204: evaluate a parent's adequacy chain against its children. Each child
+/// is `(id, is_verified, content_hash)`. Returns a human-readable reason when
+/// the chain is broken — an uncovered child, a child that is not Verified, or a
+/// chain that drifted since the walk-through (the stored anchor no longer
+/// matches) — else None. This is the conformance side of the hard chain gate,
+/// re-evaluated live so a chain that decays after sign-off is caught.
+fn adequacy_chain_broken(
+    children: &[(String, bool, Option<String>)],
+    coverage_targets: &std::collections::HashSet<String>,
+    stored_anchor: Option<&str>,
+) -> Option<String> {
+    let mut missing = Vec::new();
+    let mut unverified = Vec::new();
+    let mut tokens = Vec::new();
+    for (id, verified, ch) in children {
+        if !coverage_targets.contains(id) {
+            missing.push(id.clone());
+        }
+        if !verified {
+            unverified.push(id.clone());
+        }
+        tokens.push(crate::model::chain_token(id, *verified, ch.as_deref()));
+    }
+    let fresh = stored_anchor == Some(crate::model::chain_anchor(&tokens).as_str());
+    let mut reasons = Vec::new();
+    if !missing.is_empty() {
+        reasons.push(format!("uncovered: {}", missing.join(", ")));
+    }
+    if !unverified.is_empty() {
+        reasons.push(format!("not Verified: {}", unverified.join(", ")));
+    }
+    if missing.is_empty() && unverified.is_empty() && !fresh {
+        reasons.push("chain drifted since the walk-through — re-argue and re-co-sign".to_string());
+    }
+    if reasons.is_empty() {
+        None
+    } else {
+        Some(reasons.join("; "))
+    }
+}
+
 /// REQ-0137: conformance-check the functional-safety artifacts. The integrity of
 /// the SIL derivation chain is enforced here — a SIL 3/4 safety
 /// requirement cannot stay Verified on inspection-only evidence without
@@ -836,6 +905,80 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                 );
             }
         }
+        // REQ-0202: a Verified hazard must carry a mitigation-adequacy /
+        // residual-risk argument that a human has co-signed. Closes the review's
+        // "Verified hazard is an unbacked label" gap: the derived
+        // `allocated_sil >= required_sil` comparison is explicitly NOT a
+        // residual-risk judgement, so Verified must rest on the recorded,
+        // co-signed reasoning instead of a typed status.
+        if matches!(h.status, HazardStatus::Verified) {
+            // SR-0008: a Verified hazard must rest on a human-co-signed adequacy
+            // argument (the conformance side of the hazard-adequacy gate).
+            let cosigned = h
+                .adequacy
+                .as_ref()
+                .map(|a| a.human_confirmation.is_some())
+                .unwrap_or(false);
+            if !cosigned {
+                let why = match &h.adequacy {
+                    None => "has no recorded mitigation-adequacy argument",
+                    Some(_) => "has an adequacy argument that no human has co-signed",
+                };
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0043",
+                        "adequacy",
+                        format!(
+                            "{} is Verified but {} — open the dossier with `req hazard adequacy plan {} --plan \"...\"`, walk each mitigating SF, conclude, then a human runs `req hazard confirm {}`",
+                            id, why, id, id
+                        ),
+                    ),
+                );
+            }
+            // REQ-0204: a Verified hazard must rest on a complete, verified,
+            // fresh mitigating-SF chain, with an Adequate verdict.
+            let verdict_ok = h
+                .adequacy
+                .as_ref()
+                .map(|a| matches!(a.verdict, Some(crate::model::AdequacyVerdict::Adequate)))
+                .unwrap_or(false);
+            let children: Vec<(String, bool, Option<String>)> = p
+                .mitigating_sfs(id)
+                .iter()
+                .map(|sf| {
+                    (
+                        sf.id.clone(),
+                        matches!(sf.status, SafetyFunctionStatus::Verified),
+                        sf.verification
+                            .as_ref()
+                            .and_then(|v| v.content_hash.clone()),
+                    )
+                })
+                .collect();
+            let covered: std::collections::HashSet<String> = h
+                .adequacy
+                .as_ref()
+                .map(|a| a.coverage.iter().map(|c| c.target.clone()).collect())
+                .unwrap_or_default();
+            let anchor = h.adequacy.as_ref().and_then(|a| a.chain_anchor.as_deref());
+            let chain_reason = adequacy_chain_broken(&children, &covered, anchor);
+            if cosigned && (!verdict_ok || chain_reason.is_some()) {
+                let reason = chain_reason
+                    .unwrap_or_else(|| "adequacy dossier was not concluded ADEQUATE".to_string());
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0045",
+                        "adequacy",
+                        format!(
+                            "{} is Verified but its mitigating-SF adequacy chain is broken ({}) — re-walk it with `req hazard adequacy plan {} --reopen` and re-conclude once every mitigating SF is Verified",
+                            id, reason, id
+                        ),
+                    ),
+                );
+            }
+        }
     }
 
     // ---- safety functions ----
@@ -871,6 +1014,116 @@ pub fn conform_safety(p: &Project) -> Vec<(String, Vec<Finding>)> {
                     ),
                 ),
             );
+        }
+        // REQ-0201: a safety function gets the same dossier discipline a safety
+        // requirement does. Closes the review's central asymmetry: a Verified
+        // SF used to be an unbacked typed label.
+        let genuine = crate::commands::verification::classify(sf.verification.as_ref(), None, id)
+            .is_genuine();
+        // REQ-V-0042: a genuine dossier sitting at Implemented awaiting a human
+        // co-sign is a non-blocking advisory (the co-sign is the act that
+        // promotes it to Verified), mirroring REQ-V-0038 for safety requirements.
+        if matches!(sf.status, SafetyFunctionStatus::Implemented)
+            && genuine
+            && sf
+                .verification
+                .as_ref()
+                .and_then(|v| v.human_confirmation.as_ref())
+                .is_none()
+        {
+            push(
+                id,
+                Finding::warn(
+                    "REQ-V-0042",
+                    "verification",
+                    format!(
+                        "{} has a genuine verification dossier and is awaiting a human co-sign — a person must run `req verification confirm {}` to promote it to Verified",
+                        id, id
+                    ),
+                ),
+            );
+        }
+        if matches!(sf.status, SafetyFunctionStatus::Verified) {
+            // SR-0007: enforce that a Verified safety function rests on a genuine
+            // human-co-signed dossier (the conformance side of the SF gate).
+            // REQ-V-0039: a Verified SF must carry a GENUINE concluded passing
+            // dossier — no exemption, no back-fill (the gate rejects both).
+            if !genuine {
+                let exempt = sf.verification.as_ref().map(|v| v.exempt).unwrap_or(false);
+                let why = if exempt {
+                    "rests on an audited exemption, which safety functions may not use"
+                } else {
+                    "has no passing verification dossier"
+                };
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0039",
+                        "verification",
+                        format!(
+                            "{} is Verified but {} — a safety function needs a genuine dossier; run `req verification plan {} ...` → analysis → test → conclude --promote, then a human co-signs it",
+                            id, why, id
+                        ),
+                    ),
+                );
+            }
+            // REQ-V-0040: a Verified SF also needs a HUMAN confirmation of the
+            // verification result — the independence co-sign, as for an SR.
+            let human_confirmed = sf
+                .verification
+                .as_ref()
+                .map(|v| v.human_confirmation.is_some())
+                .unwrap_or(false);
+            if genuine && !human_confirmed {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0040",
+                        "verification",
+                        format!(
+                            "{} is Verified on an agent's dossier but lacks a human confirmation of the verification result — a person must run `req verification confirm {}` to co-sign it",
+                            id, id
+                        ),
+                    ),
+                );
+            }
+            // REQ-0204: a Verified safety function must rest on a complete,
+            // verified, fresh realizing-SR chain — the adequacy walk-through.
+            let children: Vec<(String, bool, Option<String>)> = p
+                .realizing_srs(id)
+                .iter()
+                .map(|sr| {
+                    (
+                        sr.id.clone(),
+                        matches!(sr.status, Status::Verified),
+                        sr.verification
+                            .as_ref()
+                            .and_then(|v| v.content_hash.clone()),
+                    )
+                })
+                .collect();
+            let covered: std::collections::HashSet<String> = sf
+                .verification
+                .as_ref()
+                .map(|v| v.coverage.iter().map(|c| c.target.clone()).collect())
+                .unwrap_or_default();
+            let anchor = sf
+                .verification
+                .as_ref()
+                .and_then(|v| v.chain_anchor.as_deref());
+            if let Some(reason) = adequacy_chain_broken(&children, &covered, anchor) {
+                push(
+                    id,
+                    Finding::err(
+                        "REQ-V-0044",
+                        "adequacy",
+                        format!(
+                            "{} is Verified but its realizing-SR adequacy chain is broken ({}) — re-walk it with `req verification cover {} ...` and re-conclude once every realizing SR is Verified",
+                            id, reason, id
+                        ),
+                    ),
+                );
+            }
         }
     }
 

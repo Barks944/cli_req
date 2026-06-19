@@ -51,6 +51,45 @@ pub fn run(args: ConformArgs, file: &Option<PathBuf>) -> Result<()> {
         }
     }
 
+    // SR-0007: a Verified safety function's dossier goes stale when its source
+    // drifts, like a safety requirement's (the staleness arm of the SF gate).
+    // REQ-0201: the same staleness discipline applies to a Verified safety
+    // function — its dossier anchors the source that argues it achieves its safe
+    // state, so a later code change invalidates the verification until it is
+    // re-verified and re-confirmed by a human (REQ-V-0041). Like the SR check
+    // above, this hashes linked source so it lives at the command layer.
+    for (id, sf) in &project.safety_functions {
+        if !matches!(sf.status, crate::model::SafetyFunctionStatus::Verified) {
+            continue;
+        }
+        let Some(v) = &sf.verification else { continue };
+        let Some(hash) = &v.content_hash else {
+            continue;
+        };
+        let stale = matches!(
+            crate::commands::test_cmd::staleness_by_content(
+                hash,
+                v.linked_files.as_ref(),
+                id,
+                source_root,
+            ),
+            crate::commands::test_cmd::Staleness::Stale { .. }
+        );
+        if stale {
+            report.push((
+                id.clone(),
+                vec![conform::Finding {
+                    error: true,
+                    field: "verification",
+                    rule_code: "REQ-V-0041",
+                    message: format!(
+                        "{id} is Verified but its verified source has drifted (stale) — a stale safety function is invalid until re-verified and re-confirmed by a human: `req verification plan {id} --reopen --reason \"...\"` → analysis → test → conclude --promote, then a human runs `req verification confirm {id}`"
+                    ),
+                }],
+            ));
+        }
+    }
+
     let mut errs = 0usize;
     let mut warns = 0usize;
     for (_, findings) in &report {

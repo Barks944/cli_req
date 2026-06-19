@@ -69,6 +69,9 @@ const HUMANS_ONLY_TUI: &[&str] = &[
     "mcp",
     "hooks",
     "renumber",
+    // REQ-0207: `req merge` is a git merge driver invoked by git (not by a
+    // human menu), exactly like `renumber`.
+    "merge",
     "repair",
     "migrate",
     "schema",
@@ -175,6 +178,9 @@ fn req_0083_tui_menu_covers_every_agent_relevant_cli_command() {
 const HUMANS_ONLY_CLI: &[&str] = &[
     "init", "tui", "serve", "mcp", "hooks", "renumber", "repair", "setup", "precheck", "purpose",
     "adopt",
+    // REQ-0207: `req merge` is a git merge driver invoked by git during a
+    // merge, not an agent tool — opted out like `renumber`.
+    "merge",
     // REQ-0138: accepting the liability disclaimer and recalibrating risk
     // are deliberate human governance actions — `req safety` is kept off
     // the agent/MCP surface on purpose.

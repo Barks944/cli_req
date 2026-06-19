@@ -383,7 +383,123 @@ fn req_0147_web_navigates_safety_chain_and_verification() {
         "SR page must link the safety function it realizes:\n{sr}"
     );
     assert!(
-        sr.contains("Verification dossier") && sr.contains("human-confirmed"),
-        "SR page must show the verification dossier with the human confirmation:\n{sr}"
+        sr.contains("Verification dossier") && sr.contains("co-signed"),
+        "SR page must show the verification dossier with the human co-sign:\n{sr}"
+    );
+}
+
+// REQ-0205: the browser renders the adequacy walk-through (SF coverage notes +
+// hazard adequacy dossier), breadcrumbs, and standing badges.
+#[test]
+fn req_0205_browser_renders_adequacy_walkthrough_and_badges() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    s.run(&[
+        "hazard",
+        "add",
+        "-t",
+        "Runaway",
+        "--harm",
+        "operator crushed",
+        "-C",
+        "C_A",
+        "-F",
+        "F_A",
+        "-P",
+        "P_A",
+        "-W",
+        "W1",
+    ]);
+    s.run(&[
+        "sf",
+        "add",
+        "-t",
+        "Estop",
+        "--safe-state",
+        "halted",
+        "--mitigates",
+        "HAZ-0001",
+    ]);
+    s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Halt on demand",
+        "-s",
+        "The system shall halt all motion within 200 milliseconds of a demand.",
+        "-r",
+        "runaway injures the operator",
+        "-a",
+        "halts",
+        "--realizes",
+        "SF-0001",
+    ]);
+    // Record the SF→SR adequacy walk-through (cover works on an open dossier).
+    s.run(&[
+        "verification",
+        "plan",
+        "SF-0001",
+        "--plan",
+        "verify the function",
+    ]);
+    s.run(&[
+        "verification",
+        "cover",
+        "SF-0001",
+        "--child",
+        "SR-0001",
+        "--note",
+        "SR-0001 IMPLEMENTS THE HALT",
+    ]);
+    // Open the hazard adequacy dossier and cover the mitigating SF.
+    s.run(&[
+        "hazard",
+        "adequacy",
+        "plan",
+        "HAZ-0001",
+        "--plan",
+        "argue adequacy",
+    ]);
+    s.run(&[
+        "hazard",
+        "adequacy",
+        "cover",
+        "HAZ-0001",
+        "--sf",
+        "SF-0001",
+        "--note",
+        "ESTOP COVERS RUNAWAY",
+    ]);
+
+    let port = pick_free_port();
+    let child = spawn_server(&s, port);
+    let _guard = GuardedChild(Some(child));
+    assert!(
+        wait_for_bind(port, Duration::from_secs(10)),
+        "serve did not bind"
+    );
+
+    // Landing: standing column + badges + co-sign roll-up scaffolding.
+    let (_c, safety) = http_get(port, "/safety");
+    assert!(
+        safety.contains("Standing") && safety.contains("badge b-"),
+        "landing badges:\n{safety}"
+    );
+
+    // Hazard page: the staged adequacy dossier with the per-SF coverage note + breadcrumb.
+    let (_c, haz) = http_get(port, "/s/HAZ-0001");
+    assert!(
+        haz.contains("Mitigation adequacy")
+            && haz.contains("ESTOP COVERS RUNAWAY")
+            && haz.contains("Functional safety"),
+        "hazard page must show the adequacy dossier + coverage + breadcrumb:\n{haz}"
+    );
+
+    // SF page: the verification dossier with the realizing-SR walk-through note.
+    let (_c, sf) = http_get(port, "/s/SF-0001");
+    assert!(
+        sf.contains("Adequacy walk-through") && sf.contains("SR-0001 IMPLEMENTS THE HALT"),
+        "SF page must show the realizing-SR adequacy walk-through:\n{sf}"
     );
 }

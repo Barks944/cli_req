@@ -70,6 +70,8 @@ fn run(cli: Cli) -> Result<()> {
         Command::Repair(args) => commands::repair::run(args, &cli.file),
         Command::Hooks(args) => commands::hooks::run(args),
         Command::Renumber(args) => commands::renumber::run(args, &cli.file),
+        // REQ-0207: semantic 3-way merge driver for project.req.
+        Command::Merge(args) => commands::merge::run(args),
         Command::Coverage(args) => commands::coverage::run(args, &cli.file),
         Command::Audit(args) => commands::audit::run(args, &cli.file),
         Command::Review(args) => commands::review::run(args, &cli.file),

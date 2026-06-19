@@ -491,6 +491,7 @@ mod tests {
                 created: now,
                 updated: now,
                 history: vec![],
+                adequacy: None,
                 extra: Default::default(),
             },
         );

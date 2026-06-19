@@ -266,9 +266,16 @@ pub fn run(args: HooksArgs) -> Result<()> {
     println!("Next step (one-time, per clone): register the merge driver in this repo:");
     println!();
     println!("  git config merge.req-merge.name 'req merge driver'");
-    println!("  git config merge.req-merge.driver 'req renumber --base %O || true'");
+    // REQ-0207 / SR-0010: register the semantic 3-way merge driver. It auto-
+    // merges non-conflicting changes from both sides and re-signs the file; on
+    // any unresolvable divergence it preserves both sides and exits non-zero so
+    // git records a conflict for a human. NOTE: no `|| true` — masking the exit
+    // status would let git silently keep one side and drop the other's spec
+    // data, the exact failure SR-0010 exists to prevent.
+    println!("  git config merge.req-merge.driver 'req merge --base %O --ours %A --theirs %B'");
     println!();
-    println!("After that, merges into project.req auto-renumber colliding IDs.");
+    println!("After that, merges into project.req are reconciled semantically; a genuine");
+    println!("conflict is surfaced for resolution rather than silently overwritten.");
     Ok(())
 }
 

@@ -52,8 +52,8 @@ use crate::cli::{
 };
 use crate::commands::test_cmd::{auto_linked_files, current_head_sha_opt, hash_files, short};
 use crate::model::{
-    EvidenceKind, HistoryEntry, Project, Sil, Status, TestOutcome, TestRecord, Verification,
-    VerificationActivity,
+    EvidenceKind, HistoryEntry, Project, SafetyFunctionStatus, Sil, Status, TestOutcome,
+    TestRecord, Verification, VerificationActivity,
 };
 use crate::storage::{self, load_for_mutation, load_resolved};
 
@@ -61,10 +61,16 @@ use crate::storage::{self, load_for_mutation, load_resolved};
 // shared types
 // --------------------------------------------------------------------------
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Family {
     Req,
     Sr,
+    // SF-0006 / SR-0007: this is the safety-function verification gate itself.
+    /// REQ-0201: a safety function (SF-NNNN) carries the same dossier as a
+    /// safety requirement, so the one `req verification` surface verifies it
+    /// too. Like a safety requirement it needs a human co-sign and cannot be
+    /// tag-exempted or back-filled.
+    Sf,
 }
 
 #[derive(Copy, Clone)]
@@ -109,6 +115,7 @@ pub fn run(cmd: VerificationCmd, file: &Option<PathBuf>) -> Result<()> {
         VerificationCmd::Plan(a) => plan(a, file),
         VerificationCmd::Analysis(a) => activity(a, file, Stage::Analysis),
         VerificationCmd::Test(a) => activity(a, file, Stage::Testing),
+        VerificationCmd::Cover(a) => cover(a, file),
         VerificationCmd::Conclude(a) => conclude(a, file),
         VerificationCmd::Confirm(a) => confirm(a, file),
         VerificationCmd::Show(a) => show(a, file),
@@ -128,9 +135,20 @@ pub fn run(cmd: VerificationCmd, file: &Option<PathBuf>) -> Result<()> {
 // --------------------------------------------------------------------------
 
 fn normalize_sr(raw: &str) -> String {
+    normalize_prefixed(raw, "SR")
+}
+
+// REQ-0201: safety functions (SF-NNNN) resolve through the same dossier surface.
+fn normalize_sf(raw: &str) -> String {
+    normalize_prefixed(raw, "SF")
+}
+
+/// Canonicalise `PREFIX-NNNN`, accepting bare digits and a missing prefix.
+fn normalize_prefixed(raw: &str, prefix: &str) -> String {
     let trimmed = raw.trim();
     let upper = trimmed.to_uppercase();
-    let digits = if let Some(rest) = upper.strip_prefix("SR-") {
+    let dash = format!("{}-", prefix);
+    let digits = if let Some(rest) = upper.strip_prefix(&dash) {
         rest.to_string()
     } else if trimmed.chars().all(|c| c.is_ascii_digit()) && !trimmed.is_empty() {
         trimmed.to_string()
@@ -138,20 +156,29 @@ fn normalize_sr(raw: &str) -> String {
         return upper;
     };
     match digits.parse::<u32>() {
-        Ok(n) => format!("SR-{:04}", n),
+        Ok(n) => format!("{}-{:04}", prefix, n),
         Err(_) => upper,
     }
 }
 
-/// Resolve a raw id to its canonical form and family. SR-prefixed ids route
-/// to the safety-requirements map; everything else is an ordinary requirement.
+/// Resolve a raw id to its canonical form and family. SR-prefixed ids route to
+/// the safety-requirements map, SF-prefixed ids to the safety-functions map;
+/// everything else is an ordinary requirement.
 pub fn resolve(project: &Project, raw: &str) -> Result<(String, Family)> {
-    if raw.trim().to_uppercase().starts_with("SR") {
+    let upper = raw.trim().to_uppercase();
+    if upper.starts_with("SR") {
         let id = normalize_sr(raw);
         if project.safety_requirements.contains_key(&id) {
             Ok((id, Family::Sr))
         } else {
             Err(anyhow!("no such safety requirement: {}", raw))
+        }
+    } else if upper.starts_with("SF") {
+        let id = normalize_sf(raw);
+        if project.safety_functions.contains_key(&id) {
+            Ok((id, Family::Sf))
+        } else {
+            Err(anyhow!("no such safety function: {}", raw))
         }
     } else {
         let id = super::resolve_id(project, raw)?;
@@ -159,14 +186,40 @@ pub fn resolve(project: &Project, raw: &str) -> Result<(String, Family)> {
     }
 }
 
+/// REQ-0201: a mutable handle to whichever status field the item carries.
+/// Ordinary requirements and safety requirements use `Status`; safety functions
+/// use `SafetyFunctionStatus`. The dossier workflow only ever needs to advance to
+/// Implemented (awaiting co-sign) or Verified, so the slot exposes just those
+/// two transitions plus a label, hiding the type divergence from the ops.
+enum StatusSlot<'a> {
+    Req(&'a mut Status),
+    Sf(&'a mut SafetyFunctionStatus),
+}
+
+impl StatusSlot<'_> {
+    fn set_implemented(&mut self) {
+        match self {
+            StatusSlot::Req(s) => **s = Status::Implemented,
+            StatusSlot::Sf(s) => **s = SafetyFunctionStatus::Implemented,
+        }
+    }
+    fn set_verified(&mut self) {
+        match self {
+            StatusSlot::Req(s) => **s = Status::Verified,
+            StatusSlot::Sf(s) => **s = SafetyFunctionStatus::Verified,
+        }
+    }
+}
+
 /// Disjoint mutable handles to the dossier-bearing fields shared by
-/// `Requirement` and `SafetyRequirement`.
+/// `Requirement`, `SafetyRequirement`, and `SafetyFunction`. A safety function
+/// has no `tests` vector (its dossier is its evidence), so `tests` is optional.
 struct ItemMut<'a> {
     verification: &'a mut Option<Verification>,
-    status: &'a mut Status,
+    status: StatusSlot<'a>,
     history: &'a mut Vec<HistoryEntry>,
     updated: &'a mut DateTime<Utc>,
-    tests: &'a mut Vec<TestRecord>,
+    tests: Option<&'a mut Vec<TestRecord>>,
 }
 
 fn item_mut<'a>(project: &'a mut Project, id: &str, fam: Family) -> ItemMut<'a> {
@@ -175,20 +228,30 @@ fn item_mut<'a>(project: &'a mut Project, id: &str, fam: Family) -> ItemMut<'a> 
             let r = project.requirements.get_mut(id).unwrap();
             ItemMut {
                 verification: &mut r.verification,
-                status: &mut r.status,
+                status: StatusSlot::Req(&mut r.status),
                 history: &mut r.history,
                 updated: &mut r.updated,
-                tests: &mut r.tests,
+                tests: Some(&mut r.tests),
             }
         }
         Family::Sr => {
             let sr = project.safety_requirements.get_mut(id).unwrap();
             ItemMut {
                 verification: &mut sr.verification,
-                status: &mut sr.status,
+                status: StatusSlot::Req(&mut sr.status),
                 history: &mut sr.history,
                 updated: &mut sr.updated,
-                tests: &mut sr.tests,
+                tests: Some(&mut sr.tests),
+            }
+        }
+        Family::Sf => {
+            let sf = project.safety_functions.get_mut(id).unwrap();
+            ItemMut {
+                verification: &mut sf.verification,
+                status: StatusSlot::Sf(&mut sf.status),
+                history: &mut sf.history,
+                updated: &mut sf.updated,
+                tests: None,
             }
         }
     }
@@ -200,6 +263,9 @@ fn has_strong_evidence(project: &Project, id: &str, fam: Family) -> bool {
     let tests = match fam {
         Family::Req => &project.requirements[id].tests,
         Family::Sr => &project.safety_requirements[id].tests,
+        // REQ-0201: a safety function has no separate test-evidence model — its
+        // dossier is the evidence, so there is never "strong" evidence to compose.
+        Family::Sf => return false,
     };
     tests.iter().any(|t| {
         matches!(t.outcome, TestOutcome::Pass)
@@ -211,13 +277,7 @@ pub fn dossier<'a>(project: &'a Project, id: &str, fam: Family) -> Option<&'a Ve
     match fam {
         Family::Req => project.requirements[id].verification.as_ref(),
         Family::Sr => project.safety_requirements[id].verification.as_ref(),
-    }
-}
-
-fn current_status(project: &Project, id: &str, fam: Family) -> Status {
-    match fam {
-        Family::Req => project.requirements[id].status,
-        Family::Sr => project.safety_requirements[id].status,
+        Family::Sf => project.safety_functions[id].verification.as_ref(),
     }
 }
 
@@ -225,6 +285,7 @@ fn title_of(project: &Project, id: &str, fam: Family) -> String {
     match fam {
         Family::Req => project.requirements[id].title.clone(),
         Family::Sr => project.safety_requirements[id].title.clone(),
+        Family::Sf => project.safety_functions[id].title.clone(),
     }
 }
 
@@ -232,6 +293,7 @@ fn test_summaries(project: &Project, id: &str, fam: Family) -> Vec<String> {
     let tests = match fam {
         Family::Req => &project.requirements[id].tests,
         Family::Sr => &project.safety_requirements[id].tests,
+        Family::Sf => return Vec::new(),
     };
     tests.iter().map(summarise_record).collect()
 }
@@ -362,6 +424,130 @@ pub fn op_activity(
     Ok(id)
 }
 
+/// REQ-0204: record a coverage note on a SAFETY FUNCTION's dossier — the
+/// agent's argument for why one realizing safety requirement implements it. This
+/// is the forced walk-through: a safety function cannot conclude until every
+/// live realizing SR has a note here (and is itself Verified). SF-only.
+pub fn op_cover(
+    project: &mut Project,
+    raw_sf: &str,
+    child_raw: &str,
+    note: &str,
+) -> Result<(String, String)> {
+    let (sf_id, fam) = resolve(project, raw_sf)?;
+    if !matches!(fam, Family::Sf) {
+        return Err(anyhow!(
+            "coverage notes apply to safety functions (SF-NNNN); {} is not one. For a hazard, use \
+             `req hazard adequacy cover`.",
+            sf_id
+        ));
+    }
+    let child = normalize_sr(child_raw);
+    if !project.safety_requirements.contains_key(&child) {
+        return Err(anyhow!("no such safety requirement: {}", child_raw));
+    }
+    if !project.realizing_srs(&sf_id).iter().any(|s| s.id == child) {
+        return Err(anyhow!(
+            "{} does not live-realize {} — only a realizing safety requirement can be covered here.",
+            child,
+            sf_id
+        ));
+    }
+    if note.trim().is_empty() {
+        return Err(anyhow!("--note must not be empty"));
+    }
+    let now = Utc::now();
+    let actor = super::current_actor();
+    {
+        let sf = project.safety_functions.get_mut(&sf_id).unwrap();
+        let v = sf.verification.as_mut().ok_or_else(|| {
+            anyhow!(
+                "{} has no open verification dossier — run `req verification plan {} ...` first.",
+                sf_id,
+                sf_id
+            )
+        })?;
+        if v.is_concluded() {
+            return Err(anyhow!(
+                "{}'s dossier is already concluded — re-open it with `req verification plan {} --reopen --reason \"...\"` to revise.",
+                sf_id, sf_id
+            ));
+        }
+        v.coverage.retain(|c| c.target != child);
+        v.coverage.push(crate::model::CoverageNote {
+            target: child.clone(),
+            note: note.to_string(),
+            at: now,
+            actor,
+        });
+        sf.updated = now;
+        sf.history.push(super::history(
+            format!("dossier coverage recorded for {}", child),
+            None,
+        ));
+    }
+    project.updated = now;
+    Ok((sf_id, child))
+}
+
+/// REQ-0204: the hard chain gate behind a safety function's dossier. Every live
+/// realizing safety requirement must be addressed by a coverage note AND itself
+/// be Verified. Returns the chain anchor over the realizing SRs on success;
+/// otherwise an error naming the uncovered / unverified ones.
+fn sf_adequacy_gate(
+    project: &Project,
+    sf_id: &str,
+    coverage: &[crate::model::CoverageNote],
+) -> Result<String> {
+    use std::collections::HashSet;
+    let srs = project.realizing_srs(sf_id);
+    if srs.is_empty() {
+        return Err(anyhow!(
+            "{} has no live realizing safety requirement — it cannot be argued adequately \
+             implemented. Add one with `req sreq add --realizes {} ...`.",
+            sf_id,
+            sf_id
+        ));
+    }
+    let covered: HashSet<&str> = coverage.iter().map(|c| c.target.as_str()).collect();
+    let mut uncovered = Vec::new();
+    let mut unverified = Vec::new();
+    let mut tokens = Vec::new();
+    for sr in &srs {
+        if !covered.contains(sr.id.as_str()) {
+            uncovered.push(sr.id.clone());
+        }
+        let verified = matches!(sr.status, Status::Verified);
+        if !verified {
+            unverified.push(format!("{} ({})", sr.id, sr.status.as_str()));
+        }
+        let ch = sr
+            .verification
+            .as_ref()
+            .and_then(|v| v.content_hash.as_deref());
+        tokens.push(crate::model::chain_token(&sr.id, verified, ch));
+    }
+    if !uncovered.is_empty() {
+        return Err(anyhow!(
+            "{} cannot conclude — these realizing safety requirements have no walk-through note: \
+             {}. Record one with `req verification cover {} --child SR-NNNN --note \"...\"`.",
+            sf_id,
+            uncovered.join(", "),
+            sf_id
+        ));
+    }
+    if !unverified.is_empty() {
+        return Err(anyhow!(
+            "{} cannot be argued adequately implemented by VERIFIED safety requirements — these are \
+             not Verified: {}. Verify them first (their dossier + human co-sign) so the chain is \
+             sound bottom-up.",
+            sf_id,
+            unverified.join(", ")
+        ));
+    }
+    Ok(crate::model::chain_anchor(&tokens))
+}
+
 /// Stage 4 — conclude: derive the verdict, record the statement, and
 /// optionally promote (gated). `source_root` is where linked files are
 /// hashed for the staleness anchor.
@@ -394,6 +580,20 @@ pub fn op_conclude(
             ));
         }
         v.derive_verdict().unwrap_or(TestOutcome::Fail)
+    };
+    // REQ-0204: a safety function's dossier additionally requires the adequacy
+    // walk-through — every realizing SR covered and Verified — before it can
+    // conclude. This is the hard chain gate that makes "achieves its safe state"
+    // rest on its VERIFIED realizing requirements, bottom-up.
+    let sf_chain_anchor = if matches!(fam, Family::Sf) {
+        let coverage = project.safety_functions[&id]
+            .verification
+            .as_ref()
+            .map(|v| v.coverage.clone())
+            .unwrap_or_default();
+        Some(sf_adequacy_gate(project, &id, &coverage)?)
+    } else {
+        None
     };
     if promote {
         if matches!(verdict, TestOutcome::Fail) {
@@ -432,7 +632,10 @@ pub fn op_conclude(
     // REQ-V-0030 sees a Verified safety requirement's passing evidence). The
     // evidence kind composes the dossier's existing strong evidence when
     // present, else it is an inspection-grade conclusion.
-    let will_record = promote && matches!(verdict, TestOutcome::Pass);
+    let do_promote = promote && matches!(verdict, TestOutcome::Pass);
+    // A safety function has no test-evidence vector — its dossier IS the
+    // evidence — so only ordinary / safety requirements record a TestRecord.
+    let will_record = do_promote && !matches!(fam, Family::Sf);
     let strong = will_record && has_strong_evidence(project, &id, fam);
     let inherited = if matches!(fam, Family::Sr) {
         project.inherited_sil(&project.safety_requirements[&id])
@@ -457,7 +660,7 @@ pub fn op_conclude(
     let mut promoted = false;
     let mut awaiting = false;
     {
-        let it = item_mut(project, &id, fam);
+        let mut it = item_mut(project, &id, fam);
         {
             let v = it.verification.as_mut().unwrap();
             v.statement = Some(statement.to_string());
@@ -466,34 +669,43 @@ pub fn op_conclude(
             v.concluded_commit = Some(commit.clone());
             v.content_hash = content_hash.clone();
             v.linked_files = linked_files.clone();
+            // REQ-0204: anchor the realizing-SR chain on a safety function.
+            v.chain_anchor = sf_chain_anchor.clone();
         }
-        if will_record {
-            // REQ-0187: an ordinary requirement is promoted to Verified here;
-            // a safety requirement records its genuine dossier + evidence but
-            // stops at Implemented, awaiting the human co-sign that promotes
-            // it. This removes the old unreachable "Verified-but-unconfirmed"
-            // hard-error state an agent could not get out of.
-            if matches!(fam, Family::Sr) {
-                *it.status = Status::Implemented;
-                awaiting = true;
-            } else {
-                *it.status = Status::Verified;
+        if do_promote {
+            // REQ-0187/REQ-0201: an ordinary requirement is promoted to Verified
+            // here; a safety requirement OR a safety function records its genuine
+            // dossier but stops at Implemented, awaiting the human co-sign that
+            // promotes it. This removes the old unreachable
+            // "Verified-but-unconfirmed" hard-error state an agent could not get
+            // out of, and extends the co-sign gate up the chain to SFs.
+            if matches!(fam, Family::Req) {
+                it.status.set_verified();
                 promoted = true;
+            } else {
+                it.status.set_implemented();
+                awaiting = true;
             }
-            it.tests.push(TestRecord {
-                at: now,
-                actor: super::current_actor(),
-                commit: commit.clone(),
-                outcome: TestOutcome::Pass,
-                notes: format!("verification dossier concluded — {}", statement),
-                kind: evidence_kind,
-                content_hash,
-                linked_files,
-                sil_gate_exception,
-                // REQ-0154: snapshot the inherited SIL (SR only) at conclude.
-                sil_at_verification: inherited,
-                external: None,
-            });
+            // Only requirements carry a TestRecord vector; an SF's dossier is
+            // its own evidence (will_record is false for SFs).
+            if will_record {
+                if let Some(tests) = it.tests.as_mut() {
+                    tests.push(TestRecord {
+                        at: now,
+                        actor: super::current_actor(),
+                        commit: commit.clone(),
+                        outcome: TestOutcome::Pass,
+                        notes: format!("verification dossier concluded — {}", statement),
+                        kind: evidence_kind,
+                        content_hash,
+                        linked_files,
+                        sil_gate_exception,
+                        // REQ-0154: snapshot the inherited SIL (SR only) at conclude.
+                        sil_at_verification: inherited,
+                        external: None,
+                    });
+                }
+            }
         }
         *it.updated = now;
         it.history.push(super::history(
@@ -523,14 +735,44 @@ pub fn op_conclude(
 /// Read-only promotion checks: status ladder + (for SRs) the SIL-rigour
 /// gate, mirroring `req verify` / `req sreq verify`.
 fn promote_preflight(project: &Project, id: &str, fam: Family, force: bool) -> Result<()> {
-    let status = current_status(project, id, fam);
-    let ladder_ok = matches!(status, Status::Implemented | Status::Verified);
+    let (label, ladder_ok) = match fam {
+        Family::Req => {
+            let s = project.requirements[id].status;
+            (
+                s.as_str(),
+                matches!(s, Status::Implemented | Status::Verified),
+            )
+        }
+        Family::Sr => {
+            let s = project.safety_requirements[id].status;
+            (
+                s.as_str(),
+                matches!(s, Status::Implemented | Status::Verified),
+            )
+        }
+        Family::Sf => {
+            // REQ-0201: a safety function has no separate "implement" step: the
+            // dossier conclude is what carries it Allocated → Implemented (awaiting
+            // co-sign) → Verified. So allocated-or-beyond is the valid base —
+            // only a Proposed SF (mitigating no hazard) cannot be verified.
+            let s = project.safety_functions[id].status;
+            (
+                s.as_str(),
+                matches!(
+                    s,
+                    SafetyFunctionStatus::Allocated
+                        | SafetyFunctionStatus::Implemented
+                        | SafetyFunctionStatus::Verified
+                ),
+            )
+        }
+    };
     if !ladder_ok && !force {
         return Err(anyhow!(
             "{} is {} — promoting straight to Verified is irregular. Advance it to Implemented \
              first, or pass --force --reason \"...\".",
             id,
-            status.as_str()
+            label
         ));
     }
     if matches!(fam, Family::Sr) {
@@ -570,13 +812,20 @@ pub fn op_backfill(
     let mut targets: Vec<(String, Family)> = Vec::new();
     if let Some(raw) = raw_id {
         let (id, fam) = resolve(project, raw)?;
-        // REQ-0143: safety requirements have NO exemption — they must be
-        // verified genuinely, never grandfathered.
-        if matches!(fam, Family::Sr) {
+        // REQ-0143/REQ-0201: safety requirements and safety functions have NO
+        // exemption — they must be verified genuinely, never grandfathered.
+        if matches!(fam, Family::Sr | Family::Sf) {
+            let kind = if matches!(fam, Family::Sr) {
+                "safety requirement"
+            } else {
+                "safety function"
+            };
             return Err(anyhow!(
-                "{} is a safety requirement — safety requirements cannot be exempted. Verify it \
-                 genuinely with `req verification plan {} ...` → analysis → test → conclude --promote.",
-                id, id
+                "{} is a {} — safety artifacts cannot be exempted. Verify it genuinely with \
+                 `req verification plan {} ...` → analysis → test → conclude --promote.",
+                id,
+                kind,
+                id
             ));
         }
         targets.push((id, fam));
@@ -731,6 +980,22 @@ fn activity(args: VerificationActivityArgs, file: &Option<PathBuf>, stage: Stage
     Ok(())
 }
 
+fn cover(args: crate::cli::VerificationCoverArgs, file: &Option<PathBuf>) -> Result<()> {
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let (sf_id, child) = op_cover(&mut project, &args.id, &args.child, &args.note)?;
+    storage::save(&path, &project)?;
+    if args.json {
+        emit_json(&project, &sf_id, Family::Sf)?;
+    } else {
+        println!("Recorded coverage of {} for {}.", child, sf_id);
+        println!(
+            "When every realizing SR is covered and Verified: `req verification conclude {} --statement \"...\" --promote`",
+            sf_id
+        );
+    }
+    Ok(())
+}
+
 fn conclude(args: VerificationConcludeArgs, file: &Option<PathBuf>) -> Result<()> {
     let (path, mut project, _lock) = load_for_mutation(file)?;
     let out = op_conclude(
@@ -807,11 +1072,25 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
             .iter()
             .any(|t| matches!(t.outcome, TestOutcome::Pass) && t.sil_gate_exception);
         promote_preflight(project, &id, fam, had_exception)?;
+    } else if matches!(fam, Family::Sf) {
+        // REQ-0201: a safety function's co-sign is also the act that promotes it
+        // to Verified, so re-apply the status-ladder preflight (no SIL-evidence
+        // gate — an SF has no test-evidence model).
+        promote_preflight(project, &id, fam, false)?;
+        // REQ-0204: re-run the adequacy chain gate at co-sign time so a chain
+        // that drifted since conclude (a realizing SR de-verified or changed)
+        // cannot be silently co-signed to Verified.
+        let coverage = project.safety_functions[&id]
+            .verification
+            .as_ref()
+            .map(|v| v.coverage.clone())
+            .unwrap_or_default();
+        sf_adequacy_gate(project, &id, &coverage)?;
     }
     let now = Utc::now();
     let actor = super::current_actor();
     {
-        let it = item_mut(project, &id, fam);
+        let mut it = item_mut(project, &id, fam);
         let v = it.verification.as_mut().unwrap();
         v.human_confirmation = Some(VerificationActivity {
             summary: if note.is_empty() {
@@ -824,14 +1103,16 @@ pub fn op_confirm(project: &mut Project, raw: &str, note: &str) -> Result<String
             at: now,
             actor: actor.clone(),
         });
-        // REQ-0187: the human co-sign promotes a safety requirement to Verified.
-        let promoted_sr = matches!(fam, Family::Sr);
-        if promoted_sr {
-            *it.status = Status::Verified;
+        // REQ-0187/REQ-0201: the human co-sign promotes a safety requirement OR
+        // a safety function to Verified. An ordinary requirement is already
+        // Verified, so the co-sign only records the human confirmation.
+        let promotes = matches!(fam, Family::Sr | Family::Sf);
+        if promotes {
+            it.status.set_verified();
         }
         *it.updated = now;
         it.history.push(super::history(
-            if promoted_sr {
+            if promotes {
                 "verification result confirmed by human — promoted to Verified"
             } else {
                 "verification result confirmed by human"

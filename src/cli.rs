@@ -174,6 +174,12 @@ pub enum Command {
     Hooks(HooksArgs),
     /// Resolve requirement-ID collisions after merging from another branch.
     Renumber(RenumberArgs),
+    // REQ-0207: three-way merge driver for project.req, used by git via the
+    // `req-merge` driver. Marker kept off the --help line (see REQ-0151).
+    /// Three-way merge driver for project.req (used by git). Auto-merges
+    /// non-conflicting changes from both sides; exits non-zero, preserving
+    /// both, on any unresolvable divergence.
+    Merge(MergeArgs),
     /// Cross-reference REQ-IDs against the source tree; report orphans and ghosts.
     Coverage(CoverageArgs),
     /// Walk the git history of the .req file and report commit/signer per change.
@@ -254,6 +260,11 @@ pub enum VerificationCmd {
     /// Stage 3 — record verification by testing: findings and a pass/fail
     /// outcome, citing recorded test evidence where it exists.
     Test(VerificationActivityArgs),
+    // REQ-0204: marker kept off the --help summary (see REQ-0151).
+    /// Record why one realizing safety requirement implements a safety function
+    /// (SF-NNNN only) — the forced adequacy walk-through. A safety function
+    /// concludes only when every live realizing SR is covered here and Verified.
+    Cover(VerificationCoverArgs),
     /// Stage 4 — record the verification statement, derive the verdict, and
     /// optionally promote to Verified.
     Conclude(VerificationConcludeArgs),
@@ -364,6 +375,22 @@ pub struct VerificationConfirmArgs {
 pub struct VerificationShowArgs {
     /// REQ-NNNN or SR-NNNN id.
     pub id: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// REQ-0204: arguments for `req verification cover` (safety-function adequacy
+/// walk-through).
+#[derive(Args, Debug)]
+pub struct VerificationCoverArgs {
+    /// The safety function (SF-NNNN) whose dossier is being walked.
+    pub id: String,
+    /// The realizing safety requirement (SR-NNNN) this note addresses.
+    #[arg(long)]
+    pub child: String,
+    /// Why this safety requirement implements the safety function.
+    #[arg(long)]
+    pub note: String,
     #[arg(long)]
     pub json: bool,
 }
@@ -547,6 +574,79 @@ pub enum HazardCmd {
     Assess(HazardAssessArgs),
     /// Update title/description/context/harm/status with a reason.
     Update(HazardUpdateArgs),
+    // REQ-0204: the staged hazard mitigation-adequacy dossier (plan -> cover
+    /// each mitigating SF -> conclude). Forces a walk-through of why the hazard
+    /// is adequately mitigated by its VERIFIED safety functions, and is
+    /// hard-gated on every mitigating SF being Verified.
+    #[command(subcommand)]
+    Adequacy(HazardAdequacyCmd),
+    /// Human co-sign of the concluded adequacy dossier; promotes a Mitigated
+    /// hazard to Verified. Refuses REQ_ACTOR_KIND=agent.
+    Confirm(HazardConfirmArgs),
+}
+
+/// REQ-0204: the staged hazard adequacy dossier.
+#[derive(Subcommand, Debug)]
+pub enum HazardAdequacyCmd {
+    /// Stage 1 — open (or re-open) the dossier with how adequacy will be argued.
+    Plan(HazAdqPlanArgs),
+    /// Stage 2 — record why one mitigating safety function covers the hazard
+    /// (repeat once per live mitigating SF; this is the forced walk-through).
+    Cover(HazAdqCoverArgs),
+    /// Stage 3 — conclude: hard-gated on every live mitigating SF being covered
+    /// and Verified; records the residual-risk statement and derives the verdict.
+    Conclude(HazAdqConcludeArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct HazAdqPlanArgs {
+    pub id: String,
+    /// How the adequacy of the mitigation set will be argued.
+    #[arg(long)]
+    pub plan: String,
+    /// Re-open a concluded dossier (clears the prior verdict and co-sign).
+    #[arg(long)]
+    pub reopen: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazAdqCoverArgs {
+    pub id: String,
+    /// The mitigating safety function this note addresses.
+    #[arg(long)]
+    pub sf: String,
+    /// Why this safety function (via its verified safety requirements) covers
+    /// the hazard's failure mode.
+    #[arg(long)]
+    pub note: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazAdqConcludeArgs {
+    pub id: String,
+    /// Why the residual risk, after all the (verified) mitigations, is acceptable.
+    #[arg(long)]
+    pub statement: String,
+    /// Risk-reduction credited OUTSIDE the modelled safety functions (the
+    /// independent protection layers the W axis implicitly assumes).
+    #[arg(long)]
+    pub external: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct HazardConfirmArgs {
+    pub id: String,
+    /// An optional note recorded with the co-sign.
+    #[arg(long, default_value = "")]
+    pub note: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1193,6 +1293,29 @@ pub struct RenumberArgs {
     /// Show what would change without writing.
     #[arg(long)]
     pub dry_run: bool,
+}
+
+// REQ-0207: arguments mirror what git's merge driver substitutes. The driver
+// is registered as `req merge --base %O --ours %A --theirs %B`; %A is both our
+// input and the file git reads the result back from, so `--output` defaults to
+// `--ours`. `--marker-size` (%L) is accepted for git compatibility but unused.
+#[derive(Args, Debug)]
+pub struct MergeArgs {
+    /// Common ancestor version (git's %O).
+    #[arg(long)]
+    pub base: PathBuf,
+    /// Our version; also the file git reads the merged result back from (%A).
+    #[arg(long)]
+    pub ours: PathBuf,
+    /// Their version (%B).
+    #[arg(long)]
+    pub theirs: PathBuf,
+    /// Where to write the merged result. Defaults to `--ours` (git's contract).
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+    /// Conflict-marker size git requested (%L). Accepted for compatibility.
+    #[arg(long)]
+    pub marker_size: Option<usize>,
 }
 
 #[derive(Args, Debug)]

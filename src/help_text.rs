@@ -408,14 +408,14 @@ HONEST OPT-OUT FOR NON-SPEC FILES (REQ-0132)
 
 `req hooks install` also adds these `.gitattributes` lines:
 
-  *.req merge=req-merge        # merge driver for ID collisions
+  *.req merge=req-merge        # semantic 3-way merge driver
   project.req -text eol=lf     # line-ending pin (Windows autocrlf
   *.req       -text eol=lf       cannot break the integrity hash)
 
 Activate the merge driver once per clone:
 
   git config merge.req-merge.name 'req merge driver'
-  git config merge.req-merge.driver 'req renumber --base %O || true'
+  git config merge.req-merge.driver 'req merge --base %O --ours %A --theirs %B'
 
 Confirm the setup any time:
 
@@ -501,29 +501,40 @@ LOCAL CI EQUIVALENT (REQ-0114)
   0.3.2 CI failures were rustfmt or test-fixture drift that this would
   have caught locally.",
     },
+    // REQ-0207: the merge story documents the `req merge` semantic 3-way
+    // driver (see src/commands/merge.rs) — kept accurate with that feature.
     Section {
         name: "version-control",
         summary: "Diffs, merges, ID collisions.",
         body: "The .req file is pretty-printed JSON specifically so it diffs
 cleanly in code review. The merge story has three moving parts:
 
-  1. _integrity hash. A text merge produces a file whose hash no longer
-     matches. The merge driver runs `req renumber --base %O` which
-     force-loads, fixes ID collisions, and re-signs the file. If you
-     resolved conflicts by hand, run `req repair --confirm-direct-edit`.
+  1. The merge driver. `req hooks install` registers `req merge` as a
+     git merge driver for `*.req`. On a merge it does a real three-way
+     merge: it unions the non-conflicting changes from both sides
+     (additions, deletions, and edits to distinct requirements or
+     fields), renumbers any IDs that both branches allocated to
+     DIFFERENT requirements so neither side is lost, re-signs the
+     _integrity hash, and exits 0. It never silently drops a side.
 
-  2. ID collisions. Two branches that both ran `req add` while diverged
-     allocate the same REQ-NNNN. After merging, run:
+  2. Genuine conflicts. When the same requirement is edited
+     incompatibly on both sides — or edited on one side and deleted on
+     the other — `req merge` cannot reconcile it: it writes BOTH
+     versions under standard conflict markers and exits non-zero, so
+     git records a conflict. Resolve it in your editor, then run
+     `req repair --confirm-direct-edit` to re-sign.
+
+  3. ID collisions without the driver. If you merged a `.req` file
+     WITHOUT the driver installed, two branches that both ran `req add`
+     while diverged may have allocated the same REQ-NNNN. Repair it
+     afterwards with:
 
         req renumber --base origin/main
 
-     This loads the base from git, finds requirements on your branch
-     whose IDs are taken upstream, and shifts them to fresh IDs.
-     Internal links are rewritten and a history entry records the move.
-
-  3. Content conflicts (same requirement edited on both sides). These
-     are real conflicts — resolve in your editor, then run
-     `req repair --confirm-direct-edit` to re-sign.
+     This loads the base from git (a ref, not a file), finds
+     requirements on your branch whose IDs are taken upstream, and
+     shifts them to fresh IDs. Internal links are rewritten and a
+     history entry records the move.
 
 CROSS-REPO ID NAMESPACING (convention, not enforced)
 

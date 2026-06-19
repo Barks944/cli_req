@@ -126,6 +126,25 @@ pub fn save(path: &Path, project: &Project) -> Result<()> {
         Layout::Directory => return save_directory(path, project),
         Layout::Single => {}
     }
+    let s = to_canonical_json(project)?;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).ok();
+        }
+    }
+    let tmp = path.with_extension("req.tmp");
+    fs::write(&tmp, s)?;
+    fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    Ok(())
+}
+
+/// REQ-0207: render the canonical, integrity-signed single-file JSON form of a
+/// project to a string, without touching the filesystem. This is exactly what
+/// `save` writes for the single-file layout; factored out so the `req merge`
+/// driver can serialise each side of a conflict as a self-contained, valid
+/// `.req` document (so that once a human deletes the losing block and the
+/// markers, the surviving block already carries a correct integrity hash).
+pub fn to_canonical_json(project: &Project) -> Result<String> {
     let mut payload_map = match serde_json::to_value(project).context("serialize project")? {
         Value::Object(m) => m,
         _ => return Err(anyhow!("project did not serialize to a JSON object")),
@@ -159,17 +178,7 @@ pub fn save(path: &Path, project: &Project) -> Result<()> {
     } else {
         return Err(anyhow!("project did not serialize to a JSON object"));
     }
-
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).ok();
-        }
-    }
-    let tmp = path.with_extension("req.tmp");
-    let s = serde_json::to_string_pretty(&Value::Object(root))?;
-    fs::write(&tmp, s)?;
-    fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
-    Ok(())
+    Ok(serde_json::to_string_pretty(&Value::Object(root))?)
 }
 
 pub fn load(path: &Path) -> Result<Project> {

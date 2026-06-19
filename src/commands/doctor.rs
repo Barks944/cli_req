@@ -124,15 +124,31 @@ pub fn run(args: DoctorArgs) -> Result<()> {
         advisory: false,
     });
 
-    // 3. req-merge driver active in local git config
+    // 3. req-merge driver active in local git config.
+    // REQ-0207 / SR-0010: the driver must be the semantic 3-way merge and must
+    // NOT mask its exit status. An empty driver, or a legacy/unsafe one (the old
+    // `req renumber ... || true`, or any driver carrying `|| true`), is flagged:
+    // those can silently keep one side and drop the other's spec data on merge.
     let driver = git_config("merge.req-merge.driver");
-    let driver_ok = driver.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+    const SAFE_DRIVER: &str = "req merge --base %O --ours %A --theirs %B";
+    let driver_unsafe = |s: &str| s.contains("|| true") || s.contains("renumber");
+    let driver_ok = driver
+        .as_deref()
+        .map(|s| !s.is_empty() && !driver_unsafe(s))
+        .unwrap_or(false);
     checks.push(Check {
         name: "git merge.req-merge driver activated".into(),
         ok: driver_ok,
         detail: match &driver {
+            Some(s) if driver_unsafe(s) => format!(
+                "UNSAFE driver can silently drop spec data on merge: {}\n    fix: git config merge.req-merge.driver '{}'",
+                s, SAFE_DRIVER
+            ),
             Some(s) if !s.is_empty() => format!("driver: {}", s),
-            _ => "inactive — run `git config merge.req-merge.driver 'req renumber --base %O || true'`".into(),
+            _ => format!(
+                "inactive — run `git config merge.req-merge.driver '{}'`",
+                SAFE_DRIVER
+            ),
         },
         advisory: false,
     });
