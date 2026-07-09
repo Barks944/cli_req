@@ -133,7 +133,7 @@ fn resolve_verdict(project: &Project, raw: &str) -> Result<TestOutcome> {
 // REQ-0175: export the requirements due for verification
 // --------------------------------------------------------------------------
 
-fn build_request(project: &Project) -> RequestPayload {
+pub fn build_request(project: &Project) -> RequestPayload {
     let commit = current_head();
     let mut requirements = Vec::new();
     // "Due for verification" = an active requirement not yet Verified, past Draft.
@@ -219,6 +219,16 @@ fn preflight(project: &Project, payload: &ResultPayload) -> Result<()> {
     for r in &payload.results {
         let (id, fam) = crate::commands::verification::resolve(project, &r.req_id)
             .map_err(|_| anyhow!("result references unknown requirement '{}'", r.req_id))?;
+        // REQ-0208: results may only target requirements or safety requirements.
+        // A safety-function id (SF-) is not a key in either tests map, so letting
+        // it through would panic the ingest loop — which, in the long-lived serve
+        // handler, poisons the shared lock and bricks the server. Reject up front.
+        if matches!(fam, crate::commands::verification::Family::Sf) {
+            return Err(anyhow!(
+                "result targets safety function '{}' — only requirements (REQ-) or safety requirements (SR-) accept test results",
+                r.req_id
+            ));
+        }
         resolve_verdict(project, &r.verdict)?;
         // REQ-0183: a decision may only attach to a dossier anchored at the
         // same commit (or one with no conclusion yet).
@@ -393,6 +403,173 @@ pub fn ingest_payload(
     Ok(report)
 }
 
+// --------------------------------------------------------------------------
+// REQ-0208: STAGED ingest (used by `req test serve`)
+// --------------------------------------------------------------------------
+
+/// Outcome of a staged ingest.
+pub struct StagedReport {
+    pub attached: usize,
+    pub skipped_duplicate: usize,
+    pub dossiers: usize,
+    /// Requirements whose existing human/safety dossier was left untouched
+    /// (concluded, human-confirmed, or carrying coverage notes) — the record
+    /// was still attached, but the dossier was not overwritten.
+    pub preserved: Vec<String>,
+}
+
+/// Attach each result as a test record and populate the verification dossier's
+/// plan + analysis + testing, but NEVER conclude it — the verification
+/// statement and the final verdict/promotion stay a human closeout step
+/// (REQ-0208). An external bench records evidence without ever itself declaring
+/// a requirement Verified. Preflight is shared with `ingest_payload`, so a
+/// malformed payload leaves project.req byte-identical.
+pub fn ingest_payload_staged(
+    project: &mut Project,
+    payload: &ResultPayload,
+) -> Result<StagedReport> {
+    preflight(project, payload)?;
+    let now = Utc::now();
+    let mut report = StagedReport {
+        attached: 0,
+        skipped_duplicate: 0,
+        dossiers: 0,
+        preserved: Vec::new(),
+    };
+    for r in &payload.results {
+        let (id, fam) = crate::commands::verification::resolve(project, &r.req_id)?;
+        let outcome = resolve_verdict(project, &r.verdict)?;
+        let kind = match r.evidence_kind.as_deref() {
+            Some("composition") => EvidenceKind::Composition,
+            Some("inspection") => EvidenceKind::Inspection,
+            _ => EvidenceKind::Automated,
+        };
+        let external = ExternalSource {
+            system: payload.system.clone(),
+            environment: payload.environment.clone(),
+            raw_verdict: Some(r.verdict.clone()),
+            mapping_version: project
+                .config
+                .as_ref()
+                .and_then(|c| c.test_integration.as_ref())
+                .and_then(|t| t.version.clone()),
+        };
+        let record = TestRecord {
+            at: now,
+            actor: super::current_actor(),
+            commit: payload.commit.clone(),
+            outcome,
+            notes: r.notes.clone().unwrap_or_default(),
+            kind,
+            content_hash: None,
+            linked_files: None,
+            sil_gate_exception: false,
+            sil_at_verification: None,
+            external: Some(external),
+        };
+
+        let is_sr = matches!(fam, crate::commands::verification::Family::Sr);
+        {
+            // REQ-0177: idempotent — skip an identical prior ingest.
+            let tests = if is_sr {
+                &project.safety_requirements[&id].tests
+            } else {
+                &project.requirements[&id].tests
+            };
+            let dup = tests.iter().any(|t| {
+                t.commit == record.commit
+                    && t.outcome == record.outcome
+                    && t.external.as_ref().map(|e| (&e.system, &e.raw_verdict))
+                        == record
+                            .external
+                            .as_ref()
+                            .map(|e| (&e.system, &e.raw_verdict))
+            });
+            if dup {
+                report.skipped_duplicate += 1;
+                continue;
+            }
+        }
+
+        // Build the STAGED dossier: plan + analysis + testing, verdict left
+        // None so `is_concluded()` stays false and the human closes it out.
+        let staged = r.decision.as_ref().map(|d| {
+            let mut v = Verification::opened(
+                d.plan.clone(),
+                payload.system.clone(),
+                payload.commit.clone(),
+                now,
+            );
+            if let Some(a) = &d.analysis {
+                v.analysis = Some(VerificationActivity {
+                    summary: a.clone(),
+                    outcome,
+                    references: Vec::new(),
+                    at: now,
+                    actor: payload.system.clone(),
+                });
+            }
+            v.testing = Some(VerificationActivity {
+                summary: r
+                    .notes
+                    .clone()
+                    .unwrap_or_else(|| "external bench result".into()),
+                outcome,
+                references: Vec::new(),
+                at: now,
+                actor: payload.system.clone(),
+            });
+            v
+        });
+
+        // Never clobber a dossier that carries human or safety work — attach the
+        // record as fresh evidence but leave the dossier intact. Staged ingest
+        // only ever fills plan/analysis/testing, so any concluded verdict, human
+        // confirmation, or coverage note is a human/safety contribution we must
+        // not overwrite. A bench-authored staged dossier (none of these) is
+        // refreshed by a later run.
+        let preserve_existing = crate::commands::verification::dossier(project, &id, fam)
+            .map(|v| v.is_concluded() || v.human_confirmation.is_some() || !v.coverage.is_empty())
+            .unwrap_or(false);
+
+        if is_sr {
+            let sr = project.safety_requirements.get_mut(&id).unwrap();
+            sr.tests.push(record);
+            if let Some(v) = staged {
+                if preserve_existing {
+                    report.preserved.push(id.clone());
+                } else {
+                    sr.verification = Some(v);
+                    report.dossiers += 1;
+                }
+            }
+            sr.updated = now;
+            sr.history.push(super::history(
+                "external evidence ingested (staged, not concluded)",
+                r.notes.clone(),
+            ));
+        } else {
+            let req = project.requirements.get_mut(&id).unwrap();
+            req.tests.push(record);
+            if let Some(v) = staged {
+                if preserve_existing {
+                    report.preserved.push(id.clone());
+                } else {
+                    req.verification = Some(v);
+                    report.dossiers += 1;
+                }
+            }
+            req.updated = now;
+            req.history.push(super::history(
+                "external evidence ingested (staged, not concluded)",
+                r.notes.clone(),
+            ));
+        }
+        report.attached += 1;
+    }
+    Ok(report)
+}
+
 fn render_report(report: &IngestReport, system: &str) {
     println!(
         "Ingested {} result(s) from {} ({} duplicate(s) skipped).",
@@ -460,7 +637,7 @@ pub fn pull(args: TestPullArgs, file: &Option<PathBuf>) -> Result<()> {
 // helpers
 // --------------------------------------------------------------------------
 
-fn current_head() -> String {
+pub fn current_head() -> String {
     std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
         .output()

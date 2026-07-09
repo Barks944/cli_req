@@ -29,6 +29,8 @@ pub fn run(cmd: TestCmd, file: &Option<PathBuf>) -> Result<()> {
         TestCmd::Requests(args) => super::integration::requests(args, file),
         TestCmd::Ingest(args) => super::integration::ingest(args, file),
         TestCmd::Pull(args) => super::integration::pull(args, file),
+        // REQ-0208: live HTTP serve mode for an external test system.
+        TestCmd::Serve(args) => super::test_serve::run(args, file),
     }
 }
 

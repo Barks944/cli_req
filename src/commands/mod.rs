@@ -38,6 +38,7 @@ pub mod split;
 pub mod stale;
 pub mod status;
 pub mod test_cmd;
+pub mod test_serve;
 pub mod update;
 pub mod verification;
 pub mod version;

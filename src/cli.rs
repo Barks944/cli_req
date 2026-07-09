@@ -1742,6 +1742,11 @@ pub enum TestCmd {
     /// Pull a result payload from an external test system over an
     /// authenticated HTTP endpoint and ingest it.
     Pull(TestPullArgs),
+    // REQ-0208: marker off the --help line.
+    /// Serve this project.req live over HTTP to an external test system:
+    /// requirements out, results in (recorded as staged evidence, never
+    /// concluded or promoted — closeout stays a human step).
+    Serve(TestServeArgs),
 }
 
 #[derive(Args, Debug)]
@@ -1771,6 +1776,24 @@ pub struct TestPullArgs {
     /// Allow promotion of ordinary requirements (see `ingest --promote`).
     #[arg(long)]
     pub promote: bool,
+}
+
+// REQ-0208: live HTTP serve mode for an external test orchestrator.
+#[derive(Args, Debug)]
+pub struct TestServeArgs {
+    /// Bind address.
+    #[arg(long, default_value = "127.0.0.1")]
+    pub host: String,
+    /// Port to listen on.
+    #[arg(short, long, default_value_t = 7878)]
+    pub port: u16,
+    /// Bearer token clients must present. If omitted, a fresh random token is
+    /// generated and printed to the console on startup for copy-paste.
+    #[arg(long, env = "REQ_TEST_TOKEN")]
+    pub token: Option<String>,
+    /// Optional environment / bench label recorded on ingested evidence.
+    #[arg(long)]
+    pub environment: Option<String>,
 }
 
 #[derive(Args, Debug)]

@@ -33,6 +33,7 @@ axum = "0.7"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 ignore = "0.4"
 ureq = "2"
+getrandom = "0.2"         # REQ-0208: mint the bench bearer token when none is supplied
 
 
 [dev-dependencies]
