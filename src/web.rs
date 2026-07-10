@@ -1165,23 +1165,34 @@ fn adequacy_html(hz: &Hazard, project: &Project) -> String {
 }
 
 // REQ-0171: a safety requirement's guided-walkthrough acknowledgement line.
+// REQ-0211: commit-aware, matching the /safety walkthrough column — an ack
+// made at an older commit reads "acknowledgement stale", never a bare
+// "acknowledged" that contradicts the roll-up.
 fn walkthrough_html(sr: &SafetyRequirement) -> String {
+    let head = crate::commands::safety_gov::head_sha();
     match &sr.walkthrough {
-        None => String::new(),
-        Some(w) => format!(
-            "<p class=\"meta\">Walkthrough: {} by {} @ {}{}</p>",
-            if w.objected {
+        None => "<p class=\"meta\">Walkthrough: <span class=\"badge b-warn\">never acknowledged</span></p>"
+            .to_string(),
+        Some(w) => {
+            let state = if w.objected {
                 badge("bad", "objection")
-            } else {
+            } else if crate::commands::safety_gov::ack_is_fresh(Some(w), &head) {
                 badge("ok", "acknowledged")
-            },
-            h(&w.reviewer),
-            w.at.format("%Y-%m-%d %H:%M UTC"),
-            w.note
-                .as_ref()
-                .map(|n| format!(" — {}", h(n)))
-                .unwrap_or_default(),
-        ),
+            } else {
+                badge("warn", "acknowledgement stale")
+            };
+            format!(
+                "<p class=\"meta\">Walkthrough: {} by {} @ {} (commit <code>{}</code>){}</p>",
+                state,
+                h(&w.reviewer),
+                w.at.format("%Y-%m-%d %H:%M UTC"),
+                h(&w.commit[..w.commit.len().min(9)]),
+                w.note
+                    .as_ref()
+                    .map(|n| format!(" — {}", h(n)))
+                    .unwrap_or_default(),
+            )
+        }
     }
 }
 
