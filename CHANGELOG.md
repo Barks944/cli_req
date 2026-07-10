@@ -8,6 +8,44 @@ version moves and CLI surface additions are minor.
 
 ## [Unreleased]
 
+## [0.5.0-rc.8] — 2026-07-10
+
+The `req serve` / `req export` review surface, closing issue #8: the browser and
+the exported document now carry everything a reviewer needs — the verification
+dossiers, the provenance roll-up, and the whole functional-safety layer — in a
+navigable, filterable, panelled UI shaped by live review on two real projects.
+
+### Added
+- **Full verification dossier in serve and export (REQ-0209):** each
+  requirement page (and the markdown/HTML export) renders the dossier — plan,
+  analysis and testing with references, statement, derived verdict, provenance
+  standing — plus the test-record list (latest first, earlier collapsed),
+  including external bench provenance. Previously only `req verification show`
+  could surface any of this.
+- **Verification roll-up on the index (REQ-0210):** the requirements index
+  doubles as the roll-up — a Verification column (provenance per verified item,
+  dossier stage per unverified), provenance chips, and the not-genuine honesty
+  banner; the export gains the equivalent section.
+- **Complete safety layer in both surfaces (REQ-0211):** SF/SR listings with
+  standings, per-SR walkthrough-acknowledgement state, the active SIL
+  calibration with leaf overrides, hazard adequacy and SF/SR dossiers in the
+  export, and an explicit "functional safety: disabled / no artifacts" empty
+  state instead of a silently missing section.
+- **Browsable review UI (REQ-0212):** persistent nav, a filter bar (free text +
+  kind/priority/status/verification-standing/tag dropdowns with a shown-count),
+  status-tinted header bands, card-panelled detail pages for requirements and
+  HAZ/SF/SR alike, dossier sub-panels with long findings excerpted behind
+  disclosures, and collapsed history.
+
+### Changed
+- **Standing badges are chain-aware:** a hazard or safety function whose
+  co-signed dossier sits over a reopened chain now reads "chain reopened"
+  rather than echoing "verified".
+- **Safety chain reopened for re-verification:** the rc.7 source drift (test
+  serve + this release) staled part of the co-signed chain; SR-0001/0005/0007
+  are re-verified awaiting human co-sign, SF-0001/0002/0005/0006 dropped to
+  allocated, HAZ-0001/0002/0003 to mitigated pending adequacy re-argument.
+
 ## [0.5.0-rc.7] — 2026-06-18
 
 Integration of the 61508 hazard/safety-function review fixes onto the rc.6 line,
