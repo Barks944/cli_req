@@ -47,8 +47,8 @@ pub fn promotion_blocked_message(id: &str) -> String {
 use crate::cli::{
     TestResultArg, VerificationActivityArgs, VerificationBackfillArgs, VerificationCmd,
     VerificationConcludeArgs, VerificationConfirmArgs, VerificationPlanArgs,
-    VerificationRefreshArgs, VerificationReportArgs, VerificationReverifyArgs,
-    VerificationShowArgs,
+    VerificationReanchorArgs, VerificationRefreshArgs, VerificationReportArgs,
+    VerificationReverifyArgs, VerificationShowArgs,
 };
 use crate::commands::test_cmd::{auto_linked_files, current_head_sha_opt, hash_files, short};
 use crate::model::{
@@ -127,6 +127,8 @@ pub fn run(cmd: VerificationCmd, file: &Option<PathBuf>) -> Result<()> {
         // REQ-0153: re-normalize staleness anchors that are provably unchanged.
         VerificationCmd::RefreshAnchors(a) => refresh_anchors(a, file),
         VerificationCmd::Reverify(a) => reverify(a, file),
+        // REQ-0213: attested re-anchor after a human re-review at HEAD.
+        VerificationCmd::Reanchor(a) => reanchor(a, file),
     }
 }
 
@@ -730,6 +732,108 @@ pub fn op_conclude(
         promoted,
         awaiting_confirmation: awaiting,
     })
+}
+
+/// REQ-0213: attested re-anchor. Refresh the staleness anchor of an
+/// already-genuine (concluded Pass, analysed + tested + statement) dossier over
+/// the CURRENT linked source, recording a human attestation that the analysis
+/// was re-reviewed at HEAD and still holds. This is the honest way to record a
+/// deliberate re-validation of behaviour-preserving source drift (comment /
+/// `\satisfy`-marker churn) that neither `refresh_anchors` (format-only) nor
+/// `reverify` (automated tests) covers.
+///
+/// The anchor is always recomputed over the REAL current source — the human's
+/// `--reason` only asserts the re-review happened; it can never fake a hash. On
+/// success the dossier's `content_hash` / `linked_files` / `concluded_commit`
+/// match HEAD, so `provenance::classify` returns Genuine again.
+pub fn op_reanchor(
+    project: &mut Project,
+    raw: &str,
+    reason: &str,
+    source_root: &Path,
+) -> Result<String> {
+    let (id, fam) = resolve(project, raw)?;
+    let now = Utc::now();
+    let commit = current_head_sha_opt().unwrap_or_default();
+    let actor = super::current_actor();
+
+    // Guard: the dossier must already be a genuine concluded Pass — this
+    // refreshes an honest anchor, it does NOT create verification from nothing.
+    {
+        let v = dossier(project, &id, fam).ok_or_else(|| {
+            anyhow!(
+                "{} has no verification dossier — reanchor only refreshes an already-genuine one. \
+                 Verify it first: `req verification plan {} ...` → analysis → test → conclude.",
+                id,
+                id
+            )
+        })?;
+        if v.exempt {
+            return Err(anyhow!(
+                "{}'s dossier is an audited exemption, not a genuine verification — reanchor does \
+                 not apply. Verify it genuinely to anchor it.",
+                id
+            ));
+        }
+        let genuine = matches!(v.verdict, Some(TestOutcome::Pass))
+            && v.analysis.is_some()
+            && v.testing.is_some()
+            && v.statement.is_some();
+        if !genuine {
+            return Err(anyhow!(
+                "{}'s dossier is not a concluded Pass with analysis + testing + statement — \
+                 reanchor only refreshes an already-genuine dossier's anchor. Conclude it first.",
+                id
+            ));
+        }
+    }
+
+    // Honest re-anchor: recompute the hash + linked files over the CURRENT
+    // source, exactly as op_conclude does.
+    let linked = auto_linked_files(&id, source_root);
+    let content_hash = if linked.is_empty() {
+        None
+    } else {
+        Some(hash_files(&linked))
+    };
+    let linked_files: Option<Vec<String>> = if linked.is_empty() {
+        None
+    } else {
+        Some(
+            linked
+                .iter()
+                // REQ-0152: store portable forward-slash paths.
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .collect(),
+        )
+    };
+
+    {
+        let it = item_mut(project, &id, fam);
+        let v = it.verification.as_mut().unwrap();
+        v.content_hash = content_hash;
+        v.linked_files = linked_files;
+        v.concluded_commit = Some(commit.clone());
+        // Record the human attestation in the dossier so `req verification
+        // show` / `req audit` show WHO re-reviewed it, WHEN, and WHY.
+        v.reanchors.push(VerificationActivity {
+            summary: format!(
+                "re-anchored at {} after human re-review at HEAD",
+                short(&commit)
+            ),
+            outcome: TestOutcome::Pass,
+            references: Vec::new(),
+            at: now,
+            actor: actor.clone(),
+        });
+        *it.updated = now;
+        it.history.push(super::history(
+            "verification re-anchored (attested re-review at HEAD)",
+            Some(reason.to_string()),
+        ));
+    }
+    project.updated = now;
+    Ok(id)
 }
 
 /// Read-only promotion checks: status ladder + (for SRs) the SIL-rigour
@@ -1474,6 +1578,104 @@ fn reverify(args: VerificationReverifyArgs, file: &Option<PathBuf>) -> Result<()
     Ok(())
 }
 
+// REQ-0213: attested re-anchor CLI wrapper. Single-id or --all-stale bulk mode.
+fn reanchor(args: VerificationReanchorArgs, file: &Option<PathBuf>) -> Result<()> {
+    if args.reason.trim().is_empty() {
+        return Err(anyhow!(
+            "--reason must not be empty — it is your attestation"
+        ));
+    }
+    if args.all_stale == args.id.is_some() {
+        return Err(anyhow!(
+            "provide exactly one of: an ID to re-anchor, or --all-stale (not both, not neither)"
+        ));
+    }
+    let (path, mut project, _lock) = load_for_mutation(file)?;
+    let root = args.path.clone();
+
+    // Resolve the target id set. For --all-stale, every currently-stale genuine
+    // dossier (ordinary AND safety) — the exact "I re-reviewed all
+    // carried-forward analyses at HEAD" workflow.
+    let mut targets: Vec<String> = Vec::new();
+    if let Some(raw) = &args.id {
+        let (id, fam) = resolve(&project, raw)?;
+        // Surface a clear message when the item isn't actually stale, rather
+        // than silently re-anchoring a fresh dossier.
+        if !dossier_is_stale(dossier(&project, &id, fam), &id, &root) {
+            let cls = classify(dossier(&project, &id, fam), Some(&root), &id);
+            if matches!(cls, Provenance::Genuine) {
+                return Err(anyhow!(
+                    "{} is not stale — its anchor already matches the current source. Nothing to re-anchor.",
+                    id
+                ));
+            }
+        }
+        targets.push(id);
+    } else {
+        for (id, r) in &project.requirements {
+            if matches!(r.status, Status::Verified)
+                && dossier_is_stale(r.verification.as_ref(), id, &root)
+            {
+                targets.push(id.clone());
+            }
+        }
+        for (id, sr) in &project.safety_requirements {
+            if matches!(sr.status, Status::Verified)
+                && dossier_is_stale(sr.verification.as_ref(), id, &root)
+            {
+                targets.push(id.clone());
+            }
+        }
+        targets.sort();
+    }
+
+    let mut reanchored: Vec<String> = Vec::new();
+    for id in &targets {
+        if args.dry_run {
+            reanchored.push(id.clone());
+            continue;
+        }
+        op_reanchor(&mut project, id, &args.reason, &root)?;
+        reanchored.push(id.clone());
+    }
+
+    if !reanchored.is_empty() && !args.dry_run {
+        project.updated = Utc::now();
+        storage::save(&path, &project)?;
+    }
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "reanchored": reanchored,
+                "reason": args.reason,
+                "dry_run": args.dry_run,
+            }))?
+        );
+        return Ok(());
+    }
+
+    if reanchored.is_empty() {
+        println!("No stale genuine dossiers to re-anchor.");
+        return Ok(());
+    }
+    println!(
+        "{} dossier(s) {} to the current source (attested: \"{}\"):",
+        reanchored.len(),
+        if args.dry_run {
+            "would be re-anchored"
+        } else {
+            "re-anchored"
+        },
+        args.reason
+    );
+    for id in &reanchored {
+        println!("  {id}");
+    }
+    Ok(())
+}
+
 // REQ-0142: the true-status report. Classifies every Verified item and
 // rolls up the counts, so the headline "verified" number can be read with
 // its provenance instead of taken at face value.
@@ -1762,6 +1964,15 @@ fn show(args: VerificationShowArgs, file: &Option<PathBuf>) -> Result<()> {
                     "  anchored:   {} @ {}",
                     &h[..h.len().min(12)],
                     v.concluded_commit.as_deref().map(short).unwrap_or_default()
+                );
+            }
+            // REQ-0213: show any attested re-anchors (human re-review at HEAD).
+            for a in &v.reanchors {
+                println!(
+                    "  reanchor:   {} by {} — {}",
+                    a.at.format("%Y-%m-%d"),
+                    a.actor,
+                    a.summary
                 );
             }
         }

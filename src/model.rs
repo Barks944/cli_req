@@ -651,6 +651,15 @@ pub struct Verification {
     /// ordinary requirements and safety requirements.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chain_anchor: Option<String>,
+    /// REQ-0213: the audit trail of attested re-anchors (`req verification
+    /// reanchor`). Each entry records the human attestation ("reviewed at HEAD,
+    /// logic unchanged") that accompanied refreshing the staleness anchor over
+    /// drifted-but-behaviourally-unchanged source — actor + timestamp + reason.
+    /// Empty on a dossier that has never been re-anchored. Never used to fake
+    /// verification: the anchor itself is always recomputed over the REAL current
+    /// source; this vector only records that a human vouched for the re-review.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reanchors: Vec<VerificationActivity>,
 }
 
 /// REQ-0162: the two audited ways an item may be Verified without a genuine
@@ -687,6 +696,7 @@ impl Verification {
             exemption_kind: None,
             coverage: Vec::new(),
             chain_anchor: None,
+            reanchors: Vec::new(),
         }
     }
 

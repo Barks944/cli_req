@@ -1096,3 +1096,165 @@ fn req_0200_reverify_by_tests_reanchors_stale_passing() {
         stdout(&again)
     );
 }
+
+/// REQ-0213: `verification reanchor <ID> --reason` refreshes a genuine-but-stale
+/// dossier's content-hash anchor over the CURRENT source after a human re-review,
+/// flipping its provenance Stale → genuine, and records the attestation (actor +
+/// reason) in the dossier history.
+#[test]
+fn req_0213_reanchor_attests_and_refreshes_a_stale_dossier() {
+    use std::process::Command;
+    let s = Sandbox::new();
+    s.init("p");
+    let dir = s.dir.path();
+    let pf = s.path();
+    let pf_s = pf.to_str().unwrap().to_string();
+    let run = |args: &[&str]| {
+        let mut full: Vec<String> = vec!["--file".into(), pf_s.clone()];
+        full.extend(args.iter().map(|a| a.to_string()));
+        Command::new(env!("CARGO_BIN_EXE_req"))
+            .current_dir(dir)
+            .args(&full)
+            .env_remove("REQ_FILE")
+            .output()
+            .expect("invoke req")
+    };
+    // Source file carrying the REQ-0001 marker so the dossier anchors on it.
+    let impl_path = dir.join("impl.rs");
+    std::fs::write(&impl_path, "// REQ-0001: stop on demand\nfn stop() {}\n").unwrap();
+    assert!(run(&[
+        "add",
+        "--title",
+        "Stop on demand",
+        "--statement",
+        "The system shall stop the process on operator demand.",
+        "--rationale",
+        "operator safety",
+        "--accept",
+        "stops on demand",
+        "-k",
+        "functional",
+        "-p",
+        "must",
+    ])
+    .status
+    .success());
+    for st in ["proposed", "approved", "implemented"] {
+        let r = run(&["update", "REQ-0001", "--status", st, "--reason", "step"]);
+        assert!(r.status.success(), "step to {}: {}", st, stderr(&r));
+    }
+    run(&[
+        "verification",
+        "plan",
+        "REQ-0001",
+        "--plan",
+        "review + test",
+    ]);
+    run(&[
+        "verification",
+        "analysis",
+        "REQ-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "reviewed impl.rs",
+    ]);
+    run(&[
+        "verification",
+        "test",
+        "REQ-0001",
+        "--result",
+        "pass",
+        "--findings",
+        "tested",
+    ]);
+    let c = run(&[
+        "verification",
+        "conclude",
+        "REQ-0001",
+        "--statement",
+        "met",
+        "--promote",
+    ]);
+    assert!(c.status.success(), "conclude: {}", stderr(&c));
+
+    // Drift the linked file (comment-only churn) → the dossier goes Stale.
+    std::fs::write(
+        &impl_path,
+        "// REQ-0001: stop on demand (\\satisfy marker migration)\nfn stop() {}\n",
+    )
+    .unwrap();
+    let rep = run(&["verification", "status", "--json"]);
+    let rv: serde_json::Value = serde_json::from_str(&stdout(&rep)).expect("status json");
+    let is_stale = rv["items"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .any(|i| i["id"] == "REQ-0001" && i["provenance"] == "stale")
+        })
+        .unwrap_or(false);
+    assert!(
+        is_stale,
+        "REQ-0001 should be stale after drift:\n{}",
+        stdout(&rep)
+    );
+
+    // Reanchor requires --reason; it recomputes the anchor over current source
+    // and records the attestation.
+    let out = run(&[
+        "verification",
+        "reanchor",
+        "REQ-0001",
+        "--reason",
+        "re-reviewed at HEAD, logic unchanged (marker churn only)",
+        "--json",
+    ]);
+    assert!(out.status.success(), "reanchor: {}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("reanchor json");
+    let reanchored: Vec<String> = v["reanchored"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        reanchored.contains(&"REQ-0001".to_string()),
+        "REQ-0001 should be re-anchored:\n{}",
+        stdout(&out)
+    );
+
+    // Provenance is genuine again (anchor matches current source).
+    let rep2 = run(&["verification", "status", "--json"]);
+    let rv2: serde_json::Value = serde_json::from_str(&stdout(&rep2)).unwrap();
+    let now_genuine = rv2["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|i| i["id"] == "REQ-0001" && i["provenance"] == "genuine");
+    assert!(
+        now_genuine,
+        "REQ-0001 should be genuine after reanchor:\n{}",
+        stdout(&rep2)
+    );
+
+    // The attestation is recorded in the dossier (visible via show --json).
+    let show = run(&["verification", "show", "REQ-0001", "--json"]);
+    let sv: serde_json::Value = serde_json::from_str(&stdout(&show)).unwrap();
+    let reanchors = sv["verification"]["reanchors"]
+        .as_array()
+        .expect("reanchors array present");
+    assert_eq!(reanchors.len(), 1, "one attested re-anchor recorded");
+
+    // Re-anchoring a fresh (non-stale) item is refused — it never fabricates.
+    let refuse = run(&["verification", "reanchor", "REQ-0001", "--reason", "again"]);
+    assert!(
+        !refuse.status.success(),
+        "reanchor of a fresh dossier should be refused"
+    );
+    assert!(
+        stderr(&refuse).contains("not stale"),
+        "refusal should explain it is not stale: {}",
+        stderr(&refuse)
+    );
+}

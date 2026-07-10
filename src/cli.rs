@@ -99,6 +99,8 @@ impl Command {
             Command::Verification(VerificationCmd::Report(a)) => a.json,
             // REQ-0200: reverify honours --json too.
             Command::Verification(VerificationCmd::Reverify(a)) => a.json,
+            // REQ-0213: reanchor honours --json too.
+            Command::Verification(VerificationCmd::Reanchor(a)) => a.json,
             _ => false,
         }
     }
@@ -297,6 +299,43 @@ pub enum VerificationCmd {
     /// recording the passing test run as the evidence (safety reqs reported, not
     /// touched). Efficient honest alternative to re-reviewing behaviour-preserving drift.
     Reverify(VerificationReverifyArgs),
+    // REQ-0213: marker kept off the --help line (see REQ-0151).
+    /// Re-anchor a genuine-but-stale dossier after a HUMAN re-review at HEAD.
+    /// Recomputes the content-hash anchor over the CURRENT linked source (an
+    /// honest re-anchor, never a blind flag-clear) and records your --reason
+    /// attestation ("reviewed at HEAD, logic unchanged") in the dossier history.
+    /// Use when a Verified analysis still holds but the source hash drifted from
+    /// comment/marker churn. Distinct from `refresh-anchors` (format-only, no
+    /// human input) and `reverify` (automated-test-based). Use --all-stale to
+    /// attest every currently-stale genuine dossier at once.
+    Reanchor(VerificationReanchorArgs),
+}
+
+// REQ-0213: arguments for the attested re-anchor.
+#[derive(Args, Debug)]
+pub struct VerificationReanchorArgs {
+    /// The REQ-NNNN or SR-NNNN id to re-anchor. Omit only with --all-stale.
+    pub id: Option<String>,
+    /// Re-anchor EVERY currently-stale genuine dossier at once — the
+    /// "I re-reviewed all carried-forward analyses at HEAD" workflow. The
+    /// same --reason attestation is recorded on each.
+    #[arg(long)]
+    pub all_stale: bool,
+    /// Human attestation, REQUIRED. This is the ONLY thing you assert: that
+    /// you re-reviewed the item against current HEAD and the verification
+    /// still holds (logic unchanged; source drifted only cosmetically). The
+    /// anchor itself is recomputed over the real current source — this never
+    /// fakes verification. Recorded in the dossier history for `req audit`.
+    #[arg(long)]
+    pub reason: String,
+    /// Source root used to hash the current linked source for the re-anchor.
+    #[arg(long, default_value = ".")]
+    pub path: PathBuf,
+    /// Show what would be re-anchored without writing.
+    #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
