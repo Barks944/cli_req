@@ -65,7 +65,8 @@ fn http(
         TcpStream::connect(format!("{}:{}", HOST, port)).expect("connect to test-serve");
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
     let body = body.unwrap_or("");
-    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {HOST}:{port}\r\nConnection: close\r\n");
+    let mut req =
+        format!("{method} {path} HTTP/1.1\r\nHost: {HOST}:{port}\r\nConnection: close\r\n");
     if let Some(t) = token {
         req.push_str("Authorization: Bearer ");
         req.push_str(t);
@@ -133,7 +134,10 @@ fn req_0208_serve_requires_auth_and_serves_requirements() {
     let s = implemented_sandbox();
     let port = pick_free_port();
     let _child = GuardedChild(Some(spawn_serve(&s, port, "tok")));
-    assert!(wait_for_bind(port, Duration::from_secs(10)), "server never bound");
+    assert!(
+        wait_for_bind(port, Duration::from_secs(10)),
+        "server never bound"
+    );
 
     // No token -> 401, before any project data is served.
     let (code, _) = http(port, "GET", "/test/requirements", None, None);
@@ -147,7 +151,10 @@ fn req_0208_serve_requires_auth_and_serves_requirements() {
     // The due-for-verification hint lists the Implemented requirement.
     let (code, body) = http(port, "GET", "/test/requests", Some("tok"), None);
     assert_eq!(code, 200);
-    assert!(body.contains("req-test-request-v1"), "requests body: {body}");
+    assert!(
+        body.contains("req-test-request-v1"),
+        "requests body: {body}"
+    );
     assert!(body.contains("REQ-0001"), "requests body: {body}");
 }
 
@@ -157,7 +164,10 @@ fn req_0208_serve_ingest_is_staged_not_concluded() {
     let port = pick_free_port();
     {
         let _child = GuardedChild(Some(spawn_serve(&s, port, "tok")));
-        assert!(wait_for_bind(port, Duration::from_secs(10)), "server never bound");
+        assert!(
+            wait_for_bind(port, Duration::from_secs(10)),
+            "server never bound"
+        );
         let payload = r#"{"schema":"req-test-result-v1","system":"at_test","commit":"deadbeef","results":[{"req_id":"REQ-0001","verdict":"pass","notes":"bench pass","decision":{"plan":"sweep the range","analysis":"logic sound"}}]}"#;
         let (code, body) = http(port, "POST", "/test/results", Some("tok"), Some(payload));
         assert_eq!(code, 200, "body: {body}");
@@ -182,7 +192,10 @@ fn req_0208_serve_rejects_bad_result_and_stays_alive() {
     let s = implemented_sandbox();
     let port = pick_free_port();
     let _child = GuardedChild(Some(spawn_serve(&s, port, "tok")));
-    assert!(wait_for_bind(port, Duration::from_secs(10)), "server never bound");
+    assert!(
+        wait_for_bind(port, Duration::from_secs(10)),
+        "server never bound"
+    );
 
     let before = std::fs::read(s.path()).expect("read before");
 

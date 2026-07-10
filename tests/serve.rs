@@ -503,3 +503,234 @@ fn req_0205_browser_renders_adequacy_walkthrough_and_badges() {
         "SF page must show the realizing-SR adequacy walk-through:\n{sf}"
     );
 }
+
+// ---------- REQ-0209/0210/0211/0212: full review surface in the browser ----------
+
+/// Build a requirement with a concluded dossier (with references) and a
+/// second requirement left unverified, then serve.
+fn dossier_fixture() -> (Sandbox, GuardedChild, u16) {
+    let s = Sandbox::new();
+    s.init("p");
+    s.run(&[
+        "add",
+        "--title",
+        "Render the dossier in the browser",
+        "--statement",
+        "The system shall render the verification dossier in the browser.",
+        "--rationale",
+        "review needs V&V results",
+        "--kind",
+        "functional",
+        "--accept",
+        "dossier visible",
+    ]);
+    for st in ["proposed", "approved", "implemented"] {
+        s.run(&["update", "REQ-0001", "--status", st, "--reason", "step"]);
+    }
+    s.run(&[
+        "verification",
+        "plan",
+        "REQ-0001",
+        "--plan",
+        "REVIEW THE RENDERER AND RUN THE SERVE TESTS",
+    ]);
+    s.run(&[
+        "verification",
+        "analysis",
+        "REQ-0001",
+        "--findings",
+        "renderer matches the obligation",
+        "--result",
+        "pass",
+        "--ref",
+        "src/web.rs",
+    ]);
+    s.run(&[
+        "verification",
+        "test",
+        "REQ-0001",
+        "--findings",
+        "serve suite green",
+        "--result",
+        "pass",
+        "--ref",
+        "tests/serve.rs",
+    ]);
+    s.run(&[
+        "verification",
+        "conclude",
+        "REQ-0001",
+        "--statement",
+        "meets the obligation end to end",
+        "--promote",
+    ]);
+    // A second, unverified requirement for the roll-up's unverified surface.
+    s.run(&[
+        "add",
+        "--title",
+        "Still unverified obligation",
+        "--statement",
+        "The system shall remain visible in the unverified surface.",
+        "--rationale",
+        "roll-up fixture requirement",
+        "--kind",
+        "functional",
+        "--accept",
+        "listed as unverified",
+    ]);
+    let port = pick_free_port();
+    let child = spawn_server(&s, port);
+    let bound = wait_for_bind(port, Duration::from_secs(10));
+    assert!(bound, "req serve did not bind");
+    (s, GuardedChild(Some(child)), port)
+}
+
+// REQ-0209: the requirement page carries the full verification dossier —
+// plan, activities with references, statement, verdict — and the test-record
+// list, plus the provenance standing.
+#[test]
+fn req_0209_requirement_page_renders_full_dossier() {
+    let (_s, _child, port) = dossier_fixture();
+    let (code, body) = http_get(port, "/r/REQ-0001");
+    assert_eq!(code, 200);
+    for needle in [
+        "Verification dossier",
+        "REVIEW THE RENDERER AND RUN THE SERVE TESTS", // plan
+        "renderer matches the obligation",             // analysis findings
+        "src/web.rs",                                  // analysis reference
+        "serve suite green",                           // testing findings
+        "meets the obligation end to end",             // statement
+        "Test records",                                // record list
+        "genuine",                                     // provenance standing
+    ] {
+        assert!(
+            body.contains(needle),
+            "/r/REQ-0001 must contain {needle:?}:\n{body}"
+        );
+    }
+    // A requirement with no dossier says so explicitly.
+    let (_c, body2) = http_get(port, "/r/REQ-0002");
+    assert!(
+        body2.contains("No verification dossier recorded"),
+        "dossier-less requirement needs an explicit empty note:\n{body2}"
+    );
+}
+
+// REQ-0210: the index IS the verification roll-up — a Verification column
+// with the provenance standing per verified item and the dossier stage per
+// unverified item, plus the provenance chips.
+#[test]
+fn req_0210_verification_rollup_on_index() {
+    let (_s, _child, port) = dossier_fixture();
+    let (code, body) = http_get(port, "/");
+    assert_eq!(code, 200);
+    for needle in [
+        "<th>Verification</th>",
+        "genuine", // REQ-0001's provenance standing
+        "no-plan", // REQ-0002's dossier stage
+        "data-standing=\"genuine\"",
+        "data-standing=\"no-plan\"",
+    ] {
+        assert!(
+            body.contains(needle),
+            "index roll-up must contain {needle:?}:\n{body}"
+        );
+    }
+}
+
+// REQ-0211: with safety disabled and no artifacts, index and /safety carry an
+// explicit disabled note instead of an empty section.
+#[test]
+fn req_0211_safety_disabled_note() {
+    let (_s, _child, port) = dossier_fixture();
+    let (_c, index) = http_get(port, "/");
+    assert!(
+        index.contains("functional safety: disabled"),
+        "index must say safety is disabled:\n{index}"
+    );
+    let (code, safety) = http_get(port, "/safety");
+    assert_eq!(code, 200);
+    assert!(
+        safety.contains("disabled"),
+        "/safety must render the explicit disabled state:\n{safety}"
+    );
+}
+
+// REQ-0211: with safety populated, /safety lists SFs and SRs with standing,
+// shows each SR's walkthrough-acknowledgement state, and renders the active
+// SIL calibration.
+#[test]
+fn req_0211_safety_page_calibration_and_walkthrough() {
+    let s = Sandbox::new();
+    s.init("p");
+    s.enable_safety();
+    s.run(&[
+        "hazard", "add", "-t", "H", "--harm", "hurt", "-C", "C_C", "-F", "F_B", "-P", "P_B", "-W",
+        "W3",
+    ]);
+    s.run(&["sf", "add", "-t", "Stop fn", "--mitigates", "HAZ-0001"]);
+    s.run(&[
+        "sreq",
+        "add",
+        "-t",
+        "Stop the blade",
+        "-s",
+        "The system shall stop the blade on demand.",
+        "-r",
+        "operator safety",
+        "-a",
+        "stops",
+        "--realizes",
+        "SF-0001",
+    ]);
+    let port = pick_free_port();
+    let _child = GuardedChild(Some(spawn_server(&s, port)));
+    assert!(wait_for_bind(port, Duration::from_secs(10)), "bind");
+    let (code, body) = http_get(port, "/safety");
+    assert_eq!(code, 200);
+    for needle in [
+        "Safety functions",
+        "Safety requirements",
+        "SF-0001",
+        "SR-0001",
+        "never acknowledged", // walkthrough state
+        "SIL calibration",
+        "Annex D",
+    ] {
+        assert!(
+            body.contains(needle),
+            "/safety must contain {needle:?}:\n{body}"
+        );
+    }
+}
+
+// REQ-0212: every page carries the common nav; the index is filterable and
+// badge-decorated.
+#[test]
+fn req_0212_nav_chrome_and_filterable_index() {
+    let (_s, _child, port) = dossier_fixture();
+    for path in ["/", "/r/REQ-0001", "/safety"] {
+        let (code, body) = http_get(port, path);
+        assert_eq!(code, 200, "{path}");
+        assert!(
+            body.contains("<nav>") && body.contains("href=\"/safety\""),
+            "{path} must carry the common nav:\n{body}"
+        );
+    }
+    // The filter bar: free text plus the structural dropdowns, badges on rows.
+    let (_c, index) = http_get(port, "/");
+    for needle in [
+        "id=\"filter\"",
+        "class=\"badge",
+        "data-key=\"kind\"",
+        "data-key=\"pri\"",
+        "data-key=\"status\"",
+        "data-key=\"standing\"",
+        "data-key=\"tags\"",
+    ] {
+        assert!(
+            index.contains(needle),
+            "index filter bar must contain {needle:?}:\n{index}"
+        );
+    }
+}

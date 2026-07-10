@@ -1814,10 +1814,13 @@ fn tool_export(args: &Value, file: &Path) -> Result<String> {
     let format = s(args, "format").unwrap_or_else(|| "markdown".into());
     let project = storage::load(file)?;
     match format.as_str() {
-        "markdown" => Ok(crate::commands::export::to_markdown(&project)),
+        "markdown" => Ok(crate::commands::export::to_markdown_ctx(
+            &project,
+            Some(file),
+        )),
         "json" => Ok(serde_json::to_string_pretty(&project)?),
         "csv" => crate::commands::export::to_csv(&project),
-        "html" => Ok(crate::commands::export::to_html(&project)),
+        "html" => Ok(crate::commands::export::to_html_ctx(&project, Some(file))),
         _ => Err(anyhow!("unknown format: {}", format)),
     }
 }

@@ -192,7 +192,7 @@ fn chain_incompleteness(project: &Project, sr_id: &str) -> Option<String> {
 
 /// REQ-0172: a fresh acknowledgement is a non-objection ack made at the
 /// current commit.
-fn ack_is_fresh(ack: Option<&WalkthroughAck>, head: &str) -> bool {
+pub(crate) fn ack_is_fresh(ack: Option<&WalkthroughAck>, head: &str) -> bool {
     match ack {
         Some(a) => !a.objected && !a.commit.is_empty() && a.commit == head,
         None => false,
@@ -212,7 +212,7 @@ fn in_scope_srs(project: &Project) -> Vec<String> {
     ids
 }
 
-fn head_sha() -> String {
+pub(crate) fn head_sha() -> String {
     std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
         .output()

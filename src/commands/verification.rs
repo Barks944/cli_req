@@ -1503,7 +1503,7 @@ fn unverified_stage(
 }
 
 /// REQ-0185: the ordered pipeline stages, worst-progressed first.
-const UNVERIFIED_STAGES: &[&str] = &[
+pub(crate) const UNVERIFIED_STAGES: &[&str] = &[
     "no-plan",
     "plan-only",
     "analysis-failing",
@@ -1514,7 +1514,7 @@ const UNVERIFIED_STAGES: &[&str] = &[
 
 /// REQ-0185: collect `(id, family, stage)` for every requirement and safety
 /// requirement that has not reached a passing verification.
-fn unverified_rows(project: &Project) -> Vec<(String, &'static str, &'static str)> {
+pub(crate) fn unverified_rows(project: &Project) -> Vec<(String, &'static str, &'static str)> {
     let mut rows = Vec::new();
     for (id, r) in &project.requirements {
         if let Some(stage) = unverified_stage(r.status, r.verification.as_ref()) {
